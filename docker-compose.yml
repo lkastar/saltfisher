@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    # Bound to loopback: auth is a single token, and the network boundary is
+    # the real access control. Remote access goes through SSH tunnel/Tailscale.
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["./data:/app/data"]
+    environment:
+      SFD_API_TOKEN: ${SFD_API_TOKEN:?set SFD_API_TOKEN in .env or the environment}
+      SFD_LOG_LEVEL: ${SFD_LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
