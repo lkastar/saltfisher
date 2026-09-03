@@ -1,0 +1,38 @@
+# <type>(<scope>): <subject>
+#
+# <body>
+#
+# <footer>
+#
+# ---------------------------------------------------------------------------
+# Header  必填，一行。type 必填，scope 可选，subject 必填
+#   subject  不超过 50 字符，动词原形开头，小写，结尾不加句号
+#            用 "change" 不用 "changed" / "changes"
+# Body    可选。**每行一条 bullet，以 "- " 开头**，changelog 风格
+#         写"改了什么"，不写动机铺垫、不写背景故事、不写总结句
+#         每条不超过 72 字符，换行续写缩进 2 空格
+#         例：
+#           - add browser fallback when mtop sign fails
+#           - raise poll interval floor to 60s
+#           - drop unused price float column
+# Footer  可选，两种用途：
+#   BREAKING CHANGE: <描述 + 理由 + 迁移方法>
+#   Closes #123, #245
+#
+# type 取值（只有 feat 和 fix 会进 Change log）：
+#   feat      新功能
+#   fix       修 bug
+#   docs      文档
+#   style     格式（不影响代码运行的变动）
+#   refactor  重构（既不是新功能也不是修 bug）
+#   test      测试
+#   chore     构建过程或辅助工具的变动
+#
+# scope 取值（本项目）：
+#   collector notify api db scheduler analytics web spec docker deps
+#
+# 撤销 commit：
+#   revert: feat(collector): add browser fallback
+#   This reverts commit <hash>.
+#
+# 完整规范：.trellis/spec/guides/git-guidelines.md

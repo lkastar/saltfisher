@@ -1,0 +1,69 @@
+#!/bin/sh
+# Enforce the Angular commit convention.
+# Rules: see .gitmessage (tracked) and README.md
+# Enabled by: git config core.hooksPath .githooks
+set -eu
+
+header=$(sed -n '1p' "$1")
+line2=$(sed -n '2p' "$1")
+
+# git-generated and in-progress messages are not ours to police
+case "$header" in
+	"Merge "*|"Revert "*|fixup!*|squash!*|"#"*) exit 0 ;;
+esac
+
+TYPES='feat|fix|docs|style|refactor|test|chore'
+SCOPES='collector|notify|api|db|scheduler|analytics|web|spec|docker|deps'
+
+fail() {
+	printf '\n✗ commit message rejected: %s\n\n' "$1" >&2
+	printf '  header: %s\n\n' "$header" >&2
+	printf '  format: <type>(<scope>): <subject>\n' >&2
+	printf '  type:   %s\n' "$TYPES" >&2
+	printf '  scope:  %s   (optional)\n' "$SCOPES" >&2
+	printf '  subject: <=50 chars, imperative, lowercase, no trailing period\n' >&2
+	printf '  body:    changelog-style "- " bullets, <=72 chars each, no prose\n\n' >&2
+	printf '  example: feat(collector): add browser fallback on sign failure\n' >&2
+	printf '  rules:   .gitmessage\n\n' >&2
+	exit 1
+}
+
+# revert commits keep the reverted header verbatim, so only the prefix is checked
+case "$header" in
+	"revert: "*) exit 0 ;;
+esac
+
+echo "$header" | grep -Eq "^($TYPES)(\(($SCOPES)\))?: .+" || fail "bad type or scope, or missing ': '"
+
+subject=${header#*': '}
+[ ${#subject} -le 50 ] || fail "subject is ${#subject} chars, limit is 50"
+case "$subject" in
+	[A-Z]*) fail "subject must start lowercase" ;;
+	*.) fail "subject must not end with a period" ;;
+esac
+
+# a body must be separated from the header by one blank line
+[ -z "$line2" ] || fail "line 2 must be blank (blank line between header and body)"
+
+# body is changelog-style bullets, not prose
+lineno=0
+while IFS= read -r line || [ -n "$line" ]; do
+	lineno=$((lineno + 1))
+	[ "$lineno" -le 2 ] && continue
+	case "$line" in
+		"" | "#"*) continue ;;
+		"- "*) [ ${#line} -le 74 ] || fail "body line $lineno is ${#line} chars, limit is 74 ('- ' + 72)" ;;
+		"  "*) continue ;;
+		"BREAKING CHANGE:"* | "Closes #"* | "Refs #"*) continue ;;
+		"Co-Authored-By:"* | "Co-authored-by:"*)
+			case "$line" in
+				*[Cc]laude* | *[Aa]nthropic* | *noreply@anthropic.com*)
+					fail "do not credit Claude as co-author (body line $lineno)" ;;
+			esac
+			continue
+			;;
+		*) fail "body line $lineno must be a '- ' bullet or a footer, got: $line" ;;
+	esac
+done <"$1"
+
+exit 0

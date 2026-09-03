@@ -1,0 +1,32 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# uv.lock IS committed on purpose — it is the reproducible install for deployment
+
+# Development process management + agent config (Trellis and friends).
+# Not project deliverables: they describe how we work, not what we ship.
+.trellis/
+.claude/
+.agents/
+.codex/
+AGENTS.md
+CLAUDE.md
+
+# Runtime data: SQLite database, Playwright session state
+data/
+
+# Frontend
+node_modules/
+web/dist/
+
+# Local env overrides (secrets: SMTP password, telegram token)
+.env
+.env.local
