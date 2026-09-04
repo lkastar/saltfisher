@@ -196,3 +196,63 @@ class WatchlistPublic(SQLModel):
     last_run_at: datetime | None
     last_error: str | None
     added_at: datetime
+
+
+# --------------------------------------------------------------------------- #
+# Items and price history
+# --------------------------------------------------------------------------- #
+
+
+class ItemPublic(SQLModel):
+    """One collected listing, shared by the list and the detail endpoint.
+
+    Seller fields are all optional and mean "not fetched", NOT zero. In this
+    product 0 reviews is a danger signal and unknown is merely missing data;
+    collapsing them would turn "we could not check" into "we checked and it is
+    bad".
+
+    Hit fields are populated only when the request named a monitor_id, because
+    `unverified_filters` is a property of one rule's match, not of the item.
+    """
+
+    id: str
+    title: str
+    description: str | None
+    cover_url: str | None
+    image_urls: list[str]
+    region: str | None
+    status: str
+    price_cents: int
+    publish_time: datetime | None
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+    seller_id: str
+    seller_nick: str
+    seller_avatar_url: str | None
+    seller_is_shop: bool | None
+    seller_credit_level: int | None
+    seller_credit_score: int | None
+    seller_review_count: int | None
+    seller_positive_rate: float | None
+    seller_sold_count: int | None
+    seller_verified: bool | None
+
+    first_hit_at: datetime | None = None
+    notified_at: datetime | None = None
+    in_range: bool | None = None
+    unverified_filters: list[str] | None = None
+
+
+class PricePoint(SQLModel):
+    """One observation. The series is ascending by time so a step chart can
+    draw it directly: the price held until the next point, which is why the
+    chart is a step line and never a smoothed curve.
+    """
+
+    price_cents: int
+    status: str
+    captured_at: datetime
+    source: str
+    want_count: int | None
+    view_count: int | None

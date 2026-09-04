@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from sqlalchemy import func
+from sqlalchemy.sql import Select
 from sqlmodel import Session, col, select
 
 from app.collector.base import RawItem, RawSeller
@@ -144,31 +145,50 @@ def upsert_item(session: Session, raw: RawItem, *, now: datetime | None = None) 
     return item
 
 
+# One definition of "newest": latest captured_at, id breaking a tie. Used both
+# for a batch lookup and for the /api/items list join, so the current price
+# cannot mean two different things in two places.
+NEWEST_FIRST = (
+    col(PriceSnapshot.captured_at).desc(),
+    col(PriceSnapshot.id).desc(),
+)
+
+
+def newest_snapshot_ids() -> Select:
+    """Subquery selecting the newest snapshot id per item.
+
+    `row_number()` rather than `max(id)`: keying on the largest id would assume
+    snapshots are always inserted in observation order. Both writers do append
+    in real time today, but a backfill or a repair script does not have to —
+    and "current price" silently reading an older row is the kind of wrong that
+    no test notices. Ordering by the column that actually carries the meaning
+    removes the assumption instead of documenting it.
+    """
+    ranked = select(
+        PriceSnapshot.id.label("snapshot_id"),  # type: ignore[union-attr]
+        col(PriceSnapshot.item_id).label("item_id"),
+        func.row_number()
+        .over(partition_by=col(PriceSnapshot.item_id), order_by=NEWEST_FIRST)
+        .label("rank"),
+    ).subquery()
+    return select(ranked.c.snapshot_id, ranked.c.item_id).where(ranked.c.rank == 1)
+
+
 def latest_snapshots(session: Session, item_ids: list[str]) -> dict[str, PriceSnapshot]:
     """The most recent snapshot per item, in ONE query regardless of row count.
 
     The single source of "what is this item's current price and status". Prices
     are not cached on Item: a cached copy would give two places to disagree
     about the same number.
-
-    Ordered by `max(id)` rather than `max(captured_at)` for two reasons: `id`
-    is the primary key so it cannot tie, while two observations can share a
-    second; and snapshots are append-only in observation order (see
-    `maybe_snapshot`), so the largest id IS the newest row. This also avoids
-    SQLite's "bare column follows max()" dialect special case, which works
-    until the day it silently returns a different row on another engine.
     """
     ids = list(dict.fromkeys(item_ids))
     if not ids:
         return {}
-    newest = (
-        select(PriceSnapshot.item_id, func.max(PriceSnapshot.id).label("newest_id"))
-        .where(col(PriceSnapshot.item_id).in_(ids))
-        .group_by(col(PriceSnapshot.item_id))
-        .subquery()
-    )
+    newest = newest_snapshot_ids().subquery()
     rows = session.exec(
-        select(PriceSnapshot).join(newest, col(PriceSnapshot.id) == newest.c.newest_id)
+        select(PriceSnapshot)
+        .join(newest, col(PriceSnapshot.id) == newest.c.snapshot_id)
+        .where(col(PriceSnapshot.item_id).in_(ids))
     ).all()
     return {row.item_id: row for row in rows}
 

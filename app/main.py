@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import Depends, FastAPI
 
-from app.api import channels, monitors, watchlist
+from app.api import channels, items, monitors, watchlist
 from app.auth import require_token
 from app.collector.browser import BrowserCollector
 from app.collector.mtop import MtopClient
@@ -71,6 +71,7 @@ app = FastAPI(title="saltfish-digger", lifespan=lifespan)
 app.include_router(monitors.router, dependencies=[Depends(require_token)])
 app.include_router(channels.router, dependencies=[Depends(require_token)])
 app.include_router(watchlist.router, dependencies=[Depends(require_token)])
+app.include_router(items.router, dependencies=[Depends(require_token)])
 
 
 @app.get("/api/health")
