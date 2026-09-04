@@ -389,6 +389,175 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Endpoints
+         * @description One query regardless of how many endpoints exist.
+         *
+         *     `api_key_configured` is derived from the row that is already loaded, so
+         *     there is nothing here to turn into a per-row lookup — pinned by a test
+         *     that compares query counts at 3 and 30 rows for equality.
+         *
+         *     ponytail: no `limit`, like `/api/channels`. These rows are typed in by
+         *     hand, one per gateway; add paging when someone has 200 of them.
+         */
+        get: operations["list_endpoints_api_llm_endpoints_get"];
+        put?: never;
+        /** Create Endpoint */
+        post: operations["create_endpoint_api_llm_endpoints_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/endpoints/{endpoint_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Endpoint
+         * @description Detaches the scenarios that pointed here, and disables them.
+         *
+         *     Leaving `endpoint_id` dangling would make the analyze routes fail with
+         *     whatever a missing row turns into, one layer away from the cause. A
+         *     scenario with no endpoint cannot run at all, so it goes back to disabled
+         *     rather than staying green in the UI.
+         */
+        delete: operations["delete_endpoint_api_llm_endpoints__endpoint_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Endpoint
+         * @description An omitted `api_key` keeps the stored one; `""` clears it.
+         *
+         *     No "was this the redacted placeholder" check is needed, unlike
+         *     `channels.py`: nothing ever handed the page a value to send back.
+         */
+        patch: operations["update_endpoint_api_llm_endpoints__endpoint_id__patch"];
+        trace?: never;
+    };
+    "/api/llm/endpoints/{endpoint_id}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Endpoint Models
+         * @description Available models, or an empty list and a reason — always HTTP 200.
+         *
+         *     A deliberate exception to `error-handling.md`'s "errors use status codes":
+         *     a gateway that does not implement the models route is not an error, it is
+         *     the common case (the probed DeepSeek endpoint does implement it, which is
+         *     why the happy path is testable at all). The user's next action either way
+         *     is to type the model name, and a 4xx here would read as "your endpoint is
+         *     broken" and stop them. `discover_models` never raises for that reason.
+         *
+         *     The 404 below is a different thing: that is OUR row missing, not theirs.
+         */
+        get: operations["list_endpoint_models_api_llm_endpoints__endpoint_id__models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/endpoints/{endpoint_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Endpoint
+         * @description One real completion, so "test connection" tests the connection.
+         *
+         *     Three distinct not-ok outcomes, because they have three different fixes:
+         *     the endpoint refused us (check base_url / key / model id), the model spent
+         *     the whole budget thinking (raise max_tokens), or nothing came back at all.
+         *     Collapsing them is the misdirected error `error-handling.md` forbids.
+         */
+        post: operations["test_endpoint_api_llm_endpoints__endpoint_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/scenarios/{scenario}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Scenario
+         * @description No stored row is the state every install starts in, not a 404.
+         *
+         *     The config page needs a shape to render before anything has been saved,
+         *     and the defaults it should render are exactly the model's own.
+         */
+        get: operations["read_scenario_api_llm_scenarios__scenario__get"];
+        /**
+         * Save Scenario
+         * @description Upsert. PUT rather than PATCH: there is one row per scenario and the
+         *     page owns the whole form, so a partial update has no meaning here.
+         *
+         *     The template is stored as given. Placeholders are not validated — see
+         *     `LlmScenarioUpdate` for why an unknown one is left alone on purpose.
+         */
+        put: operations["save_scenario_api_llm_scenarios__scenario__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/scenarios/{scenario}/default-prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Default Prompt
+         * @description The built-in template plus the placeholder contract.
+         *
+         *     Both in one response because the page needs both at once: "restore
+         *     default" writes the template, and the list beside the editor is the only
+         *     place a user can learn what `{stats}` is allowed to be.
+         */
+        get: operations["read_default_prompt_api_llm_scenarios__scenario__default_prompt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -672,6 +841,165 @@ export interface components {
              * @default 0
              */
             legacy_clock_rows: number;
+        };
+        /**
+         * LlmDefaultPrompt
+         * @description The built-in template plus the placeholders it is allowed to use.
+         */
+        LlmDefaultPrompt: {
+            /** Scenario */
+            scenario: string;
+            /** Prompt Template */
+            prompt_template: string;
+            /** Placeholders */
+            placeholders: string[];
+        };
+        /**
+         * LlmEndpointCreate
+         * @description `api_key` is accepted here and appears on NO response model.
+         *
+         *     Not even masked, not even as a length. The channel pages redact a stored
+         *     secret on the way out and then have to defend against the redacted value
+         *     being PATCHed back over the real one (`api/channels.py`); a key that is
+         *     never echoed has no such round trip to get wrong.
+         *
+         *     Empty is allowed: a local Ollama or a self-hosted vLLM needs no key, and
+         *     demanding a placeholder there would teach users to type one.
+         */
+        LlmEndpointCreate: {
+            /** Label */
+            label: string;
+            /** Base Url */
+            base_url: string;
+            /**
+             * Api Key
+             * @default
+             */
+            api_key: string;
+            /**
+             * Wire Format
+             * @default openai
+             * @enum {string}
+             */
+            wire_format: "openai" | "anthropic";
+        };
+        /**
+         * LlmEndpointPublic
+         * @description `api_key_configured` is the entire answer the page gets about the key.
+         */
+        LlmEndpointPublic: {
+            /** Id */
+            id: number;
+            /** Label */
+            label: string;
+            /** Base Url */
+            base_url: string;
+            /** Wire Format */
+            wire_format: string;
+            /** Api Key Configured */
+            api_key_configured: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * LlmEndpointUpdate
+         * @description Absent `api_key` leaves the stored one alone; `""` clears it.
+         *
+         *     The distinction is why this is `str | None` and not `str`: the config page
+         *     submits the form without a key whenever the user did not retype it.
+         */
+        LlmEndpointUpdate: {
+            /** Label */
+            label?: string | null;
+            /** Base Url */
+            base_url?: string | null;
+            /** Api Key */
+            api_key?: string | null;
+            /** Wire Format */
+            wire_format?: ("openai" | "anthropic") | null;
+        };
+        /**
+         * LlmModelList
+         * @description An empty list plus a reason is a NORMAL answer, not a failure.
+         *
+         *     Plenty of relay gateways never implement the models route, so the useful
+         *     response to a failed lookup is one the page can render beside a text input
+         *     for typing the model name — a 4xx would read as "this endpoint is broken"
+         *     and stop a user whose endpoint works fine.
+         */
+        LlmModelList: {
+            /** Models */
+            models: string[];
+            /** Error */
+            error?: string | null;
+        };
+        /**
+         * LlmScenarioPublic
+         * @description `prompt_template` null means the built-in default is in use.
+         */
+        LlmScenarioPublic: {
+            /** Scenario */
+            scenario: string;
+            /** Endpoint Id */
+            endpoint_id: number | null;
+            /** Model */
+            model: string | null;
+            /** Prompt Template */
+            prompt_template: string | null;
+            /** Send Images */
+            send_images: boolean;
+            /** Enabled */
+            enabled: boolean;
+        };
+        /**
+         * LlmScenarioUpdate
+         * @description The whole scenario config, PUT as one object.
+         *
+         *     `prompt_template` is free text and is NOT checked against the placeholder
+         *     contract. `prompts.render` substitutes with `str.replace`, so an unknown
+         *     or typo'd `{plcaeholder}` survives into the prompt as visible text by
+         *     design — the model sees a stray brace pair and the answer degrades, which
+         *     is a far better failure than a 422 on a field a user is mid-edit in. The
+         *     contract is published by `GET /scenarios/{scenario}/default-prompt` so the
+         *     page can list it and offer the default back.
+         */
+        LlmScenarioUpdate: {
+            /** Endpoint Id */
+            endpoint_id?: number | null;
+            /** Model */
+            model?: string | null;
+            /** Prompt Template */
+            prompt_template?: string | null;
+            /**
+             * Send Images
+             * @default false
+             */
+            send_images: boolean;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+        };
+        /**
+         * LlmTestResult
+         * @description `text` is the model's own answer, which is what makes the button mean
+         *     something: a reachable endpoint that returns nothing visible is a distinct
+         *     outcome and it comes back as `ok: false` with its own message.
+         */
+        LlmTestResult: {
+            /** Ok */
+            ok: boolean;
+            /** Error */
+            error?: string | null;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
         };
         /** MonitorCreate */
         MonitorCreate: {
@@ -1978,6 +2306,311 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListingDuration"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_endpoints_api_llm_endpoints_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmEndpointPublic"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_endpoint_api_llm_endpoints_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmEndpointCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmEndpointPublic"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_endpoint_api_llm_endpoints__endpoint_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                endpoint_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_endpoint_api_llm_endpoints__endpoint_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                endpoint_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmEndpointUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmEndpointPublic"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_endpoint_models_api_llm_endpoints__endpoint_id__models_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                endpoint_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmModelList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_endpoint_api_llm_endpoints__endpoint_id__test_post: {
+        parameters: {
+            query: {
+                model: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                endpoint_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmTestResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_scenario_api_llm_scenarios__scenario__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                scenario: "market" | "item";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmScenarioPublic"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_scenario_api_llm_scenarios__scenario__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                scenario: "market" | "item";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmScenarioUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmScenarioPublic"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_default_prompt_api_llm_scenarios__scenario__default_prompt_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                scenario: "market" | "item";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmDefaultPrompt"];
                 };
             };
             /** @description Validation Error */

@@ -444,3 +444,119 @@ class ListingDuration(Sample):
     # report. Cannot be backfilled, so it shrinks on its own and the page
     # says so while it is non-zero.
     legacy_clock_rows: int = 0
+
+
+# --------------------------------------------------------------------------- #
+# LLM configuration (P4)
+# --------------------------------------------------------------------------- #
+
+# Literal rather than str, for the reason `database-guidelines.md` gives: a
+# bad value becomes a 422 instead of reaching `client.adapter_for` /
+# `prompts.default_prompt` and surfacing as a 500, and the values land in
+# OpenAPI as an enum so the generated frontend types are a union instead of a
+# second source of truth for what a wire format or a scenario is.
+WireFormat = Literal["openai", "anthropic"]
+Scenario = Literal["market", "item"]
+
+
+class LlmEndpointCreate(SQLModel):
+    """`api_key` is accepted here and appears on NO response model.
+
+    Not even masked, not even as a length. The channel pages redact a stored
+    secret on the way out and then have to defend against the redacted value
+    being PATCHed back over the real one (`api/channels.py`); a key that is
+    never echoed has no such round trip to get wrong.
+
+    Empty is allowed: a local Ollama or a self-hosted vLLM needs no key, and
+    demanding a placeholder there would teach users to type one.
+    """
+
+    label: str = Field(min_length=1, max_length=60)
+    base_url: str = Field(min_length=1, max_length=500)
+    api_key: str = Field(default="", max_length=500)
+    wire_format: WireFormat = "openai"
+
+
+class LlmEndpointUpdate(SQLModel):
+    """Absent `api_key` leaves the stored one alone; `""` clears it.
+
+    The distinction is why this is `str | None` and not `str`: the config page
+    submits the form without a key whenever the user did not retype it.
+    """
+
+    label: str | None = Field(default=None, min_length=1, max_length=60)
+    base_url: str | None = Field(default=None, min_length=1, max_length=500)
+    api_key: str | None = Field(default=None, max_length=500)
+    wire_format: WireFormat | None = None
+
+
+class LlmEndpointPublic(SQLModel):
+    """`api_key_configured` is the entire answer the page gets about the key."""
+
+    id: int
+    label: str
+    base_url: str
+    wire_format: str
+    api_key_configured: bool
+    created_at: datetime
+
+
+class LlmModelList(SQLModel):
+    """An empty list plus a reason is a NORMAL answer, not a failure.
+
+    Plenty of relay gateways never implement the models route, so the useful
+    response to a failed lookup is one the page can render beside a text input
+    for typing the model name — a 4xx would read as "this endpoint is broken"
+    and stop a user whose endpoint works fine.
+    """
+
+    models: list[str]
+    error: str | None = None
+
+
+class LlmTestResult(SQLModel):
+    """`text` is the model's own answer, which is what makes the button mean
+    something: a reachable endpoint that returns nothing visible is a distinct
+    outcome and it comes back as `ok: false` with its own message."""
+
+    ok: bool
+    error: str | None = None
+    text: str = ""
+
+
+class LlmScenarioPublic(SQLModel):
+    """`prompt_template` null means the built-in default is in use."""
+
+    scenario: str
+    endpoint_id: int | None
+    model: str | None
+    prompt_template: str | None
+    send_images: bool
+    enabled: bool
+
+
+class LlmScenarioUpdate(SQLModel):
+    """The whole scenario config, PUT as one object.
+
+    `prompt_template` is free text and is NOT checked against the placeholder
+    contract. `prompts.render` substitutes with `str.replace`, so an unknown
+    or typo'd `{plcaeholder}` survives into the prompt as visible text by
+    design — the model sees a stray brace pair and the answer degrades, which
+    is a far better failure than a 422 on a field a user is mid-edit in. The
+    contract is published by `GET /scenarios/{scenario}/default-prompt` so the
+    page can list it and offer the default back.
+    """
+
+    endpoint_id: int | None = None
+    model: str | None = Field(default=None, max_length=200)
+    prompt_template: str | None = Field(default=None, max_length=20_000)
+    send_images: bool = False
+    enabled: bool = False
+
+
+class LlmDefaultPrompt(SQLModel):
+    """The built-in template plus the placeholders it is allowed to use."""
+
+    scenario: str
+    prompt_template: str
+    placeholders: list[str]
