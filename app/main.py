@@ -4,9 +4,12 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api import channels, items, monitors, watchlist
 from app.auth import require_token
@@ -102,3 +105,55 @@ def session_state() -> dict[str, object]:
         "established_at": session.established_at.isoformat() if session.established_at else None,
         "last_error": session.last_error,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Frontend
+# --------------------------------------------------------------------------- #
+
+# Registered LAST, after every API route: FastAPI matches in registration
+# order, so a catch-all declared earlier would swallow the whole API.
+WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+
+
+def mount_frontend(application: FastAPI, dist: Path = WEB_DIST) -> bool:
+    """Serve `npm run build` output from the API process — no nginx.
+
+    Returns whether anything was mounted, which is what the startup log and
+    the tests care about.
+    """
+    index = dist / "index.html"
+    if not index.is_file():
+        # Backend-only development and CI have no build output. Refusing to
+        # start here would turn "frontend not built" into "app is broken".
+        log.info("frontend not built; serving api only", extra={"dist": str(dist)})
+        return False
+
+    assets = dist / "assets"
+    if assets.is_dir():
+        application.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    @application.get("/{spa_path:path}", include_in_schema=False)
+    def serve_spa(spa_path: str) -> FileResponse:
+        """Always index.html, never a path built from the request.
+
+        That is what a client-side router needs (reloading /items/123 must
+        still return the app), and it makes path traversal impossible by
+        construction rather than by sanitising a string.
+
+        ponytail: root-level static files other than index.html are not
+        served. Nothing needs them yet -- the favicon is a data URI. Add a
+        second mount if that changes.
+        """
+        if spa_path == "api" or spa_path.startswith("api/"):
+            # An unmatched /api path must stay JSON. Handing back HTML makes
+            # the frontend's res.json() throw and disguises a wrong URL as a
+            # broken backend.
+            raise HTTPException(status_code=404, detail="not found")
+        return FileResponse(index)
+
+    log.info("frontend mounted", extra={"dist": str(dist)})
+    return True
+
+
+mount_frontend(app)

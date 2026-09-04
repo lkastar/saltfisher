@@ -1,0 +1,20 @@
+# node_modules must not ride along: `npm ci` installs them inside the build
+# stage for the right platform, and a copied-in macOS tree would overwrite
+# that with binaries the container cannot run.
+web/node_modules
+web/dist
+
+# Local state and dev-only trees.
+data
+.venv
+.env
+.git
+.trellis
+.claude
+.agents
+.codex
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
