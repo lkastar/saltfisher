@@ -10,13 +10,18 @@ from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
-from sqlmodel import select
+from sqlmodel import col, select
 
 from app.collector.base import CollectorError, ItemGoneError
 from app.db import SessionDep
 from app.models import Item, PriceSnapshot, Seller, Watchlist, utcnow
 from app.schemas import WatchlistCreate, WatchlistPublic, WatchlistUpdate
-from app.store import upsert_item, upsert_seller_profile
+from app.store import (
+    latest_price,
+    latest_snapshots,
+    upsert_item,
+    upsert_seller_profile,
+)
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
@@ -95,29 +100,6 @@ def _public(
     )
 
 
-def latest_price(session: SessionDep, item_id: str) -> int:
-    """The most recent observed price.
-
-    Read from the append-only snapshot series rather than cached on the item:
-    a cached copy would give two places to disagree about the same number.
-
-    An explicit select rather than a Relationship, per
-    .trellis/spec/backend/database-guidelines.md — the query stays visible
-    where it runs.
-
-    ponytail: one query per row on the list endpoint. Fine for a watchlist of
-    tens of items; if it ever holds thousands, replace with a single grouped
-    query over the snapshot table.
-    """
-    snapshot = session.exec(
-        select(PriceSnapshot)
-        .where(PriceSnapshot.item_id == item_id)
-        .order_by(PriceSnapshot.captured_at.desc())  # type: ignore[attr-defined]
-        .limit(1)
-    ).first()
-    return snapshot.price_cents if snapshot else 0
-
-
 @router.get("", response_model=list[WatchlistPublic])
 def list_watchlist(
     session: SessionDep,
@@ -126,13 +108,37 @@ def list_watchlist(
     entries = session.exec(
         select(Watchlist).order_by(Watchlist.added_at.desc()).limit(limit)  # type: ignore[attr-defined]
     ).all()
+    # Three batch reads instead of three queries per row: the list is small
+    # today, but the same helpers serve /api/items with limit<=200.
+    items = {
+        item.id: item
+        for item in session.exec(
+            select(Item).where(col(Item.id).in_([e.item_id for e in entries]))
+        ).all()
+        if item.id is not None
+    }
+    sellers = {
+        seller.id: seller
+        for seller in session.exec(
+            select(Seller).where(col(Seller.id).in_([i.seller_id for i in items.values()]))
+        ).all()
+    }
+    prices = latest_snapshots(session, [e.item_id for e in entries])
+
     out: list[WatchlistPublic] = []
     for entry in entries:
-        item = session.get(Item, entry.item_id)
+        item = items.get(entry.item_id)
         if item is None:
             continue
-        seller = session.get(Seller, item.seller_id)
-        out.append(_public(entry, item, seller, latest_price(session, entry.item_id)))
+        snapshot = prices.get(entry.item_id)
+        out.append(
+            _public(
+                entry,
+                item,
+                sellers.get(item.seller_id),
+                snapshot.price_cents if snapshot else 0,
+            )
+        )
     return out
 
 

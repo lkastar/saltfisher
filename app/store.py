@@ -15,7 +15,8 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
-from sqlmodel import Session, select
+from sqlalchemy import func
+from sqlmodel import Session, col, select
 
 from app.collector.base import RawItem, RawSeller
 from app.collector.filters import describe_unverified
@@ -143,6 +144,41 @@ def upsert_item(session: Session, raw: RawItem, *, now: datetime | None = None) 
     return item
 
 
+def latest_snapshots(session: Session, item_ids: list[str]) -> dict[str, PriceSnapshot]:
+    """The most recent snapshot per item, in ONE query regardless of row count.
+
+    The single source of "what is this item's current price and status". Prices
+    are not cached on Item: a cached copy would give two places to disagree
+    about the same number.
+
+    Ordered by `max(id)` rather than `max(captured_at)` for two reasons: `id`
+    is the primary key so it cannot tie, while two observations can share a
+    second; and snapshots are append-only in observation order (see
+    `maybe_snapshot`), so the largest id IS the newest row. This also avoids
+    SQLite's "bare column follows max()" dialect special case, which works
+    until the day it silently returns a different row on another engine.
+    """
+    ids = list(dict.fromkeys(item_ids))
+    if not ids:
+        return {}
+    newest = (
+        select(PriceSnapshot.item_id, func.max(PriceSnapshot.id).label("newest_id"))
+        .where(col(PriceSnapshot.item_id).in_(ids))
+        .group_by(col(PriceSnapshot.item_id))
+        .subquery()
+    )
+    rows = session.exec(
+        select(PriceSnapshot).join(newest, col(PriceSnapshot.id) == newest.c.newest_id)
+    ).all()
+    return {row.item_id: row for row in rows}
+
+
+def latest_price(session: Session, item_id: str) -> int:
+    """Current price in cents, or 0 when nothing has been observed yet."""
+    snapshot = latest_snapshots(session, [item_id]).get(item_id)
+    return snapshot.price_cents if snapshot else 0
+
+
 def maybe_snapshot(
     session: Session, raw: RawItem, *, now: datetime | None = None
 ) -> PriceSnapshot | None:
@@ -153,12 +189,7 @@ def maybe_snapshot(
     The first sighting always writes one: without a baseline there is no
     previous value to compare a later price against.
     """
-    latest = session.exec(
-        select(PriceSnapshot)
-        .where(PriceSnapshot.item_id == raw.item_id)
-        .order_by(PriceSnapshot.captured_at.desc())  # type: ignore[attr-defined]
-        .limit(1)
-    ).first()
+    latest = latest_snapshots(session, [raw.item_id]).get(raw.item_id)
     if latest is not None and latest.price_cents == raw.price_cents and latest.status == raw.status:
         return None
     snapshot = PriceSnapshot(
