@@ -174,18 +174,28 @@ export default function SettingsPage() {
               <span className="mono"> Cookie </span>
               请求头，粘贴到这里。值只存在后端，页面上永远只显示 cookie 名字。
             </p>
-            {/* Logging in is not enough. The proof-of-verification cookie only
-                appears after a challenge is actually passed, and the challenge
-                fires on the item detail flow rather than on login. */}
+            {/* Copy the header from the request being reproduced, rather than
+                hunting for a particular cookie name. Which cookie carries a
+                passed verification was never actually measured here -- an
+                early research note guessed `x5sec`, a user passed a slider and
+                got no such cookie. The request's own header sidesteps the
+                question: it is by definition the complete credential set that
+                endpoint receives, on the right domain. */}
             <p style={{ margin: "var(--space-2) 0 0" }}>
-              <strong>只登录往往不够。</strong>
-              风控挑战出现在<strong>商品详情</strong>那条路上，通过挑战后浏览器才会拿到
-              <span className="mono"> x5sec </span>
-              这个凭据。所以复制之前，先在浏览器里打开一个商品详情页（
-              <span className="mono">goofish.com/item?id=…</span>
-              ），若出现滑块就完成它；然后确认 cookie 里有
-              <span className="mono"> x5sec </span>
-              再复制。导入后名单里没有它，基本可以断定详情端点还会被挡。
+              <strong>只登录往往不够</strong>
+              ，风控挑战出现在<strong>商品详情</strong>那条路上。所以：先在浏览器里打开一个
+              商品详情页（<span className="mono">goofish.com/item?id=…</span>），出现滑块就
+              完成它，刷新，然后在 Network 里过滤
+              <span className="mono"> detail </span>
+              ，找到
+              <span className="mono"> mtop.taobao.idle.pc.detail </span>
+              这个请求，复制<strong>它的</strong>
+              <span className="mono"> Cookie </span>
+              请求头。
+            </p>
+            <p style={{ margin: "var(--space-1) 0 0" }}>
+              为什么要指定这个请求：它的 Cookie 头按定义就是详情端点实际收到的完整凭证集，
+              域也一定是对的，不需要判断哪个 cookie 名字才是关键。
             </p>
           </div>
           <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
