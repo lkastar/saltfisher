@@ -1,5 +1,6 @@
 """Monitor rule endpoints."""
 
+import asyncio
 import logging
 from typing import Annotated
 
@@ -9,7 +10,7 @@ from sqlmodel import select
 from app.collector.base import ChallengeError, CollectorError
 from app.db import SessionDep
 from app.models import Monitor, MonitorChannel, MonitorHit
-from app.scheduler import COLLECT_SEMAPHORE, run_monitor_cycle
+from app.scheduler import COLLECT_SEMAPHORE, record_manual_run, run_monitor_cycle
 from app.schemas import CycleResult, MonitorCreate, MonitorPublic, MonitorUpdate
 
 log = logging.getLogger(__name__)
@@ -112,6 +113,20 @@ async def run_monitor_now(monitor_id: int, request: Request, session: SessionDep
             ) from exc
         except CollectorError as exc:
             raise HTTPException(status_code=502, detail=f"collection failed: {exc}") from exc
+
+    # Record the run the same way the scheduler does. Without this the manual
+    # path persisted items and hits but left last_run_at and last_collector
+    # untouched, so the management page showed "路径 —" right after a
+    # successful mtop cycle -- and for a DISABLED rule, which the scheduler
+    # never touches, that column stayed empty forever.
+    #
+    # Deliberately success-only: a failure already reaches the user as a 502
+    # from this endpoint, and letting a manual probe count toward the
+    # auto-disable streak would let someone switch off their own rule by
+    # testing it.
+    await asyncio.to_thread(
+        record_manual_run, monitor_id, collector=outcome.collector
+    )
 
     return CycleResult(
         collected=outcome.collected,

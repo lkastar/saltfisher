@@ -202,6 +202,16 @@ def _sync_record_outcome(
         session.commit()
 
 
+def record_manual_run(monitor_id: int, *, collector: str | None) -> None:
+    """Stamp a successful manual run so the management page reflects it.
+
+    Shares `_sync_record_outcome` with the scheduler rather than writing the
+    same three fields a second way -- two writers for one row is how they start
+    disagreeing.
+    """
+    _sync_record_outcome(monitor_id, collector=collector, error=None)
+
+
 @dataclass(frozen=True, slots=True)
 class CycleOutcome:
     """What one cycle produced. `collector` must reach the database: it is how

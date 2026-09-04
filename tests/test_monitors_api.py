@@ -180,3 +180,57 @@ def test_health_fields_are_exposed_for_the_management_page(client):
         "baseline_done",
     ):
         assert field in body
+
+
+def test_a_manual_run_records_which_collector_served_it(client, monkeypatch):
+    """Found in T8: the manual path persisted items and hits but never wrote
+    last_run_at or last_collector, so the management page showed "路径 —" right
+    after a successful mtop cycle. For a DISABLED rule -- which the scheduler
+    never touches -- that column stayed empty forever.
+    """
+    from app import scheduler
+    from app.scheduler import CycleOutcome
+
+    c, engine = client
+    monkeypatch.setattr(scheduler, "engine", engine)
+    monitor_id = c.post("/api/monitors", json=VALID, headers=AUTH).json()["id"]
+
+    async def fake_cycle(pipeline, monitor):
+        return CycleOutcome(hits=[], collector="mtop", collected=30, passed=25)
+
+    monkeypatch.setattr("app.api.monitors.run_monitor_cycle", fake_cycle)
+    app.state.pipeline = object()
+
+    result = c.post(f"/api/monitors/{monitor_id}/run", headers=AUTH)
+    assert result.status_code == 200
+    assert result.json()["collector"] == "mtop"
+
+    row = c.get(f"/api/monitors/{monitor_id}", headers=AUTH).json()
+    assert row["last_collector"] == "mtop"
+    assert row["last_run_at"] is not None
+    assert row["last_error"] is None
+
+
+def test_a_failed_manual_run_does_not_count_toward_auto_disable(client, monkeypatch):
+    """Deliberate asymmetry: the failure already reaches the user as a 502, and
+    counting a manual probe toward the streak would let someone switch off
+    their own rule by testing it.
+    """
+    from app import scheduler
+    from app.collector.base import CollectorError
+
+    c, engine = client
+    monkeypatch.setattr(scheduler, "engine", engine)
+    monitor_id = c.post("/api/monitors", json=VALID, headers=AUTH).json()["id"]
+
+    async def failing_cycle(pipeline, monitor):
+        raise CollectorError("upstream said no")
+
+    monkeypatch.setattr("app.api.monitors.run_monitor_cycle", failing_cycle)
+    app.state.pipeline = object()
+
+    assert c.post(f"/api/monitors/{monitor_id}/run", headers=AUTH).status_code == 502
+
+    row = c.get(f"/api/monitors/{monitor_id}", headers=AUTH).json()
+    assert row["consecutive_failures"] == 0
+    assert row["enabled"] is True
