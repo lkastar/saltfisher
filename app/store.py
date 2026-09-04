@@ -41,7 +41,7 @@ class NotifiableHit:
     title: str
     price_cents: int
     previous_price_cents: int | None
-    reason: str  # new_in_range | price_drop
+    reason: str  # new_in_range | price_drop | gone
     url: str
     cover_url: str | None
     seller_nick: str
