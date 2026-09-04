@@ -71,6 +71,33 @@ curl -X POST localhost:8000/api/channels \
 
 自托管告警一般比邮件省事：没有域名认证和投递率问题。
 
+## 备份与恢复
+
+**不要用 `cp data/app.db` 备份运行中的实例。** 数据库跑在 WAL 模式，近期写入停留在
+`app.db-wal` 直到 checkpoint，而 SQLite 只在 WAL 超过约 4MB 时自动 checkpoint。实测过：
+主库 114KB 旁边挂着 3.3MB 的 WAL，拷出来的 `app.db` 每张表都是 0 行——连表结构都还在 WAL 里。
+那样的备份恢复回去，会得到一个「恢复成功」的空库。
+
+```bash
+# 运行中备份（走 SQLite online backup API，无需停机，会核对行数）
+uv run python scripts/backup.py                     # → data/backups/app-<时间戳>.db
+uv run python scripts/backup.py --out /mnt/nas/app.db
+
+# 检查一份备份到底有没有数据
+uv run python scripts/backup.py --verify-only /path/to/app.db
+
+# 恢复
+docker compose down                                 # 或停掉 uvicorn
+rm -f data/app.db data/app.db-wal data/app.db-shm   # -wal/-shm 必须一起删
+cp /path/to/backup.db data/app.db
+docker compose up -d
+```
+
+干净停机之后 `cp data/app.db` 是安全的：进程退出时会
+`PRAGMA wal_checkpoint(TRUNCATE)` 并释放连接，留下一个自包含的文件。
+
+---
+
 ## Commit 规范
 
 采用 Angular 规范（[参考](https://www.ruanyifeng.com/blog/2016/01/commit_message_change_log.html)）：

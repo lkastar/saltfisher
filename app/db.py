@@ -85,6 +85,23 @@ def init_db() -> None:
     add_missing_columns(engine)
 
 
+def checkpoint() -> None:
+    """Fold the WAL into the main database file and release the connections.
+
+    Without this, every row lives only in `app.db-wal` until SQLite's
+    auto-checkpoint fires at ~4MB, and `cp data/app.db` copies a file that can
+    be entirely empty. Measured in T8: a 114KB main file beside a 3.3MB WAL,
+    and all three copies of app.db read zero rows in every table.
+
+    Called on shutdown so a stopped container leaves a self-contained file.
+    Backups taken while running must still go through `scripts/backup.py`.
+    """
+    with engine.connect() as conn:
+        conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+    engine.dispose()
+    log.info("wal checkpointed")
+
+
 def get_session() -> Iterator[Session]:
     with Session(engine) as session:
         yield session

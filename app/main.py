@@ -19,7 +19,7 @@ from app.collector.mtop import MtopClient
 from app.collector.pipeline import Pipeline
 from app.collector.session import UpstreamSession
 from app.config import settings
-from app.db import init_db
+from app.db import checkpoint, init_db
 from app.notify import build_registry
 from app.scheduler import search_loop, watch_loop
 
@@ -76,6 +76,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await browser.stop()
         await mtop.aclose()
         await notify_client.aclose()
+        # Last, after every writer is done: leaves app.db self-contained so a
+        # file copy of a stopped instance is actually a backup.
+        checkpoint()
 
 
 app = FastAPI(title="saltfish-digger", lifespan=lifespan)
