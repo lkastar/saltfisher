@@ -2,14 +2,20 @@ import { useState } from "react";
 import { NavLink, Route, Routes } from "react-router";
 
 import { clearToken, getToken } from "./api/client";
+import ChannelsPage from "./pages/ChannelsPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import ItemsPage from "./pages/ItemsPage";
 import LoginPage from "./pages/LoginPage";
 import MonitorsPage from "./pages/MonitorsPage";
+import SettingsPage from "./pages/SettingsPage";
+import WatchlistPage from "./pages/WatchlistPage";
 
 const NAV = [
   { to: "/", label: "监控任务" },
   { to: "/items", label: "命中商品" },
+  { to: "/watchlist", label: "收藏追踪" },
+  { to: "/channels", label: "通知渠道" },
+  { to: "/settings", label: "设置" },
 ];
 
 function AppShell() {
@@ -69,6 +75,9 @@ function AppShell() {
           <Route path="/" element={<MonitorsPage />} />
           <Route path="/items" element={<ItemsPage />} />
           <Route path="/items/:itemId" element={<ItemDetailPage />} />
+          <Route path="/watchlist" element={<WatchlistPage />} />
+          <Route path="/channels" element={<ChannelsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route
             path="*"
             element={<p className="muted">没有这个页面。</p>}

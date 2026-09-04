@@ -70,3 +70,28 @@ describe("error messages", () => {
     await expect(verifyToken("t")).rejects.toBeInstanceOf(ApiError);
   });
 });
+
+describe("field-level 422 detail", () => {
+  it("keys each reason by its field so a form can attach it", async () => {
+    respondWith(
+      JSON.stringify({
+        detail: [
+          { loc: ["body", "interval_seconds"], msg: "should be >= 60" },
+          { loc: ["body", "name"], msg: "should have at least 1 character" },
+        ],
+      }),
+      422,
+    );
+    await expect(verifyToken("t")).rejects.toMatchObject({
+      fields: {
+        interval_seconds: "should be >= 60",
+        name: "should have at least 1 character",
+      },
+    });
+  });
+
+  it("leaves fields empty for a plain string detail", async () => {
+    respondWith(JSON.stringify({ detail: "item not found" }), 404);
+    await expect(verifyToken("t")).rejects.toMatchObject({ fields: {} });
+  });
+});

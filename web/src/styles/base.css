@@ -60,6 +60,9 @@ a:hover {
 button {
   font: inherit;
   min-height: 32px;
+  /* A label that wraps turns a 32px control into a two-line block and breaks
+   * the row rhythm of a dense table. */
+  white-space: nowrap;
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong);

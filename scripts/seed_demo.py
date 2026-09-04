@@ -166,6 +166,15 @@ def main() -> int:
             session.add(victim)
             session.commit()
 
+        # hit_count is a denormalised counter the scheduler increments; writing
+        # MonitorHit rows directly leaves it at 0, and the page would then show
+        # "0 hits" next to a list of four.
+        monitor.hit_count = len(
+            session.exec(select(MonitorHit).where(MonitorHit.monitor_id == monitor.id)).all()
+        )
+        session.add(monitor)
+        session.commit()
+
         count = len(session.exec(select(Item)).all())
         snapshots = len(session.exec(select(PriceSnapshot)).all())
         monitor_name, monitor_id = monitor.name, monitor.id

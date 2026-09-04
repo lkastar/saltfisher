@@ -17,14 +17,20 @@ export function clearToken(): void {
 }
 
 export class ApiError extends Error {
-  // A plain field rather than a parameter property: the template enables
+  // Plain fields rather than parameter properties: the template enables
   // erasableSyntaxOnly, which rejects constructor-parameter declarations.
   readonly status: number;
+  /** Per-field reasons from a 422, keyed by field name. Empty for every other
+   *  status. A form needs these attached to the inputs that caused them --
+   *  one banner saying "interval_seconds: should be >= 60" makes the user hunt
+   *  for the field it means. */
+  readonly fields: Record<string, string>;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, fields: Record<string, string> = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.fields = fields;
   }
 }
 
@@ -32,7 +38,9 @@ export class ApiError extends Error {
  *  for a 422, a list of per-field validation errors. Both must reach the user:
  *  a blank screen with a red border is the failure mode this replaces.
  */
-async function readError(res: Response): Promise<string> {
+type ErrorInfo = { message: string; fields: Record<string, string> };
+
+async function readError(res: Response): Promise<ErrorInfo> {
   let body: unknown;
   try {
     body = await res.json();
@@ -41,22 +49,25 @@ async function readError(res: Response): Promise<string> {
     // the dev proxy or the container returned it. "HTTP 502" tells the user
     // nothing they can act on; naming the cause does.
     if (res.status >= 502 && res.status <= 504) {
-      return "后端无响应，确认服务是否在运行";
+      return { message: "后端无响应，确认服务是否在运行", fields: {} };
     }
-    return "服务器未返回错误详情";
+    return { message: "服务器未返回错误详情", fields: {} };
   }
   const detail = (body as { detail?: unknown } | null)?.detail;
-  if (typeof detail === "string") return detail;
+  if (typeof detail === "string") return { message: detail, fields: {} };
   if (Array.isArray(detail)) {
+    const fields: Record<string, string> = {};
     const parts = detail.map((d) => {
       const e = d as { loc?: unknown[]; msg?: string };
+      // loc is ["body", "field"] -- drop the location kind and keep the path.
       const field = Array.isArray(e.loc) ? e.loc.slice(1).join(".") : "";
+      if (field && e.msg) fields[field] = e.msg;
       return field ? `${field}: ${e.msg ?? ""}` : (e.msg ?? "");
     });
     const joined = parts.filter(Boolean).join("；");
-    if (joined) return joined;
+    if (joined) return { message: joined, fields };
   }
-  return `HTTP ${res.status}`;
+  return { message: `HTTP ${res.status}`, fields: {} };
 }
 
 async function send(
@@ -69,7 +80,10 @@ async function send(
   if (init.body !== undefined) headers.set("Content-Type", "application/json");
 
   const res = await fetch(path, { ...init, headers });
-  if (!res.ok) throw new ApiError(res.status, await readError(res));
+  if (!res.ok) {
+    const info = await readError(res);
+    throw new ApiError(res.status, info.message, info.fields);
+  }
   if (res.status === 204) return null;
   return res.json();
 }
