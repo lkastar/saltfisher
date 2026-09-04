@@ -54,6 +54,33 @@ def test_unpriceable_values_raise(raw):
         base.parse_price_cents(raw)
 
 
+def test_rich_text_candidate_is_skipped_not_returned():
+    """`price` is a clean string in some payloads and a rich-text segment list
+    in the live search response. The scalar guard must fall through to the next
+    candidate instead of handing the list to the price parser, which would drop
+    an otherwise perfectly good row.
+    """
+    item = base.normalize_item(
+        {
+            "itemId": "1",
+            "title": "t",
+            "userId": "u",
+            "price": [{"text": "¥"}, {"text": "2619"}],
+            "soldPrice": "2619",
+        },
+        source="mtop",
+    )
+    assert item.price_cents == 261900
+
+
+def test_scalar_guard_does_not_hide_a_genuinely_missing_field():
+    with pytest.raises(ParseError):
+        base.normalize_item(
+            {"itemId": "1", "title": "t", "userId": "u", "price": [{"text": "¥"}]},
+            source="mtop",
+        )
+
+
 def test_no_already_in_cents_heuristic():
     """A large number is still yuan. Guessing the unit is how money code
     silently multiplies every price by 100.

@@ -60,6 +60,18 @@ class RawItem:
     want_count: int | None = None
     view_count: int | None = None
     status: str = "on_sale"
+    # Merchant signal, available directly in search results via
+    # `userIdentityShow` / `userFishShopLabel`. Carrying it here means the
+    # exclude_shop filter usually needs no extra seller-page request at all.
+    seller_is_shop: bool | None = None
+    # Seller reputation, carried in every search row (review count + positive
+    # rate). Free here; a seller-page request otherwise.
+    seller_review_count: int | None = None
+    seller_positive_rate: float | None = None
+    # Fuzzy publish label ("刚刚发布" / "3天前"). Search results carry no
+    # timestamp, only this tag, so a precise publish filter is not possible
+    # from a list page — see filters.parse_publish_hint.
+    publish_hint: str | None = None
     # Field names that were expected but absent in the payload. Feeds the
     # "collector field map may be stale" warning rather than dying silently.
     missing_fields: tuple[str, ...] = ()
@@ -81,6 +93,8 @@ class RawSeller:
     verified: bool | None = None
     sold_count: int | None = None
     reply_rate: float | None = None
+    review_count: int | None = None
+    positive_rate: float | None = None
     account_age_days: int | None = None
     missing_fields: tuple[str, ...] = field(default=())
 
@@ -94,19 +108,28 @@ class RawSeller:
 # first successful run on an unblocked network can be corrected in ONE place.
 # Run `uv run python -m scripts.capture_fixture` there to dump a real payload.
 
+# Verified against a live search response (2026-09-04) once a logged-in cookie
+# session was available. The collector flattens the real nested payload into
+# these keys first — see mtop.flatten_search_row.
+#
+# Two traps confirmed by that capture:
+#   * `oriPrice` is the struck-through ORIGINAL price and is often higher than
+#     the real one (¥2829 vs 2489). It must never be a price candidate.
+#   * `exContent.price` is a rich-text SEGMENT LIST, not a number. The clean
+#     value lives in `detailParams.soldPrice` / `clickParam.args.price`.
 ITEM_FIELD_MAP: dict[str, tuple[str, ...]] = {
-    "item_id": ("itemId", "id", "item_id"),
-    "title": ("title", "name", "itemTitle"),
-    "price": ("price", "soldPrice", "currentPrice", "priceText"),
-    "description": ("desc", "description", "content"),
+    "item_id": ("itemId", "item_id", "id"),
+    "title": ("title", "titleSpanContent", "name"),
+    "price": ("soldPrice", "displayPrice", "argsPrice", "currentPrice", "price", "priceText"),
+    "description": ("detailTitle", "desc", "description", "content"),
     "cover_url": ("picUrl", "imageUrl", "mainPic", "cover"),
     "image_urls": ("images", "picUrls", "imageUrls"),
-    "region": ("area", "city", "region", "userNickArea"),
-    "seller_id": ("userId", "sellerId", "user_id"),
-    "seller_nick": ("userNick", "nick", "sellerNick"),
-    "seller_avatar_url": ("userAvatar", "avatar", "portrait"),
+    "region": ("area", "city", "region"),
+    "seller_id": ("seller_id", "userId", "sellerId", "user_id"),
+    "seller_nick": ("userNickName", "userNick", "nick", "sellerNick"),
+    "seller_avatar_url": ("userAvatarUrl", "userAvatar", "avatar", "portrait"),
     "publish_time": ("publishTime", "gmtCreate", "createTime"),
-    "want_count": ("wantCnt", "wantCount", "collectCount"),
+    "want_count": ("want", "wantCnt", "wantCount", "collectCount"),
     "view_count": ("browseCnt", "viewCount", "pv"),
 }
 
@@ -119,20 +142,33 @@ SELLER_FIELD_MAP: dict[str, tuple[str, ...]] = {
     "verified": ("realNameVerified", "verified", "certified"),
     "sold_count": ("soldCount", "sellCount", "dealCount"),
     "reply_rate": ("replyRate", "responseRate"),
+    "review_count": ("reviewCount", "rateCount", "evaluateCount"),
+    "positive_rate": ("positiveRate", "goodRate", "praiseRate"),
     "account_age_days": ("accountAgeDays", "registerDays"),
 }
 
 
-def pick(payload: dict[str, Any], candidates: tuple[str, ...]) -> Any:
+def pick(payload: dict[str, Any], candidates: tuple[str, ...], *, scalar_only: bool = False) -> Any:
     """First candidate key present with a non-empty value, else None.
+
+    `scalar_only` skips list/dict values instead of returning them, and it is
+    what makes a shared candidate name safe across payload shapes: the live
+    search response carries `price` as a list of rich-text segments
+    ([{"text": "¥"}, {"text": "2619"}]) while a detail response may carry it as
+    a clean string. Without the guard, the list is returned, the price parse
+    fails, and the whole row is dropped instead of falling through to the next
+    candidate.
 
     Nested payloads are flattened by the caller; this stays deliberately dumb
     so a wrong guess shows up as a missing field rather than a wrong value.
     """
     for key in candidates:
         value = payload.get(key)
-        if value not in (None, "", [], {}):
-            return value
+        if value in (None, "", [], {}):
+            continue
+        if scalar_only and isinstance(value, list | dict):
+            continue
+        return value
     return None
 
 
@@ -210,8 +246,23 @@ def normalize_item(payload: dict[str, Any], source: str) -> RawItem:
     """
     missing: list[str] = []
 
+    # Fields that must be a single value: a candidate holding a list or dict is
+    # a differently-shaped payload, not this field.
+    _SCALAR = {
+        "item_id",
+        "title",
+        "price",
+        "description",
+        "seller_id",
+        "want_count",
+        "view_count",
+        "publish_time",
+        "region",
+        "cover_url",
+    }
+
     def get(field_name: str) -> Any:
-        value = pick(payload, ITEM_FIELD_MAP[field_name])
+        value = pick(payload, ITEM_FIELD_MAP[field_name], scalar_only=field_name in _SCALAR)
         if value is None:
             missing.append(field_name)
         return value
@@ -232,8 +283,12 @@ def normalize_item(payload: dict[str, Any], source: str) -> RawItem:
     # sitting right there in cover_url.
     if not images and cover:
         images = [cover]
+        # The key really was absent, but we filled it — do not report it as a
+        # stale-field-map symptom, or capture_fixture raises a false alarm.
+        missing = [m for m in missing if m != "image_urls"]
     images = list(dict.fromkeys(str(u) for u in images))[: settings.max_image_urls]
 
+    want_raw = get("want_count")
     return RawItem(
         item_id=str(item_id),
         title=str(title),
@@ -247,10 +302,24 @@ def normalize_item(payload: dict[str, Any], source: str) -> RawItem:
         region=(lambda r: str(r) if r is not None else None)(get("region")),
         seller_avatar_url=(lambda a: str(a) if a is not None else None)(get("seller_avatar_url")),
         publish_time=parse_timestamp(get("publish_time")),
-        want_count=(lambda w: int(w) if w is not None else None)(get("want_count")),
-        view_count=(lambda v: int(v) if v is not None else None)(get("view_count")),
+        want_count=_as_count(want_raw),
+        view_count=_as_count(get("view_count")),
+        seller_is_shop=payload.get("seller_is_shop"),
+        seller_review_count=payload.get("seller_review_count"),
+        seller_positive_rate=payload.get("seller_positive_rate"),
+        publish_hint=payload.get("publish_hint"),
         missing_fields=tuple(sorted(set(missing))),
     )
+
+
+def _as_count(raw: Any) -> int | None:
+    """Counts arrive as "3人想要" or "" as often as as an int."""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return raw
+    digits = "".join(c for c in str(raw) if c.isdigit())
+    return int(digits) if digits else None
 
 
 def normalize_seller(payload: dict[str, Any], seller_id: str, source: str) -> RawSeller:
@@ -297,6 +366,8 @@ def normalize_seller(payload: dict[str, Any], seller_id: str, source: str) -> Ra
         verified=as_bool(get("verified")),
         sold_count=as_int(get("sold_count")),
         reply_rate=as_float(get("reply_rate")),
+        review_count=as_int(get("review_count")),
+        positive_rate=as_float(get("positive_rate")),
         account_age_days=as_int(get("account_age_days")),
         missing_fields=tuple(sorted(set(missing))),
     )

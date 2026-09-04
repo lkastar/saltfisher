@@ -151,8 +151,19 @@ def apply_local(item: RawItem, rule: RuleFilters, *, now: datetime | None = None
         elif guessed_shipping != rule.free_shipping:
             return FilterOutcome(False, rejected_by="free_shipping")
 
-    if rule.min_seller_credit is not None or rule.exclude_shop:
-        unverified.append("seller_profile_pending")
+    # exclude_shop can often be settled here: the search row itself carries a
+    # merchant label (see collector/mtop.py _guess_is_shop), which costs no
+    # extra request. Only an unknown verdict is deferred to the profile.
+    if rule.exclude_shop:
+        if item.seller_is_shop is True:
+            return FilterOutcome(False, rejected_by="exclude_shop")
+        if item.seller_is_shop is None:
+            unverified.append("seller_profile_pending")
+
+    if rule.min_seller_credit is not None:
+        # Credit level is never present in a search row.
+        if "seller_profile_pending" not in unverified:
+            unverified.append("seller_profile_pending")
 
     return FilterOutcome(True, unverified=tuple(unverified))
 
@@ -186,6 +197,26 @@ def apply_seller(
             return FilterOutcome(False, rejected_by="exclude_shop")
 
     return FilterOutcome(True, unverified=tuple(unverified))
+
+
+def apply_seller_from_item(item: RawItem, rule: RuleFilters, prior: FilterOutcome) -> FilterOutcome:
+    """Settle deferred seller checks using only what the item already carries.
+
+    Used when profile fetching is disabled: an item whose row already said
+    "merchant" must still be rejected, and one that said nothing must still be
+    labelled rather than silently passed as compliant.
+    """
+    if item.seller_is_shop is not None or not rule.min_seller_credit:
+        stub = RawSeller(
+            seller_id=item.seller_id,
+            nick=item.seller_nick,
+            source=item.source,
+            is_shop=item.seller_is_shop,
+            review_count=item.seller_review_count,
+            positive_rate=item.seller_positive_rate,
+        )
+        return apply_seller(stub, rule, prior)
+    return apply_seller(None, rule, prior)
 
 
 UNVERIFIED_LABELS: dict[str, str] = {

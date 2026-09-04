@@ -113,6 +113,10 @@ class Seller(SQLModel, table=True):
     verified: bool | None = None
     sold_count: int | None = None
     reply_rate: float | None = None
+    # Available free in every search row via userFishShopLabel; see
+    # collector/mtop.py _seller_reputation.
+    review_count: int | None = None
+    positive_rate: float | None = None
     account_age_days: int | None = None
     fetched_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
     fetch_error: str | None = None

@@ -160,12 +160,58 @@ def test_condition_and_shipping_waive_when_text_is_silent():
 # --------------------------------------------------------------------------- #
 
 
+def test_exclude_shop_uses_the_signal_the_row_already_carries():
+    """Regression: `exclude_shop=True` was a no-op.
+
+    The filter deferred every seller check to a profile request, so with
+    profile fetching off it waived the check and passed merchants through — a
+    live run returned 17 merchants out of 20 with exclude_shop set. Search rows
+    carry a merchant label, so a known merchant must be rejected here, at no
+    request cost.
+    """
+    rule = RuleFilters(exclude_shop=True)
+    known_shop = filters.apply_local(item(seller_is_shop=True), rule, now=NOW)
+    assert not known_shop.passed and known_shop.rejected_by == "exclude_shop"
+
+    known_person = filters.apply_local(item(seller_is_shop=False), rule, now=NOW)
+    assert known_person.passed and known_person.unverified == ()
+
+    unknown = filters.apply_local(item(seller_is_shop=None), rule, now=NOW)
+    assert unknown.passed and unknown.needs_seller_profile
+
+
+def test_deferred_shop_check_without_a_profile_still_honours_the_row():
+    """With profile fetching disabled, a row that says "merchant" must still be
+    rejected rather than waved through as compliant.
+    """
+    rule = RuleFilters(exclude_shop=True)
+    shop_item = item(seller_is_shop=True)
+    prior = filters.apply_local(shop_item, rule, now=NOW)
+    # apply_local already rejects it; the from_item path guards the case where
+    # the verdict arrives only after other checks deferred.
+    assert not prior.passed
+
+    unknown_item = item(seller_is_shop=None)
+    prior = filters.apply_local(unknown_item, rule, now=NOW)
+    settled = filters.apply_seller_from_item(unknown_item, rule, prior)
+    assert settled.passed and "exclude_shop" in settled.unverified
+
+
+def test_item_reputation_flows_into_the_seller_stub():
+    rule = RuleFilters(exclude_shop=True)
+    it = item(seller_is_shop=False, seller_review_count=8237, seller_positive_rate=53.0)
+    prior = filters.apply_local(it, rule, now=NOW)
+    settled = filters.apply_seller_from_item(it, rule, prior)
+    assert settled.passed and settled.unverified == ()
+
+
 def test_seller_conditions_are_deferred_not_evaluated_locally():
     """Local pass must flag that a profile request is still needed, so the
     pipeline fetches it only for survivors — one request per cycle, not N.
     """
     out = filters.apply_local(item(), RuleFilters(min_seller_credit=3), now=NOW)
     assert out.passed and out.needs_seller_profile
+    # credit level never appears in a search row, so it always defers
 
 
 def test_seller_credit_pass_reject_and_waive():

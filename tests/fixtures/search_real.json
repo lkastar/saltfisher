@@ -1,0 +1,231 @@
+{
+  "api": "mtop.taobao.idlemtopsearch.pc.search",
+  "ret": [
+    "SUCCESS::调用成功"
+  ],
+  "data": {
+    "resultInfo": {
+      "hasNextPage": true
+    },
+    "needDecryptKeys": [],
+    "resultList": [
+      {
+        "data": {
+          "item": {
+            "main": {
+              "exContent": {
+                "area": "云南",
+                "detailParams": {
+                  "picWidth": "1440",
+                  "itemId": "1081955696076",
+                  "itemType": "detailCommonBuy",
+                  "picHeight": "1920",
+                  "userNick": "羊了个杨",
+                  "soldPrice": "2499",
+                  "isVideo": "false",
+                  "title": "苹果15，128G，国行，银色，双卡，5G全网通，账号已退， 插卡即用。电池健康78%，循环1330次"
+                },
+                "fishTags": {
+                  "r2": {
+                    "tagList": [
+                      {
+                        "data": {
+                          "content": "刚刚发布"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "itemId": "1081955696076",
+                "picUrl": "http://img.alicdn.com/bao/uploaded/i2/2218534592145/O1CN01yTT6tMLH7nL2vHAO_!!4611686018427387537-0-xy_item.jpg",
+                "price": [
+                  {
+                    "text": "¥"
+                  },
+                  {
+                    "text": "2499"
+                  }
+                ],
+                "title": "苹果15，128G，国行，银色，双卡，5G全网通，账号已退， 插卡即用。电池健康78%，循环1330次",
+                "userAvatarUrl": "http://img.alicdn.com/bao/uploaded/i1/O1CN01zIJu4I1RiSiINvHRp_!!4611686018427387537-0-mtopupload.jpg",
+                "userFishShopLabel": {
+                  "tagList": [
+                    {
+                      "data": {
+                        "content": "6条评价"
+                      }
+                    },
+                    {
+                      "data": {
+                        "content": "好评率100%"
+                      }
+                    }
+                  ]
+                },
+                "userIdentityShow": "",
+                "userIsUseFishShopCard": false,
+                "userNickName": "羊了个杨",
+                "want": ""
+              },
+              "clickParam": {
+                "args": {
+                  "price": "2499",
+                  "id": "1081955696076",
+                  "seller_id": "+5xYqEw3f9sETQuuxt2Emw==",
+                  "displayPrice": "2499",
+                  "item_id": "1081955696076"
+                }
+              },
+              "targetUrl": "fleamarket://item?id=1081955696076&referPageArgs=iPhone+15&gulSource=search&extr"
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "item": {
+            "main": {
+              "exContent": {
+                "area": "云南",
+                "detailParams": {
+                  "picWidth": "720",
+                  "itemId": "1079892102343",
+                  "itemType": "detailCommonBuy",
+                  "picHeight": "1272",
+                  "userNick": "大黑嘿嘿嘿",
+                  "soldPrice": "2999",
+                  "isVideo": "true",
+                  "title": "国行 苹果15 256g 绿色 功能好用 原版原机"
+                },
+                "fishTags": {
+                  "r2": {
+                    "tagList": [
+                      {
+                        "data": {
+                          "content": "刚刚发布"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "itemId": "1079892102343",
+                "picUrl": "http://img.alicdn.com/bao/uploaded/i4/2211595899252/O1CN01qSM7UbWhi8J1SdfE_!!4611686018427384180-0-xy_item.jpg",
+                "price": [
+                  {
+                    "text": "¥"
+                  },
+                  {
+                    "text": "2999"
+                  }
+                ],
+                "title": "国行 苹果15 256g 绿色 功能好用 原版原机",
+                "userAvatarUrl": "http://img.alicdn.com/bao/uploaded/i3/O1CN01dpaLRPDHFNJ2BxHU_!!4611686018427384180-0-mtopupload.jpg",
+                "userFishShopLabel": {
+                  "tagList": [
+                    {
+                      "data": {
+                        "content": "0条评价"
+                      }
+                    },
+                    {
+                      "data": {
+                        "content": "好评率0%"
+                      }
+                    }
+                  ]
+                },
+                "userIdentityShow": "",
+                "userIsUseFishShopCard": false,
+                "userNickName": "大黑嘿嘿嘿",
+                "want": ""
+              },
+              "clickParam": {
+                "args": {
+                  "price": "2999",
+                  "id": "1079892102343",
+                  "seller_id": "6C9UyAl5OsXgten6tYo/sQ==",
+                  "displayPrice": "2999",
+                  "item_id": "1079892102343"
+                }
+              },
+              "targetUrl": "fleamarket://item?id=1079892102343&referPageArgs=iPhone+15&gulSource=search&extr"
+            }
+          }
+        }
+      },
+      {
+        "data": {
+          "item": {
+            "main": {
+              "exContent": {
+                "area": "广东",
+                "detailParams": {
+                  "picWidth": "2600",
+                  "itemId": "1081955312115",
+                  "itemType": "detailCommonBuy",
+                  "picHeight": "2600",
+                  "userNick": "天津雪球严选专营店",
+                  "soldPrice": "2619",
+                  "isVideo": "false",
+                  "title": "Apple/苹果 iPhone 15 128GB 中国大陆版 黑色 下方真机照片就是本机，只要在上架的就是有货；机器详情请点击本页面顶部价格下的验货报告\n【型号】 苹果 iPhone 15\n【机身颜色】 黑色\n【机身内存】 128G\n【来源渠道】 国行\n【关于电池】 原厂电池\n【电池效率】 90%-95%\n【退货周期】 7天\n【发货时间】 付款后24小时内发货\n【关于售后】 保修一年，支持7天无理由退货\n【温馨提醒】 为了提供更好的购物体验，给予用户更多的选择，请您下单后30分钟内进行支付，超时未支付系统会自动关闭订单。如有需求可以再次选择喜欢的商品下单哦~"
+                },
+                "fishTags": {
+                  "r2": {
+                    "tagList": [
+                      {
+                        "data": {
+                          "content": "刚刚发布"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "itemId": "1081955312115",
+                "oriPrice": "¥2979",
+                "picUrl": "http://img.alicdn.com/bao/uploaded/i1/O1CN018edXzrD7gAI5HIiO_!!4611686018427385316-0-fleamarket.jpg",
+                "price": [
+                  {
+                    "text": "¥"
+                  },
+                  {
+                    "text": "2619"
+                  }
+                ],
+                "title": "Apple/苹果 iPhone 15 128GB 中国大陆版 黑色 下方真机照片就是本机，只要在上架的就是有货；机器详情请点击本页面顶部价格下的验货报告【型号】 苹果 iPhone 15【机身颜色】 黑色【机身内存】 128G【来源渠道】 国行【关于电池】 原厂电池【电池效率】 90%-95%【退货周期】 7天【发货时间】 付款后24小时内发货【关于售后】 保修一年，支持7天无理由退货【温馨提醒】 为了提供更好的购物体验，给予用户更多的选择，请您下单后30分钟内进行支付，超时未支付系统会自动关闭订单。如有需求可以再次选择喜欢的商品下单哦~",
+                "userAvatarUrl": "http://img.alicdn.com/bao/uploaded/i4/O1CN01vz4x4a1trtxJ8y5X9_!!0-mtopupload.jpg",
+                "userFishShopLabel": {
+                  "tagList": [
+                    {
+                      "data": {
+                        "content": "8237条评价"
+                      }
+                    },
+                    {
+                      "data": {
+                        "content": "好评率53%"
+                      }
+                    }
+                  ]
+                },
+                "userIdentityShow": "闲鱼严选卖家",
+                "userIsUseFishShopCard": false,
+                "userNickName": "天津雪球严选专营店",
+                "want": ""
+              },
+              "clickParam": {
+                "args": {
+                  "price": "2619",
+                  "id": "1081955312115",
+                  "seller_id": "a2WguXOv/jPBahwtlsZkGQ==",
+                  "displayPrice": "2619",
+                  "item_id": "1081955312115"
+                }
+              },
+              "targetUrl": "fleamarket://item?id=1081955312115&referPageArgs=iPhone+15&gulSource=search&extr"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -170,7 +170,7 @@ class MtopClient:
         items: list[RawItem] = []
         for row in rows_out:
             try:
-                items.append(base.normalize_item(_flatten(row), source="mtop"))
+                items.append(base.normalize_item(flatten_search_row(row), source="mtop"))
             except ParseError as exc:
                 log.warning("skipping unparseable row", extra={"err": str(exc)})
         if rows_out and not items:
@@ -181,11 +181,11 @@ class MtopClient:
         data = await self._call(ITEM_API, {"itemId": item_id}, now_ms)
         if not data:
             raise ItemGoneError(f"item {item_id} returned no data")
-        return base.normalize_item(_flatten(data), source="mtop")
+        return base.normalize_item(flatten_search_row(data) or data, source="mtop")
 
     async def fetch_seller(self, seller_id: str, now_ms: str) -> RawSeller:
         data = await self._call(SELLER_API, {"userId": seller_id}, now_ms)
-        return base.normalize_seller(_flatten(data), seller_id=seller_id, source="mtop")
+        return base.normalize_seller(data, seller_id=seller_id, source="mtop")
 
 
 # --------------------------------------------------------------------------- #
@@ -195,8 +195,8 @@ class MtopClient:
 # back. Candidates live here so one edit fixes them; capture a real payload
 # with `uv run python -m scripts.capture_fixture`.
 
-_RESULT_KEYS = ("resultList", "items", "itemList", "data")
-_EMPTY_MARKER_KEYS = ("resultInfo", "totalCount", "total", "count")
+_RESULT_KEYS = ("resultList", "items", "itemList")
+_SHOP_IDENTITY_HINTS = ("严选", "服务商", "专营", "旗舰", "官方", "商家", "鱼小铺")
 
 
 def _result_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -209,33 +209,110 @@ def _result_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _looks_like_empty_result(data: dict[str, Any]) -> bool:
     """True when the payload plausibly says "zero matches" rather than
-    "we no longer understand this payload"."""
-    for key in _EMPTY_MARKER_KEYS:
-        value = data.get(key)
-        if isinstance(value, int) and value == 0:
-            return True
-        if isinstance(value, str) and value.strip() in ("0", ""):
-            return True
-    return any(isinstance(data.get(k), list) for k in _RESULT_KEYS)
+    "we no longer understand this payload".
 
-
-def _flatten(row: dict[str, Any], _depth: int = 0) -> dict[str, Any]:
-    """Collapse nested wrapper dicts into one level.
-
-    mtop rows habitually wrap the payload (`{"data": {...}}`,
-    `{"itemCardData": {...}}`). Flattening keeps the field map one level deep
-    instead of encoding a nesting path per field. Outer keys win, so a real
-    top-level value is never shadowed by a nested one.
+    `resultInfo` is present on every real response, so its absence together
+    with an absent result list means the shape moved.
     """
-    flat: dict[str, Any] = {}
-    nested: list[dict[str, Any]] = []
-    for key, value in row.items():
-        if isinstance(value, dict) and _depth < 3:
-            nested.append(value)
-            flat.setdefault(key, value)
-        else:
-            flat.setdefault(key, value)
-    for child in nested:
-        for key, value in _flatten(child, _depth + 1).items():
-            flat.setdefault(key, value)
-    return flat
+    if any(isinstance(data.get(k), list) for k in _RESULT_KEYS):
+        return True
+    return "resultInfo" in data
+
+
+def flatten_search_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Real nested search row -> the flat keys ITEM_FIELD_MAP expects.
+
+    The live shape (verified 2026-09-04) is:
+
+        row.data.item.main.exContent      display fields, area, nick, picUrl
+        row.data.item.main.exContent.detailParams
+                                          clean soldPrice + the LONG title
+        row.data.item.main.clickParam.args
+                                          seller_id (opaque, stable), price
+        row.data.item.main.exContent.fishTags.r2.tagList[].data.content
+                                          fuzzy publish label, e.g. 刚刚发布
+
+    Explicit paths rather than a generic flatten: guessing was only justified
+    while the payload was unknown, and a blind merge here would let
+    `exContent.price` (a rich-text segment list) shadow the clean
+    `detailParams.soldPrice`.
+    """
+    main = ((row.get("data") or {}).get("item") or {}).get("main") or {}
+    ex = main.get("exContent") or {}
+    detail = ex.get("detailParams") or {}
+    args = (main.get("clickParam") or {}).get("args") or {}
+
+    flat: dict[str, Any] = {
+        "itemId": ex.get("itemId") or detail.get("itemId") or args.get("item_id"),
+        "title": ex.get("title") or detail.get("title"),
+        # The long text lives on detailParams.title and is what the condition
+        # and shipping heuristics need to read.
+        "detailTitle": detail.get("title"),
+        "soldPrice": detail.get("soldPrice"),
+        "argsPrice": args.get("price") or args.get("displayPrice"),
+        "picUrl": ex.get("picUrl"),
+        "area": ex.get("area"),
+        "seller_id": args.get("seller_id") or args.get("user_id"),
+        "userNickName": ex.get("userNickName") or detail.get("userNick"),
+        "userAvatarUrl": ex.get("userAvatarUrl"),
+        "want": ex.get("want"),
+        "seller_is_shop": _guess_is_shop(ex),
+        "publish_hint": _publish_hint(ex),
+    }
+    reviews, rate = _seller_reputation(ex)
+    flat["seller_review_count"] = reviews
+    flat["seller_positive_rate"] = rate
+    return {k: v for k, v in flat.items() if v not in (None, "")}
+
+
+def _guess_is_shop(ex: dict[str, Any]) -> bool | None:
+    """Merchant signal from the search result — positive only.
+
+    `userIdentityShow` gives a trustworthy POSITIVE signal when present
+    (闲鱼严选卖家 / 手机严选授权服务商). Its absence proves nothing: the live
+    capture had a row nicknamed 杭州靓机汇二手机批发 — plainly a wholesaler — with
+    an empty identity field.
+
+    So an unrecognised row returns None (unknown), never False. Returning False
+    here would let `exclude_shop` silently drop personal-looking merchants and,
+    worse, would report certainty we do not have. Unknown defers to the seller
+    profile and, failing that, waives the filter with a label.
+
+    (`userFishShopLabel` is NOT a shop flag despite the name — it carries
+    review count and positive-rate text, and is present on every row.)
+    """
+    identity = str(ex.get("userIdentityShow") or "")
+    if identity and any(h in identity for h in _SHOP_IDENTITY_HINTS):
+        return True
+    if ex.get("userIsUseFishShopCard") is True:
+        return True
+    return None
+
+
+def _seller_reputation(ex: dict[str, Any]) -> tuple[int | None, float | None]:
+    """Review count and positive rate, free of charge in every search row.
+
+    `userFishShopLabel.tagList` renders as e.g. ["4737条评价", "好评率47%"].
+    Both are seller-quality judgements the LLM item advice needs, and getting
+    them here avoids a seller-page request per item.
+    """
+    reviews: int | None = None
+    rate: float | None = None
+    for tag in (ex.get("userFishShopLabel") or {}).get("tagList", []) or []:
+        text = str((tag.get("data") or {}).get("content") or "")
+        digits = "".join(c for c in text if c.isdigit() or c == ".")
+        if not digits:
+            continue
+        if "评价" in text:
+            reviews = int(float(digits))
+        elif "好评" in text or "%" in text:
+            rate = float(digits)
+    return reviews, rate
+
+
+def _publish_hint(ex: dict[str, Any]) -> str | None:
+    for row in (ex.get("fishTags") or {}).get("r2", {}).get("tagList", []) or []:
+        content = (row.get("data") or {}).get("content")
+        if content:
+            return str(content)
+    return None

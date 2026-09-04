@@ -147,12 +147,13 @@ class Pipeline:
                 )
                 continue
             if outcome.needs_seller_profile:
-                seller = (
-                    await self.collect_seller(item.seller_id)
-                    if fetch_seller and item.seller_id
-                    else None
-                )
-                outcome = filters.apply_seller(seller, rule, outcome)
+                if fetch_seller and item.seller_id:
+                    seller = await self.collect_seller(item.seller_id)
+                    outcome = filters.apply_seller(seller, rule, outcome)
+                else:
+                    # Still honour whatever the row itself revealed rather than
+                    # waving everything through as compliant.
+                    outcome = filters.apply_seller_from_item(item, rule, outcome)
                 if not outcome.passed:
                     continue
             candidates.append(Candidate(item=item, outcome=outcome))
