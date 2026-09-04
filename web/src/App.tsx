@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, Route, Routes } from "react-router";
 
 import { clearToken, getToken } from "./api/client";
+import AnalyticsPage from "./pages/AnalyticsPage";
 import ChannelsPage from "./pages/ChannelsPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import ItemsPage from "./pages/ItemsPage";
@@ -14,6 +15,7 @@ const NAV = [
   { to: "/", label: "监控任务" },
   { to: "/items", label: "命中商品" },
   { to: "/watchlist", label: "收藏追踪" },
+  { to: "/analytics", label: "行情分析" },
   { to: "/channels", label: "通知渠道" },
   { to: "/settings", label: "设置" },
 ];
@@ -76,6 +78,7 @@ function AppShell() {
           <Route path="/items" element={<ItemsPage />} />
           <Route path="/items/:itemId" element={<ItemDetailPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/channels" element={<ChannelsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route

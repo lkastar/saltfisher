@@ -16,8 +16,12 @@ import { formatDateTime, formatPrice, formatRelativeTime, parseUtc } from "../li
  *  it drop" far worse than a list of dates does, and it is what a screen
  *  reader gets.
  *
- *  ponytail: swap in ECharts when a third chart type appears, or when zoom and
- *  brushing are actually wanted. Only this file changes.
+ *  ponytail: the old trigger here said "when a third chart type appears".
+ *  Two more arrived in M2 (Histogram, DailyBars) and neither needed a library:
+ *  both are rectangles on a linear axis sharing this file's `scale()`, about
+ *  40 lines each. The accurate trigger is zoom or brushing, or geometry that
+ *  is not rectangles-and-lines -- stacked areas, pies, anything needing a
+ *  layout pass. Count of chart types is not the cost driver; interaction is.
  */
 
 const W = 720;

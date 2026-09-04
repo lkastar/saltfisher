@@ -27,6 +27,13 @@ export type Item = Schemas["ItemPublic"];
 export type PricePoint = Schemas["PricePoint"];
 export type SessionState = Schemas["SessionState"];
 export type CookieImport = Schemas["CookieImport"];
+export type PriceDistribution = Schemas["PriceDistribution"];
+export type PriceBucket = Schemas["PriceBucket"];
+export type PriceQuantiles = Schemas["PriceQuantiles"];
+export type PriceDrops = Schemas["PriceDrops"];
+export type PriceDrop = Schemas["PriceDrop"];
+export type SupplyTrend = Schemas["SupplyTrend"];
+export type SupplyDay = Schemas["SupplyDay"];
 
 /** Key hierarchy. Invalidating a prefix invalidates everything under it. */
 export const keys = {
@@ -39,7 +46,22 @@ export const keys = {
   item: (id: string) => ["items", id] as const,
   itemPrices: (id: string) => ["items", id, "prices"] as const,
   session: ["session"] as const,
+  /** Coarse -> fine, so invalidating ["analytics"] drops all three charts at
+   *  once. The window is part of the key because two windows are two
+   *  different answers, not two renderings of one. */
+  priceDistribution: (q: AnalyticsQuery) =>
+    ["analytics", "price-distribution", q] as const,
+  priceDrops: (q: AnalyticsDropsQuery) => ["analytics", "price-drops", q] as const,
+  supplyTrend: (q: AnalyticsQuery) => ["analytics", "supply-trend", q] as const,
 };
+
+/** What the analytics endpoints are scoped by. `days` means something
+ *  different in each of the three -- which listings count, what "before"
+ *  means, how wide the chart is -- so the page states it per chart rather
+ *  than pretending one window has one meaning.
+ */
+export type AnalyticsQuery = { keyword: string; days: number };
+export type AnalyticsDropsQuery = AnalyticsQuery & { limit: number };
 
 /** Exactly the filters that live in the URL. `offset` is here because paging
  *  belongs in the query key: two pages are two different results.
@@ -56,9 +78,9 @@ export type ItemFilters = {
   limit?: number;
 };
 
-function itemQuery(filters: ItemFilters): string {
+function queryString(values: Record<string, string | number | undefined>): string {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
+  for (const [key, value] of Object.entries(values)) {
     if (value !== undefined) params.set(key, String(value));
   }
   const query = params.toString();
@@ -96,7 +118,7 @@ export function notifyLogsOptions() {
 export function itemsOptions(filters: ItemFilters) {
   return queryOptions({
     queryKey: keys.items(filters),
-    queryFn: () => request<Item[]>(`/api/items${itemQuery(filters)}`),
+    queryFn: () => request<Item[]>(`/api/items${queryString(filters)}`),
   });
 }
 
@@ -121,6 +143,28 @@ export function sessionOptions() {
   return queryOptions({
     queryKey: keys.session,
     queryFn: () => request<SessionState>("/api/session"),
+  });
+}
+
+export function priceDistributionOptions(q: AnalyticsQuery) {
+  return queryOptions({
+    queryKey: keys.priceDistribution(q),
+    queryFn: () =>
+      request<PriceDistribution>(`/api/analytics/price-distribution${queryString(q)}`),
+  });
+}
+
+export function priceDropsOptions(q: AnalyticsDropsQuery) {
+  return queryOptions({
+    queryKey: keys.priceDrops(q),
+    queryFn: () => request<PriceDrops>(`/api/analytics/price-drops${queryString(q)}`),
+  });
+}
+
+export function supplyTrendOptions(q: AnalyticsQuery) {
+  return queryOptions({
+    queryKey: keys.supplyTrend(q),
+    queryFn: () => request<SupplyTrend>(`/api/analytics/supply-trend${queryString(q)}`),
   });
 }
 
