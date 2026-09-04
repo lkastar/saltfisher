@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
+    "playwright>=1.62.0",
     "pydantic-settings>=2.15.0",
     "sqlmodel>=0.0.42",
     "uvicorn>=0.52.4",
@@ -28,6 +29,10 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "T20"]
 
+[tool.ruff.lint.per-file-ignores]
+# CLI scripts report to the operator on stdout; that IS their interface.
+"scripts/*" = ["T201"]
+
 [tool.mypy]
 python_version = "3.12"
 no_implicit_optional = true
@@ -37,3 +42,4 @@ warn_unused_ignores = true
 testpaths = ["tests"]
 addopts = "-q"
 pythonpath = ["."]
+asyncio_mode = "strict"

@@ -1,0 +1,11 @@
+{
+  "api": "mtop.taobao.idlemtopsearch.pc.search",
+  "ret": [
+    "RGV587_ERROR::SM::哎哟喂,被挤爆啦,请稍后重试!"
+  ],
+  "data": {
+    "url": "https://h5api.m.goofish.com/_____tmd_____/punish?x5secdata=...",
+    "h5url": "https://h5api.m.goofish.com/_____tmd_____/punish",
+    "dialogSize": "..."
+  }
+}

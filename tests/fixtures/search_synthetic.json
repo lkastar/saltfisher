@@ -1,0 +1,56 @@
+{
+  "api": "mtop.taobao.idlemtopsearch.pc.search",
+  "ret": [
+    "SUCCESS::调用成功"
+  ],
+  "data": {
+    "resultList": [
+      {
+        "itemId": "801234567890",
+        "title": "iPhone 15 128G 蓝色 国行",
+        "price": "¥3,200",
+        "desc": "自用一年，几乎全新无痕，包邮",
+        "picUrl": "https://cdn/x1.jpg",
+        "images": [
+          "https://cdn/x1.jpg",
+          "https://cdn/x2.jpg"
+        ],
+        "area": "上海 浦东",
+        "userId": "9001",
+        "userNick": "老王",
+        "userAvatar": "https://cdn/a1.jpg",
+        "publishTime": 1788508800000,
+        "wantCnt": 12,
+        "browseCnt": 340
+      },
+      {
+        "id": "801234567891",
+        "name": "iPhone 15 Pro 手机壳 全新未拆封",
+        "soldPrice": "39.00",
+        "content": "全新未拆封，不包邮，运费自理",
+        "imageUrl": "https://cdn/y1.jpg",
+        "city": "北京",
+        "sellerId": "9002",
+        "nick": "小李",
+        "gmtCreate": "2026-09-01T10:00:00+08:00",
+        "wantCount": 3
+      },
+      {
+        "itemId": "801234567892",
+        "title": "iPhone 15 换购 求购勿扰",
+        "currentPrice": 2999,
+        "desc": "8成新有磕碰",
+        "userId": "9003",
+        "userNick": "商家铺子",
+        "area": "广州"
+      },
+      {
+        "itemId": "801234567893",
+        "title": "价格面议私聊",
+        "price": "面议",
+        "userId": "9004"
+      }
+    ],
+    "totalCount": 4
+  }
+}
