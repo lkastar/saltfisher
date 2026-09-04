@@ -59,6 +59,25 @@ class UpstreamSession:
             },
         )
 
+    def refresh(self, cookies: dict[str, str]) -> None:
+        """Absorb rotated cookies from a response.
+
+        `_m_h5_tk` is short-lived and the server hands back a fresh one on
+        every response, including on the "token expired" error. Without
+        absorbing it the stored token goes stale within hours and every call
+        fails — which previously auto-disabled every rule and demanded a
+        manual cookie re-import for a problem the server had already solved.
+
+        Deliberately does not touch `origin` or health: this is a rotation, not
+        a new session.
+        """
+        if not cookies:
+            return
+        before = self.token
+        self.cookies.update(cookies)
+        if self.token and self.token != before:
+            log.debug("session token rotated")
+
     def mark_challenged(self, detail: str) -> None:
         """Risk control wants a human. Stop retrying and say so."""
         self.needs_verification = True

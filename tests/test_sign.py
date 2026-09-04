@@ -15,7 +15,7 @@ from app.collector.base import (
     ItemGoneError,
     TransientCollectorError,
 )
-from app.collector.mtop import APP_KEY, _sign, classify_ret
+from app.collector.mtop import APP_KEY, TokenStaleError, _sign, classify_ret
 
 
 def test_signature_matches_the_documented_scheme():
@@ -50,8 +50,13 @@ def test_payload_whitespace_changes_the_signature():
     [
         (["SUCCESS::调用成功"], None),
         (["RGV587_ERROR::SM::哎哟喂,被挤爆啦,请稍后重试!"], ChallengeError),
-        (["FAIL_SYS_TOKEN_EMPTY::令牌为空"], ChallengeError),
-        (["FAIL_SYS_TOKEN_EXOIRED::令牌过期"], ChallengeError),
+        # Token staleness is NOT a challenge: the response carries a fresh
+        # token, so it is recoverable without a human. This file used to assert
+        # ChallengeError here, and that expectation WAS the bug — it
+        # auto-disabled every rule a few hours after startup. See
+        # tests/test_token_rotation.py.
+        (["FAIL_SYS_TOKEN_EMPTY::令牌为空"], TokenStaleError),
+        (["FAIL_SYS_TOKEN_EXOIRED::令牌过期"], TokenStaleError),
         (["FAIL_SYS_ILLEGAL_ACCESS::非法请求"], ChallengeError),
         (["FAIL_SYS_TRAFFIC_LIMIT::限流"], TransientCollectorError),
         (["FAIL_SYS_API_NOT_FOUNDED::请求API不存在"], CollectorError),

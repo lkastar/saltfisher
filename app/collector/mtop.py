@@ -8,6 +8,7 @@ the browser path.
 import hashlib
 import json
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -39,6 +40,8 @@ UA = (
 
 # ret prefix -> action. Derived from observed responses; see the probe record.
 _CHALLENGE_PREFIXES = ("RGV587_ERROR", "FAIL_SYS_ILLEGAL_ACCESS", "SM::")
+# Note the upstream typo: EXOIRED, not EXPIRED. Both are matched because the
+# spelling is not ours to rely on.
 _TOKEN_PREFIXES = ("FAIL_SYS_TOKEN_EMPTY", "FAIL_SYS_TOKEN_EXOIRED", "FAIL_SYS_TOKEN_EXPIRED")
 _TRANSIENT_PREFIXES = ("FAIL_SYS_TRAFFIC_LIMIT", "FAIL_SYS_SERVICE_FACADE_TIMEOUT", "ANDROID_SYS_")
 _GONE_MARKERS = ("ITEM_NOT_FOUND", "ITEM_DELETED", "FAIL_BIZ_ITEM_NOT_EXIST")
@@ -47,6 +50,16 @@ _GONE_MARKERS = ("ITEM_NOT_FOUND", "ITEM_DELETED", "FAIL_BIZ_ITEM_NOT_EXIST")
 def _sign(token: str, t: str, data: str) -> str:
     """mtop h5 signature: md5(token & timestamp & appKey & data)."""
     return hashlib.md5(f"{token}&{t}&{APP_KEY}&{data}".encode()).hexdigest()
+
+
+class TokenStaleError(CollectorError):
+    """The signature token expired. Recoverable WITHOUT human help.
+
+    Measured: the response that reports this also carries a fresh `_m_h5_tk`
+    in Set-Cookie, so absorbing it and retrying once succeeds. Classifying it
+    as a challenge instead auto-disabled every rule a few hours after start
+    and asked the user to re-import cookies for nothing.
+    """
 
 
 def classify_ret(ret: list[str] | None) -> None:
@@ -64,9 +77,7 @@ def classify_ret(ret: list[str] | None) -> None:
     if any(first.startswith(p) or p in first for p in _CHALLENGE_PREFIXES):
         raise ChallengeError(first)
     if any(first.startswith(p) for p in _TOKEN_PREFIXES):
-        # Token staleness is only recoverable if something else can refresh the
-        # session; mtop cannot mint one itself.
-        raise ChallengeError(first)
+        raise TokenStaleError(first)
     if any(first.startswith(p) for p in _TRANSIENT_PREFIXES):
         raise TransientCollectorError(first)
     raise CollectorError(first or "empty ret envelope")
@@ -110,9 +121,6 @@ class MtopClient:
         auto-disabled the rule (seen on live data).
         """
         sess = self._session
-        token = sess.token
-        if not token:
-            raise ChallengeError("no _m_h5_tk: session not established")
 
         # Serialise ONCE and reuse. Re-dumping for the request body produces a
         # different string than the one that was signed, which fails as an
@@ -121,8 +129,6 @@ class MtopClient:
         params = {
             "jsv": "2.7.2",
             "appKey": APP_KEY,
-            "t": now_ms,
-            "sign": _sign(token, now_ms, data),
             "api": api,
             "v": "1.0",
             "type": "originaljson",
@@ -130,39 +136,64 @@ class MtopClient:
             "sessionOption": "AutoLoginOnly",
             "accountSite": "xianyu",
         }
-        self._client.cookies.update(sess.cookies)
-        try:
-            response = await self._client.post(
-                f"{BASE_URL}/{api}/1.0/", params=params, data={"data": data}
-            )
-        except httpx.TimeoutException as exc:
-            raise TransientCollectorError(f"timeout calling {api}") from exc
-        except httpx.HTTPError as exc:
-            raise TransientCollectorError(f"transport error calling {api}: {exc}") from exc
 
-        if (
-            base.CHALLENGE_COOKIE if hasattr(base, "CHALLENGE_COOKIE") else False
-        ):  # pragma: no cover
-            pass
-        if CHALLENGE_COOKIE in response.cookies and session_health:
-            sess.mark_challenged("upstream issued x5secdata challenge cookie")
+        # Two attempts, because `_m_h5_tk` rotates: the response that reports
+        # the token expired is the one carrying its replacement. Absorbing it
+        # and retrying once recovers without any human action. Treating it as
+        # a challenge instead auto-disabled every rule a few hours after
+        # startup and asked for a manual cookie re-import for nothing.
+        for attempt in (1, 2):
+            token = sess.token
+            if not token:
+                raise ChallengeError("no _m_h5_tk: session not established")
+            stamp = now_ms if attempt == 1 else str(int(time.time() * 1000))
+            signed = {**params, "t": stamp, "sign": _sign(token, stamp, data)}
 
-        try:
-            body = response.json()
-        except ValueError as exc:
-            # A non-JSON body here is the risk-control interstitial HTML.
-            raise ChallengeError(f"{api} returned non-JSON body") from exc
+            self._client.cookies.update(sess.cookies)
+            try:
+                response = await self._client.post(
+                    f"{BASE_URL}/{api}/1.0/", params=signed, data={"data": data}
+                )
+            except httpx.TimeoutException as exc:
+                raise TransientCollectorError(f"timeout calling {api}") from exc
+            except httpx.HTTPError as exc:
+                raise TransientCollectorError(f"transport error calling {api}: {exc}") from exc
 
-        try:
-            classify_ret(body.get("ret"))
-        except ChallengeError as exc:
-            if not session_health:
-                # Auxiliary path: report it as merely unavailable so callers
-                # can degrade one filter instead of the whole session.
-                raise CollectorError(f"{api} unavailable: {exc}") from exc
-            sess.mark_challenged(str(exc))
-            raise
-        return body.get("data") or {}
+            # Absorb rotated cookies first: the error response carries the
+            # fresh token, so this is what makes the retry work.
+            sess.refresh(dict(response.cookies))
+
+            if CHALLENGE_COOKIE in response.cookies and session_health:
+                sess.mark_challenged("upstream issued x5secdata challenge cookie")
+
+            try:
+                body = response.json()
+            except ValueError as exc:
+                # A non-JSON body here is the risk-control interstitial HTML.
+                raise ChallengeError(f"{api} returned non-JSON body") from exc
+
+            try:
+                classify_ret(body.get("ret"))
+            except TokenStaleError as exc:
+                if attempt == 1:
+                    log.info("token rotated, retrying once", extra={"api": api})
+                    continue
+                # The refreshed token did not help, so the session really is
+                # unusable and a human has to re-establish it.
+                if not session_health:
+                    raise CollectorError(f"{api} unavailable: {exc}") from exc
+                sess.mark_challenged(str(exc))
+                raise ChallengeError(str(exc)) from exc
+            except ChallengeError as exc:
+                if not session_health:
+                    # Auxiliary path: report it as merely unavailable so callers
+                    # can degrade one filter instead of the whole session.
+                    raise CollectorError(f"{api} unavailable: {exc}") from exc
+                sess.mark_challenged(str(exc))
+                raise
+            return body.get("data") or {}
+
+        raise CollectorError(f"{api}: token retry exhausted")
 
     async def search(self, keyword: str, page: int, rows: int, now_ms: str) -> list[RawItem]:
         data = await self._call(
