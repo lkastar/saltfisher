@@ -1,9 +1,14 @@
-"""LLM endpoint and scenario configuration.
+"""LLM configuration and the two analyze routes.
 
 Two tables that existed since M1 with nothing ever reading or writing them
 (`docs/m1-report.md`: "做一个存了也无从验证的表单比没有更糟"). This is the
-surface that makes them real, and it is only config — the two analyze routes
-land here later, in T3/T4.
+surface that makes them real.
+
+The two analyze routes live at the bottom, and they are two separate paths
+sharing only the adapter layer, never one handler with a `scenario` branch:
+their inputs, their costs and their caching all differ. `market` reads
+aggregated statistics out of `llm/market.py`; `item` reads one listing out of
+`llm/items.py`.
 
 `api_key` is write-only, in the strongest sense available: no response model
 in this module has a field for it, so there is no return statement that could
@@ -19,14 +24,23 @@ from sqlmodel import Session, select
 
 from app.db import SessionDep
 from app.llm import client as llm_client
-from app.llm import prompts
-from app.llm.base import EMPTY_MESSAGE, STARVED_MESSAGE, LlmError, LlmRequest
-from app.models import LlmEndpoint, LlmScenarioConfig
+from app.llm import items, market, prompts
+from app.llm.base import (
+    EMPTY_MESSAGE,
+    STARVED_MESSAGE,
+    LlmError,
+    LlmOutcome,
+    LlmRequest,
+)
+from app.models import Item, LlmEndpoint, LlmScenarioConfig
 from app.schemas import (
     LlmDefaultPrompt,
     LlmEndpointCreate,
     LlmEndpointPublic,
     LlmEndpointUpdate,
+    LlmItemAnalysis,
+    LlmMarketAnalysis,
+    LlmMarketAnalyze,
     LlmModelList,
     LlmScenarioPublic,
     LlmScenarioUpdate,
@@ -287,4 +301,220 @@ def read_default_prompt(scenario: Scenario) -> LlmDefaultPrompt:
         scenario=scenario,
         prompt_template=prompts.default_prompt(scenario),
         placeholders=list(prompts.PLACEHOLDERS[scenario]),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Market analysis (T3)
+# --------------------------------------------------------------------------- #
+
+MARKET = "market"
+
+UNCONFIGURED_MESSAGE = "行情分析还没有配置好：请先在设置页选择端点与模型，并启用「行情分析」场景。"
+# Not a model's job to notice. Asked to read a price level off zero listings,
+# a model produces a fluent answer about nothing -- and bills for it.
+NO_DATA_MESSAGE = (
+    "这个关键词在所选窗口内没有任何挂牌报价，没有可分析的统计量，所以没有调用模型。"
+    "先建一条监控规则、等采集跑一段时间，或者把窗口放宽。"
+)
+
+
+def _market_cache(state) -> market.MarketCache:
+    """The per-process market cache, hung off `app.state`.
+
+    Not a module-level mutable global (`spec/backend/quality-guidelines.md`):
+    a test needs to be able to start from an empty one, and a global keeps
+    yesterday's answers alive across the whole test session.
+
+    Created on first use rather than in `main.py`'s lifespan because this
+    round splits `main.py` off to another task; two lines move there the day
+    anything else needs the same cache.
+    """
+    cache = getattr(state, "llm_market_cache", None)
+    if cache is None:
+        cache = market.MarketCache()
+        state.llm_market_cache = cache
+    return cache
+
+
+def _market_analysis(
+    source: market.MarketInput, outcome: LlmOutcome, *, cached: bool
+) -> LlmMarketAnalysis:
+    """The model's outcome plus the aperture it was read through.
+
+    `kind` is passed through untouched: `starved` and `unparsable` have
+    different fixes (max_tokens vs the template) and collapsing them here
+    would undo the classification `llm/client.py` just did.
+    """
+    return LlmMarketAnalysis(
+        kind=outcome.kind,
+        keyword=source.keyword,
+        window_days=source.window_days,
+        data_days=source.data_days,
+        sample_size=source.sample_size,
+        disclaimer=prompts.DISCLAIMER,
+        reading=outcome.data,
+        text=outcome.text,
+        message=outcome.message,
+        cached=cached,
+    )
+
+
+@router.post("/analyze/market", response_model=LlmMarketAnalysis)
+async def analyze_market(
+    payload: LlmMarketAnalyze, session: SessionDep, request: Request
+) -> LlmMarketAnalysis:
+    """One market reading for one keyword, from the aggregated statistics.
+
+    **User-triggered only.** Nothing schedules this, nothing warms the cache,
+    and the collection loop cannot reach it: a rule polls every 300 s, so an
+    LLM call wired into the cycle is per-minute billing (prd.md risk table).
+    POST rather than GET for the same reason — it spends money, and a GET is
+    something a browser or a link preview will fetch on its own.
+
+    A repeat click inside the same window is free: the cache key is a digest
+    of the prompt, so it hits until the statistics behind it actually move
+    (`market.market_cache_key`).
+    """
+    row = session.get(LlmScenarioConfig, MARKET)
+    if row is None or not row.enabled or row.endpoint_id is None or not row.model:
+        # 409, not a 500 and not a 404: the request is well-formed, the
+        # install is unfinished, and the message names the page that fixes it.
+        raise HTTPException(status_code=409, detail=UNCONFIGURED_MESSAGE)
+    endpoint_id, model = row.endpoint_id, row.model
+    endpoint = _require(session, endpoint_id)
+
+    source = market.market_input(session, payload.keyword, days=payload.days)
+    if source.sample_size == 0:
+        return LlmMarketAnalysis(
+            kind="no_data",
+            keyword=source.keyword,
+            window_days=source.window_days,
+            data_days=source.data_days,
+            sample_size=0,
+            disclaimer=prompts.DISCLAIMER,
+            message=NO_DATA_MESSAGE,
+        )
+
+    template = row.prompt_template or prompts.default_prompt(MARKET)
+    llm_request = market.market_request(source, template)
+    key = market.market_cache_key(llm_request, endpoint_id=endpoint_id, model=model)
+    cache = _market_cache(request.app.state)
+    hit = cache.get(key)
+    if hit is not None:
+        return _market_analysis(source, hit, cached=True)
+
+    try:
+        outcome = await llm_client.complete_structured(
+            request.app.state.notify_client,
+            endpoint,
+            model,
+            llm_request,
+            market.MarketReading,
+        )
+    except LlmError as exc:
+        # str() of OUR error family only, whose messages are secret-free by
+        # construction (`llm/base.py`). 502 because our handler did its job
+        # and the upstream endpoint did not — `error-handling.md`'s test.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if outcome.kind == "ok":
+        # Only a good answer is cached. `starved` is fixed by raising
+        # max_tokens and `unparsable` by editing the template, and a cached
+        # failure would keep serving the old complaint after the fix.
+        cache.put(key, outcome)
+    log.info(
+        "llm market analysis",
+        extra={
+            # No prompt and no answer: those are the user's data. The numbers
+            # here are what a cost or a "why is it empty" question needs.
+            "keyword_chars": len(source.keyword),
+            "window_days": source.window_days,
+            "sample_size": source.sample_size,
+            "data_days": source.data_days,
+            "prompt_chars": len(llm_request.user_text),
+            "kind": outcome.kind,
+        },
+    )
+    return _market_analysis(source, outcome, cached=False)
+
+
+# --------------------------------------------------------------------------- #
+# Single-item advice (T4)
+# --------------------------------------------------------------------------- #
+
+
+@router.post("/analyze/item/{item_id}", response_model=LlmItemAnalysis)
+async def analyze_item(item_id: str, session: SessionDep, request: Request) -> LlmItemAnalysis:
+    """One listing, read against the market of one keyword. Never cached.
+
+    Never cached, unlike `market`: the price and the seller's state are the
+    two things this answer turns on, and a stored verdict on a listing that
+    has since dropped 800 yuan is worse than no verdict. There is nothing to
+    invalidate it either — a price change writes a snapshot, not an event.
+
+    Only ever reached by a user pressing the button (FR-P4-4). Nothing
+    schedules it; a per-cycle version of this route would bill per minute.
+
+    The five inputs are assembled by `llm/items.py` and every one of them
+    degrades to a sentence rather than to silence, so `notes` is part of the
+    answer: a verdict written without the photos must not look like one
+    written with them.
+    """
+    row = session.get(LlmScenarioConfig, "item")
+    if row is None or not row.enabled or row.endpoint_id is None or not row.model:
+        # 400, not 200-with-an-error: this one IS our failure — the request
+        # cannot be served at all (`error-handling.md`'s "did OUR handler
+        # fail?" test). The models route's 200 is for a request that
+        # succeeded and found an upstream capability missing.
+        raise HTTPException(
+            status_code=400,
+            detail="单品建议还没有配置：请在设置页选择端点与模型，并启用该场景。",
+        )
+    endpoint = _require(session, row.endpoint_id)
+    item = session.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="item not found")
+
+    built = await items.build_request(
+        session,
+        request.app.state.notify_client,
+        item,
+        template=row.prompt_template or prompts.default_prompt("item"),
+        model=row.model,
+        send_images=row.send_images,
+    )
+    try:
+        outcome = await llm_client.complete_structured(
+            request.app.state.notify_client,
+            endpoint,
+            row.model,
+            built.request,
+            items.ItemAdvice,
+        )
+    except LlmError as exc:
+        # str() of OUR family only; its messages are secret-free by
+        # construction. 502 because the failure is upstream of us, and the
+        # detail is the user's actual next step.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    log.info(
+        "llm item advice",
+        extra={
+            "item_id": item_id,
+            "keyword": built.keyword,
+            "kind": outcome.kind,
+            "images": len(built.request.images),
+            "notes": len(built.notes),
+        },
+    )
+    return LlmItemAnalysis(
+        kind=outcome.kind,
+        text=outcome.text,
+        data=outcome.data,
+        message=outcome.message,
+        keyword=built.keyword,
+        notes=list(built.notes),
+        images_sent=len(built.request.images),
+        disclaimer=prompts.DISCLAIMER,
     )
