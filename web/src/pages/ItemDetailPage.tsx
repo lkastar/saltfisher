@@ -4,17 +4,117 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import {
   addWatch,
+  analyzeItem,
   itemOptions,
   itemPricesOptions,
   keys,
+  llmScenarioOptions,
 } from "../api/queries";
+import LlmPanel, { LLM_WAIT_NOTE } from "../components/LlmPanel";
 import PriceChart from "../components/PriceChart";
 import RemoteImage from "../components/RemoteImage";
 import SellerProfile from "../components/SellerProfile";
 import { ErrorState, Loading } from "../components/States";
 import { formatDateTime, formatPrice, formatRelativeTime } from "../lib/format";
+import { itemAdvice, scenarioReady } from "../lib/llm";
 
 const GOOFISH_ITEM = "https://www.goofish.com/item?id=";
+
+/** The single-item advice trigger (FR-P4-4).
+ *
+ *  Never cached, on either side: the price and the seller's state are what
+ *  this answer turns on, so a stored verdict on a listing that has since
+ *  dropped ¥800 is worse than no verdict.
+ *
+ *  `keyword` is echoed because the choice is not obvious — a listing can sit
+ *  in two keywords' ledgers at different price levels, and the backend picks
+ *  the rule that saw it first. `notes` are the inputs that did NOT make it
+ *  in: an answer that silently dropped the photos looks exactly like one that
+ *  read them.
+ */
+function AdvicePanel({ itemId }: { itemId: string }) {
+  const config = useQuery(llmScenarioOptions("item"));
+  const analyze = useMutation({ mutationFn: () => analyzeItem(itemId) });
+  const result = analyze.data ?? null;
+  const advice = itemAdvice(result?.data);
+  const ready = scenarioReady(config.data);
+
+  return (
+    <LlmPanel
+      title="AI 单品建议"
+      intro={
+        <>
+          把这件商品的资料、价格历史、卖家画像、收藏备注和同关键词的行情统计交给模型，
+          让它回答值不值得、出多少、有什么风险。{LLM_WAIT_NOTE}
+        </>
+      }
+      runLabel="生成单品建议"
+      onRun={() => analyze.mutate()}
+      pending={analyze.isPending}
+      disabled={!ready}
+      blockedReason={
+        config.isPending || ready ? null : (
+          <>
+            还没配置好：<Link to="/settings">去设置页</Link>
+            选择端点与模型，并启用「单品建议」场景。
+          </>
+        )
+      }
+      error={analyze.error}
+      errorTitle="生成单品建议失败"
+      result={result}
+      meta={
+        result === null ? null : (
+          <>
+            {result.keyword === null
+              ? "这件商品不在任何关键词的台账里，所以这条建议没有行情统计做参照。"
+              : `参照关键词「${result.keyword}」的同期行情（最早发现它的那条规则）。`}
+            {` 发出图片 ${result.images_sent} 张。`}
+            {result.notes.length > 0 ? ` ${result.notes.join(" ")}` : ""}
+          </>
+        )
+      }
+    >
+      {advice === null ? (
+        <pre
+          className="mono"
+          style={{ margin: 0, fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+        >
+          {result?.text}
+        </pre>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+          {/* Untoned pill for the verdict, like the market panel: the model
+              answers in free text and 「谨慎考虑」 is a good answer. */}
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--space-3)",
+              flexWrap: "wrap",
+              alignItems: "baseline",
+            }}
+          >
+            <span className="pill">结论 {advice.verdict || "—"}</span>
+            <span style={{ fontSize: 13 }}>
+              合理价{" "}
+              <strong className="mono">{formatPrice(advice.fairPriceCents)}</strong>
+              {" · "}建议出价{" "}
+              <strong className="mono">{formatPrice(advice.offerPriceCents)}</strong>
+            </span>
+          </div>
+          <p style={{ margin: 0, fontSize: 13.5, whiteSpace: "pre-wrap" }}>{advice.summary}</p>
+          {advice.risks.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: "var(--space-4)", fontSize: 13 }}>
+              {advice.risks.map((risk) => (
+                <li key={risk}>{risk}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
+    </LlmPanel>
+  );
+}
 
 export default function ItemDetailPage() {
   const { itemId = "" } = useParams();
@@ -170,6 +270,8 @@ export default function ItemDetailPage() {
 
         <SellerProfile seller={data} />
       </div>
+
+      <AdvicePanel itemId={itemId} />
     </section>
   );
 }

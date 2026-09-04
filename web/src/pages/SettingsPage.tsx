@@ -2,21 +2,776 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { clearToken } from "../api/client";
-import { clearCookies, importCookies, keys, sessionOptions } from "../api/queries";
+import {
+  clearCookies,
+  createLlmEndpoint,
+  deleteLlmEndpoint,
+  importCookies,
+  keys,
+  llmDefaultPromptOptions,
+  llmEndpointsOptions,
+  llmModelsOptions,
+  llmScenarioOptions,
+  saveLlmScenario,
+  sessionOptions,
+  testLlmEndpoint,
+  updateLlmEndpoint,
+  type LlmEndpoint,
+  type LlmEndpointUpdate,
+  type LlmScenarioConfig,
+  type Scenario,
+} from "../api/queries";
 import { ErrorState, Loading } from "../components/States";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
+import { scenarioReady } from "../lib/llm";
 
-/** Session health, credential import, credential removal.
+const CARD: React.CSSProperties = {
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius)",
+  background: "var(--surface)",
+  padding: "var(--space-4)",
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-3)",
+};
+
+const FIELD: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-1)",
+};
+
+const CHECKBOX: React.CSSProperties = {
+  display: "flex",
+  gap: "var(--space-2)",
+  alignItems: "center",
+  fontSize: 13,
+};
+
+/* ---------- LLM endpoints (FR-P4-2) ----------
+ *
+ * The api_key never enters the DOM in any form: no `value`, no
+ * `defaultValue`, no masked placeholder standing in for one, and no React
+ * state holding one. Responses cannot leak it either -- no response model in
+ * `api/llm.py` has a field for it, and the page learns only
+ * `api_key_configured`. So the input is write-only: empty means "keep what is
+ * stored", and clearing is its own explicit checkbox.
+ *
+ * Audit by PATTERN, not by grepping for the one key you know
+ * (`docs/m1-report.md`): plant a distinctive fake key, then check both
+ * `document.documentElement.outerHTML` and every live input `.value`.
+ */
+
+/** Model name entry, with discovery as the optional part.
+ *
+ *  The text input is the primary control and always works. Discovery is a
+ *  button beside it, because `GET /endpoints/{id}/models` answering
+ *  `{"models": [], "error": "..."}` with HTTP 200 is a NORMAL answer -- many
+ *  relay gateways never implement the route. Rendering that as a failure
+ *  would block exactly the user the hand-entry fallback exists for, so it
+ *  gets a plain note and the input stays usable.
+ */
+function ModelPicker({
+  endpointId,
+  inputId,
+  value,
+  onChange,
+}: {
+  endpointId: number | null;
+  inputId: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [wanted, setWanted] = useState(false);
+  const models = useQuery({
+    ...llmModelsOptions(endpointId ?? 0),
+    // 0 is not a real row id. The query is disabled until an endpoint is
+    // chosen AND the button is pressed, so it is only ever a placeholder key
+    // -- nothing should poll a third party's models route on mount.
+    enabled: wanted && endpointId !== null,
+  });
+  const found = models.data?.models ?? [];
+
+  return (
+    <div style={FIELD}>
+      <label htmlFor={inputId}>模型</label>
+      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+        <input
+          id={inputId}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          maxLength={200}
+          placeholder="deepseek-v4-pro"
+          style={{ flex: "1 1 200px" }}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            if (wanted) void models.refetch();
+            else setWanted(true);
+          }}
+          disabled={endpointId === null || models.isFetching}
+        >
+          {models.isFetching ? "拉取中…" : "拉取模型列表"}
+        </button>
+      </div>
+
+      {endpointId === null ? (
+        <span className="muted" style={{ fontSize: 11.5 }}>
+          先选择端点才能拉取它的模型列表。模型名也可以直接手填。
+        </span>
+      ) : null}
+
+      {/* Chips rather than a <datalist>: a datalist only opens on typing, so
+          a user who does not know any model name never sees the result of the
+          button they just pressed. */}
+      {found.length > 0 ? (
+        <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
+          {found.map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => onChange(name)}
+              style={{ fontSize: 11.5, minHeight: 26, padding: "1px 8px" }}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Our request failed (network, 401, our 404) -- that IS an error. */}
+      {models.isError ? <ErrorState title="拉取模型列表失败" error={models.error} /> : null}
+
+      {/* Their route failed. Not an error: state the reason and move on. */}
+      {models.data?.error ? (
+        <span className="muted" style={{ fontSize: 11.5 }}>
+          没能拉到模型列表：{models.data.error}
+          。很多中转网关不实现这个接口，直接手填模型名就行。
+        </span>
+      ) : null}
+      {models.data && found.length === 0 && !models.data.error ? (
+        <span className="muted" style={{ fontSize: 11.5 }}>
+          端点返回了空列表。手填模型名即可。
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** Create or edit one endpoint. `endpoint` undefined means create. */
+function EndpointForm({
+  endpoint,
+  onDone,
+}: {
+  endpoint?: LlmEndpoint;
+  onDone: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const prefix = `llm-ep-${endpoint?.id ?? "new"}`;
+  const save = useMutation({
+    mutationFn: (body: LlmEndpointUpdate) =>
+      endpoint === undefined
+        ? createLlmEndpoint({
+            label: body.label ?? "",
+            base_url: body.base_url ?? "",
+            api_key: body.api_key ?? "",
+            wire_format: body.wire_format ?? "openai",
+          })
+        : updateLlmEndpoint(endpoint.id, body),
+    onSuccess: onDone,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.llmEndpoints }),
+  });
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const text = (name: string) => String(form.get(name) ?? "").trim();
+    const typedKey = String(form.get("api_key") ?? "");
+    const body: LlmEndpointUpdate = {
+      label: text("label"),
+      base_url: text("base_url"),
+      wire_format: text("wire_format") === "anthropic" ? "anthropic" : "openai",
+    };
+    // Three cases, and the middle one is the whole point of the write-only
+    // input: clear it explicitly, replace it with what was typed, or send no
+    // `api_key` field at all and leave the stored one alone.
+    if (form.get("clear_key") === "on") body.api_key = "";
+    else if (typedKey) body.api_key = typedKey;
+    save.mutate(body);
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        gap: "var(--space-3)",
+        border: "1px solid var(--border-strong)",
+        borderRadius: "var(--radius)",
+        padding: "var(--space-3)",
+      }}
+    >
+      <div style={FIELD}>
+        <label htmlFor={`${prefix}-label`}>名称</label>
+        <input
+          id={`${prefix}-label`}
+          name="label"
+          required
+          maxLength={60}
+          defaultValue={endpoint?.label}
+          placeholder="给自己看的备注"
+        />
+      </div>
+
+      <div style={FIELD}>
+        <label htmlFor={`${prefix}-url`}>Base URL</label>
+        <input
+          id={`${prefix}-url`}
+          name="base_url"
+          required
+          maxLength={500}
+          defaultValue={endpoint?.base_url}
+          placeholder="https://api.deepseek.com"
+        />
+        <span className="muted" style={{ fontSize: 11 }}>
+          不带
+          <span className="mono"> /chat/completions </span>
+          之类的路径，适配层自己拼。
+        </span>
+      </div>
+
+      <div style={FIELD}>
+        <label htmlFor={`${prefix}-wire`}>协议格式</label>
+        <select
+          id={`${prefix}-wire`}
+          name="wire_format"
+          defaultValue={endpoint?.wire_format ?? "openai"}
+        >
+          <option value="openai">OpenAI 兼容</option>
+          <option value="anthropic">Anthropic</option>
+        </select>
+        <span className="muted" style={{ fontSize: 11 }}>
+          本地 Ollama、中转网关、自建 vLLM 基本都是 OpenAI 兼容。
+        </span>
+      </div>
+
+      <div style={FIELD}>
+        <label htmlFor={`${prefix}-key`}>API Key</label>
+        {/* No value, no defaultValue, not even a masked one: nothing ever
+            hands this page a stored key to put here. */}
+        <input
+          id={`${prefix}-key`}
+          name="api_key"
+          type="password"
+          autoComplete="new-password"
+          maxLength={500}
+          placeholder={
+            endpoint === undefined
+              ? "本地模型可以留空"
+              : endpoint.api_key_configured
+                ? "已设置。留空＝不修改"
+                : "未设置"
+          }
+        />
+        {endpoint?.api_key_configured ? (
+          <span style={CHECKBOX}>
+            <input id={`${prefix}-clear`} name="clear_key" type="checkbox" />
+            <label htmlFor={`${prefix}-clear`}>清除已保存的密钥</label>
+          </span>
+        ) : null}
+        <span className="muted" style={{ fontSize: 11 }}>
+          密钥只写不读：任何接口响应、页面 HTML、输入框默认值里都不会出现它。
+        </span>
+      </div>
+
+      <div style={{ gridColumn: "1 / -1", display: "flex", gap: "var(--space-2)" }}>
+        <button type="submit" data-variant="primary" disabled={save.isPending}>
+          {save.isPending ? "保存中…" : endpoint === undefined ? "创建端点" : "保存"}
+        </button>
+        <button type="button" onClick={onDone}>
+          取消
+        </button>
+      </div>
+
+      {save.isError ? (
+        <div style={{ gridColumn: "1 / -1" }}>
+          <ErrorState title="保存端点失败" error={save.error} />
+        </div>
+      ) : null}
+    </form>
+  );
+}
+
+function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [model, setModel] = useState("");
+
+  const test = useMutation({ mutationFn: () => testLlmEndpoint(endpoint.id, model.trim()) });
+  const remove = useMutation({
+    mutationFn: () => deleteLlmEndpoint(endpoint.id),
+    // ["llm"], not just the endpoint list: deleting an endpoint detaches and
+    // disables every scenario that pointed at it, so those forms are stale too.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["llm"] }),
+  });
+
+  if (editing) return <EndpointForm endpoint={endpoint} onDone={() => setEditing(false)} />;
+
+  return (
+    <article
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+        padding: "var(--space-3)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-2)",
+      }}
+    >
+      <header style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap" }}>
+        <strong>{endpoint.label}</strong>
+        <span className="pill">{endpoint.wire_format}</span>
+        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+          建于 {formatDateTime(endpoint.created_at)}
+        </span>
+      </header>
+
+      <dl
+        style={{
+          margin: 0,
+          display: "grid",
+          gridTemplateColumns: "auto 1fr",
+          gap: "2px 12px",
+          fontSize: 12.5,
+        }}
+      >
+        <dt className="muted">Base URL</dt>
+        <dd className="mono" style={{ margin: 0, wordBreak: "break-all" }}>
+          {endpoint.base_url}
+        </dd>
+        <dt className="muted">API Key</dt>
+        {/* Never the value, only whether one exists. */}
+        <dd style={{ margin: 0 }}>{endpoint.api_key_configured ? "已设置" : "未设置"}</dd>
+      </dl>
+
+      {/* The test needs a model name because a connection is only testable
+          through the model it will use -- `POST /test?model=` requires one,
+          and "the base_url resolves" is not the thing that breaks. */}
+      <ModelPicker
+        endpointId={endpoint.id}
+        inputId={`llm-ep-${endpoint.id}-test-model`}
+        value={model}
+        onChange={setModel}
+      />
+
+      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={() => test.mutate()}
+          disabled={test.isPending || !model.trim()}
+        >
+          {test.isPending ? "测试中…" : "测试连接"}
+        </button>
+        <button type="button" onClick={() => setEditing(true)}>
+          编辑
+        </button>
+        {confirming ? (
+          <>
+            <button
+              type="button"
+              data-variant="danger"
+              onClick={() => remove.mutate()}
+              disabled={remove.isPending}
+            >
+              确认删除
+            </button>
+            <button type="button" onClick={() => setConfirming(false)}>
+              取消
+            </button>
+          </>
+        ) : (
+          <button type="button" data-variant="danger" onClick={() => setConfirming(true)}>
+            删除
+          </button>
+        )}
+      </div>
+
+      {confirming ? (
+        <p className="muted" style={{ margin: 0, fontSize: 11.5 }}>
+          删除会把指向它的场景配置解绑并停用——那些场景没有端点就跑不了。
+        </p>
+      ) : null}
+
+      {test.isPending ? (
+        <p style={{ margin: 0, fontSize: 12.5 }}>
+          正在发一次真实调用，可能要几十秒。
+        </p>
+      ) : null}
+      {test.data ? (
+        test.data.ok ? (
+          <p style={{ margin: 0, fontSize: 12.5, color: "var(--success)" }}>
+            连通。模型回了：<span className="mono">{test.data.text}</span>
+          </p>
+        ) : (
+          // The server's own wording: "budget went to reasoning" and "wrong
+          // model id" have different fixes and it already told them apart.
+          <ErrorState title="测试连接失败" error={test.data.error ?? "未知错误"} />
+        )
+      ) : null}
+      {test.isError ? <ErrorState title="测试连接失败" error={test.error} /> : null}
+      {remove.isError ? <ErrorState title="删除失败" error={remove.error} /> : null}
+    </article>
+  );
+}
+
+/** One scenario's whole config, PUT as one object.
+ *
+ *  The draft is local state seeded from the server row, which is the "hold
+ *  the edit in the form, submit, invalidate" case `state-management.md`
+ *  allows -- three of these controls are written by buttons ("restore
+ *  default", a model chip) and not only by typing, so they cannot be
+ *  uncontrolled DOM state.
+ */
+function ScenarioForm({
+  scenario,
+  title,
+  intro,
+  config,
+  endpoints,
+}: {
+  scenario: Scenario;
+  title: string;
+  intro: string;
+  config: LlmScenarioConfig;
+  endpoints: LlmEndpoint[];
+}) {
+  const queryClient = useQueryClient();
+  const defaults = useQuery(llmDefaultPromptOptions(scenario));
+  const [draft, setDraft] = useState({
+    endpoint_id: config.endpoint_id,
+    model: config.model ?? "",
+    prompt_template: config.prompt_template ?? "",
+    send_images: config.send_images,
+    max_tokens: config.max_tokens === null ? "" : String(config.max_tokens),
+    enabled: config.enabled,
+  });
+  // Derived, not remounted on a changing key: deleting an endpoint detaches
+  // every scenario that pointed at it, and a draft still holding that id
+  // would show a <select> with no matching <option>. Reading it as "未选择"
+  // handles that at render time, where a remount would also throw away the
+  // mutation state the moment the user saves -- which is when "已保存" is the
+  // only feedback they get.
+  const endpointId = endpoints.some((row) => row.id === draft.endpoint_id)
+    ? draft.endpoint_id
+    : null;
+  const save = useMutation({
+    mutationFn: () =>
+      saveLlmScenario(scenario, {
+        endpoint_id: endpointId,
+        model: draft.model.trim() || null,
+        // "" and null both mean "use the built-in default" on the backend.
+        prompt_template: draft.prompt_template.trim() || null,
+        send_images: draft.send_images,
+        // "" means "the built-in default", which is what clearing the box asks
+        // for. Number("") is 0, which the backend would reject as below the
+        // floor -- an unhelpful 422 for someone who just emptied a field.
+        max_tokens: draft.max_tokens.trim() ? Number(draft.max_tokens) : null,
+        enabled: draft.enabled,
+      }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.llmScenario(scenario) }),
+  });
+
+  const prefix = `llm-scenario-${scenario}`;
+  const ready = scenarioReady({
+    endpoint_id: endpointId,
+    model: draft.model.trim() || null,
+    enabled: draft.enabled,
+  });
+
+  return (
+    <article style={CARD}>
+      <header style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0 }}>{title}</h2>
+        <span className="pill" data-tone={ready ? "success" : undefined}>
+          {ready ? "已就绪" : "未就绪"}
+        </span>
+      </header>
+      <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+        {intro}
+      </p>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          save.mutate();
+        }}
+        style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}
+      >
+        <div style={FIELD}>
+          <label htmlFor={`${prefix}-endpoint`}>端点</label>
+          <select
+            id={`${prefix}-endpoint`}
+            value={endpointId ?? ""}
+            onChange={(event) =>
+              setDraft((old) => ({
+                ...old,
+                endpoint_id: event.target.value === "" ? null : Number(event.target.value),
+              }))
+            }
+          >
+            <option value="">未选择</option>
+            {endpoints.map((endpoint) => (
+              <option key={endpoint.id} value={endpoint.id}>
+                {endpoint.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <ModelPicker
+          endpointId={endpointId}
+          inputId={`${prefix}-model`}
+          value={draft.model}
+          onChange={(model) => setDraft((old) => ({ ...old, model }))}
+        />
+
+        <div style={FIELD}>
+          <label htmlFor={`${prefix}-prompt`}>提示词模板</label>
+          <textarea
+            id={`${prefix}-prompt`}
+            value={draft.prompt_template}
+            onChange={(event) =>
+              setDraft((old) => ({ ...old, prompt_template: event.target.value }))
+            }
+            rows={10}
+            maxLength={20000}
+            placeholder="留空表示使用内置默认模板"
+            style={{ fontFamily: "var(--font-mono)", fontSize: 12, resize: "vertical" }}
+            aria-describedby={`${prefix}-placeholders`}
+          />
+          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() =>
+                setDraft((old) => ({
+                  ...old,
+                  prompt_template: defaults.data?.prompt_template ?? old.prompt_template,
+                }))
+              }
+              disabled={defaults.data === undefined}
+            >
+              恢复默认模板
+            </button>
+            {draft.prompt_template ? (
+              <button
+                type="button"
+                onClick={() => setDraft((old) => ({ ...old, prompt_template: "" }))}
+              >
+                清空（改用内置默认）
+              </button>
+            ) : null}
+          </div>
+
+          {/* The placeholder contract, from the same response as the default
+              template. Without it the template is a contract nobody can see:
+              `prompts.render` substitutes with str.replace, so a typo'd
+              {plcaeholder} survives into the prompt as literal text and the
+              answer just quietly degrades -- no error anywhere. */}
+          <div id={`${prefix}-placeholders`} className="muted" style={{ fontSize: 11.5 }}>
+            {defaults.isError ? (
+              <ErrorState title="拉取默认模板失败" error={defaults.error} />
+            ) : defaults.data === undefined ? (
+              "正在拉取占位符列表…"
+            ) : (
+              <>
+                可用占位符（会被替换成真实数据）：
+                {defaults.data.placeholders.map((name) => (
+                  <span key={name} className="mono">
+                    {" "}
+                    {`{${name}}`}
+                  </span>
+                ))}
+                。写错的占位符会原样留在提示词里，不会报错，只会让回答变差。
+              </>
+            )}
+          </div>
+        </div>
+
+        {scenario === "item" ? (
+          <div style={FIELD}>
+            <span style={CHECKBOX}>
+              <input
+                id={`${prefix}-images`}
+                type="checkbox"
+                checked={draft.send_images}
+                onChange={(event) =>
+                  setDraft((old) => ({ ...old, send_images: event.target.checked }))
+                }
+              />
+              <label htmlFor={`${prefix}-images`}>附带商品图片</label>
+            </span>
+            {/* What it costs, measured, rather than presented as free. */}
+            <span className="muted" style={{ fontSize: 11.5 }}>
+              实测一件商品的 3 张图约 1.3 MB base64，而 327 件里有 325 件只有 1 张图（就是封面），
+              所以多数情况下只会发 1 张。是否真的用得上取决于模型有没有视觉能力——
+              这一点没有任何地方记录，后端只能按模型名猜；猜不支持时会降级为纯文本，
+              并在结果里说明降级了。
+            </span>
+          </div>
+        ) : null}
+
+        <div style={FIELD}>
+          <label htmlFor={`${prefix}-budget`}>回答的 token 上限</label>
+          <input
+            id={`${prefix}-budget`}
+            type="number"
+            min={1024}
+            max={65536}
+            step={1024}
+            placeholder="留空用默认值 16384"
+            value={draft.max_tokens}
+            onChange={(event) => setDraft((old) => ({ ...old, max_tokens: event.target.value }))}
+          />
+          {/* This field exists because the starved answer's own advice is
+              "raise max_tokens". Before it, taking that advice meant editing
+              Python -- an error naming a knob the product does not offer is
+              not actionable. The numbers are measured, not guessed. */}
+          <span className="muted" style={{ fontSize: 11.5 }}>
+            这些模型会先"想"再答，想的部分也算在这个上限里。实测 4096 时行情分析
+            只想不答（返回空回答），16384 才答得出来。看到「预算被推理用光」的提示就调大这里。
+          </span>
+        </div>
+
+        <span style={CHECKBOX}>
+          <input
+            id={`${prefix}-enabled`}
+            type="checkbox"
+            checked={draft.enabled}
+            onChange={(event) => setDraft((old) => ({ ...old, enabled: event.target.checked }))}
+          />
+          <label htmlFor={`${prefix}-enabled`}>启用这个场景</label>
+        </span>
+
+        <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+          <button type="submit" data-variant="primary" disabled={save.isPending}>
+            {save.isPending ? "保存中…" : "保存配置"}
+          </button>
+          {save.isSuccess && !save.isPending ? (
+            <span style={{ fontSize: 12.5, color: "var(--success)" }}>已保存</span>
+          ) : null}
+        </div>
+        {save.isError ? <ErrorState title="保存配置失败" error={save.error} /> : null}
+      </form>
+    </article>
+  );
+}
+
+function ScenarioSection({
+  scenario,
+  title,
+  intro,
+  endpoints,
+}: {
+  scenario: Scenario;
+  title: string;
+  intro: string;
+  endpoints: LlmEndpoint[];
+}) {
+  const config = useQuery(llmScenarioOptions(scenario));
+
+  if (config.isPending) return <Loading rows={3} />;
+  if (config.isError) {
+    return (
+      <ErrorState
+        title={`拉取${title}配置失败`}
+        error={config.error}
+        onRetry={() => void config.refetch()}
+      />
+    );
+  }
+  return (
+    <ScenarioForm
+      scenario={scenario}
+      title={title}
+      intro={intro}
+      config={config.data}
+      endpoints={endpoints}
+    />
+  );
+}
+
+function LlmSection() {
+  const endpoints = useQuery(llmEndpointsOptions());
+  const [creating, setCreating] = useState(false);
+
+  return (
+    <>
+      <article style={CARD}>
+        <header style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
+          <h2 style={{ margin: 0 }}>LLM 端点</h2>
+          {!creating ? (
+            <button type="button" data-variant="primary" onClick={() => setCreating(true)}>
+              新建端点
+            </button>
+          ) : null}
+        </header>
+        <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+          任何 OpenAI 兼容或 Anthropic 格式的端点都行，包括本地 Ollama 和自建 vLLM。
+          「测试连接」会发一次真实调用——它测的是这条路真的通，不是 base_url 能解析。
+        </p>
+
+        {creating ? <EndpointForm onDone={() => setCreating(false)} /> : null}
+
+        {endpoints.isPending ? <Loading rows={2} /> : null}
+        {endpoints.isError ? (
+          <ErrorState
+            title="拉取端点失败"
+            error={endpoints.error}
+            onRetry={() => void endpoints.refetch()}
+          />
+        ) : null}
+        {endpoints.data?.length === 0 && !creating ? (
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            还没有端点。两个 AI 场景都要先有端点才能用。
+          </p>
+        ) : null}
+
+        {(endpoints.data ?? []).map((endpoint) => (
+          <EndpointCard key={endpoint.id} endpoint={endpoint} />
+        ))}
+      </article>
+
+      <ScenarioSection
+        scenario="market"
+        title="行情分析"
+        intro="喂给模型的是已聚合的统计量（分位数、降价排行、供应量趋势、离开观测范围时长），不是原始商品列表。入口在行情分析页，只在你点击时才调用。"
+        endpoints={endpoints.data ?? []}
+      />
+      <ScenarioSection
+        scenario="item"
+        title="单品建议"
+        intro="喂给模型的是单件商品、它的价格史、卖家画像、收藏备注，以及它所属关键词的行情统计。入口在商品详情页，只在你点击时才调用。"
+        endpoints={endpoints.data ?? []}
+      />
+    </>
+  );
+}
+
+/** Session health, credential import, credential removal, and the LLM
+ *  configuration the PRD deferred until something could verify it.
  *
  *  Importing a cookie header is the one step that cannot be automated: a
  *  headless container cannot solve a slider, so the login state has to come
  *  from a human's own browser. Without this screen the tool cannot be
  *  deployed at all.
  *
- *  The LLM endpoint and per-scenario prompt configuration that the PRD lists
- *  is deliberately NOT here yet: nothing reads it until M4, and a form that
- *  stores settings no code consumes -- with no way to test a connection or
- *  list models -- looks functional while doing nothing.
+ *  The LLM block waited for P4 on purpose (`docs/m1-report.md`: 做一个存了也
+ *  无从验证的表单比没有更糟). It ships now because there is something behind
+ *  every control: a test call, a real model list, two triggers that consume
+ *  what is saved here.
  */
 export default function SettingsPage() {
   const queryClient = useQueryClient();
@@ -49,17 +804,7 @@ export default function SettingsPage() {
     <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
       <h1>设置</h1>
 
-      <article
-        style={{
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius)",
-          background: "var(--surface)",
-          padding: "var(--space-4)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-3)",
-        }}
-      >
+      <article style={CARD}>
         <h2>采集会话</h2>
 
         {session.isPending ? <Loading rows={2} /> : null}
@@ -243,17 +988,7 @@ export default function SettingsPage() {
         </form>
       </article>
 
-      <article
-        style={{
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius)",
-          background: "var(--surface)",
-          padding: "var(--space-4)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-2)",
-        }}
-      >
+      <article style={CARD}>
         <h2>面板访问</h2>
         <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
           面板用的是后端启动时的
@@ -272,10 +1007,7 @@ export default function SettingsPage() {
         </button>
       </article>
 
-      <p className="muted" style={{ fontSize: 11.5 }}>
-        LLM 端点与场景提示词配置留到 M4：现在没有任何代码读它，也没有「测试连接」和
-        「拉取模型列表」，配了也无从验证。
-      </p>
+      <LlmSection />
     </section>
   );
 }

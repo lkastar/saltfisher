@@ -408,6 +408,7 @@ def test_an_unsaved_scenario_is_a_shape_not_a_404(client):
         "model": None,
         "prompt_template": None,
         "send_images": False,
+        "max_tokens": None,
         "enabled": False,
     }
 
@@ -436,8 +437,51 @@ def test_scenario_upsert_round_trip(client):
         "model": "other",
         "prompt_template": None,
         "send_images": False,
+        "max_tokens": None,
         "enabled": False,
     }
+
+
+def test_market_cannot_store_a_send_images_it_will_never_honour(client):
+    """The market path never attaches an image, so accepting `true` there
+    would record a setting the code cannot act on. A config row that lies is
+    worse than one missing a field -- someone reading it later believes the
+    photos went out.
+    """
+    c, _ = client
+    saved = c.put("/api/llm/scenarios/market", json={"send_images": True}, headers=AUTH)
+    assert saved.status_code == 200
+    assert saved.json()["send_images"] is False
+
+    # The item path, where it means something, keeps it.
+    item = c.put("/api/llm/scenarios/item", json={"send_images": True}, headers=AUTH)
+    assert item.json()["send_images"] is True
+
+
+def test_the_token_budget_is_configurable_and_bounded(client):
+    """`starved` tells the user to raise max_tokens. Until this was on the
+    scenario row the only way to take that advice was editing
+    `app/llm/base.py`, so the message named a knob the product did not offer.
+
+    Bounded because 4096 is the value measured to starve the market prompt:
+    the floor stops someone configuring the failure they were just told to fix.
+    """
+    c, _ = client
+    saved = c.put("/api/llm/scenarios/market", json={"max_tokens": 32_768}, headers=AUTH)
+    assert saved.status_code == 200
+    assert saved.json()["max_tokens"] == 32_768
+
+    assert (
+        c.put("/api/llm/scenarios/market", json={"max_tokens": 512}, headers=AUTH).status_code
+        == 422
+    )
+    assert (
+        c.put("/api/llm/scenarios/market", json={"max_tokens": 200_000}, headers=AUTH).status_code
+        == 422
+    )
+    # Omitted means "the built-in default", not zero.
+    cleared = c.put("/api/llm/scenarios/market", json={}, headers=AUTH)
+    assert cleared.json()["max_tokens"] is None
 
 
 def test_unknown_scenario_is_422_not_500(client):

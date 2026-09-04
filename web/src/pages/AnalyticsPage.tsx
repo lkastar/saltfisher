@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
 import {
+  analyzeMarket,
   listingDurationOptions,
+  llmScenarioOptions,
   monitorsOptions,
   priceDistributionOptions,
   priceDropsOptions,
@@ -11,6 +13,7 @@ import {
 } from "../api/queries";
 import DailyBars from "../components/DailyBars";
 import Histogram from "../components/Histogram";
+import LlmPanel, { LLM_WAIT_NOTE } from "../components/LlmPanel";
 import RemoteImage from "../components/RemoteImage";
 import { Empty, ErrorState, Loading } from "../components/States";
 import {
@@ -21,6 +24,9 @@ import {
   formatPrice,
   formatRelativeTime,
 } from "../lib/format";
+import { marketReading, scenarioReady,
+  billingNote,
+} from "../lib/llm";
 
 /** Market analysis for one keyword.
  *
@@ -30,8 +36,8 @@ import {
  *  not an inconsistency to paper over, so every block states its own reading
  *  of the window instead of leaving the user to assume one.
  *
- *  No LLM button. M4 owns that, and a disabled placeholder promises a feature
- *  that does not exist.
+ *  `MarketPanel` is the one control here that spends money, so it sits at the
+ *  top and never fires on its own.
  */
 
 const WINDOWS = [7, 30, 90];
@@ -409,6 +415,90 @@ function DurationBlock({ query }: { query: AnalyticsQuery }) {
   );
 }
 
+/** The market-analysis trigger (FR-P4-3).
+ *
+ *  User-triggered only, and it stays that way: the mutation fires from a
+ *  click and nothing here refetches. A `useQuery` would re-run on window
+ *  focus, and every run is a billed call.
+ *
+ *  Repeat clicks inside the same window are free — the server caches on a
+ *  digest of the rendered prompt, so a hit says so in the footer rather than
+ *  silently looking like a fresh answer.
+ */
+function MarketPanel({ query }: { query: AnalyticsQuery }) {
+  const config = useQuery(llmScenarioOptions("market"));
+  const analyze = useMutation({ mutationFn: analyzeMarket });
+  const result = analyze.data ?? null;
+  const reading = marketReading(result?.reading);
+  const ready = scenarioReady(config.data);
+
+  return (
+    <LlmPanel
+      title="AI 行情解读"
+      intro={
+        <>
+          把下面这些统计量（分位数、降价排行、供应量趋势、离开观测范围时长）交给模型，
+          让它回答「现在什么水位、该等还是该出手」。模型看不到原始商品列表。{LLM_WAIT_NOTE}
+        </>
+      }
+      runLabel={`分析「${query.keyword}」最近 ${query.days} 天`}
+      onRun={() => analyze.mutate({ keyword: query.keyword, days: query.days })}
+      pending={analyze.isPending}
+      disabled={!ready}
+      blockedReason={
+        config.isPending || ready ? null : (
+          <>
+            还没配置好：<Link to="/settings">去设置页</Link>
+            选择端点与模型，并启用「行情分析」场景。
+          </>
+        )
+      }
+      error={analyze.error}
+      errorTitle="行情分析失败"
+      result={result}
+      meta={
+        result === null
+          ? null
+          : `口径：关键词「${result.keyword}」最近 ${result.window_days} 天 · 已收集 ${result.data_days} 天 · 样本 ${result.sample_size} 件 · ${billingNote(
+              result.cached,
+              result.calls,
+            )}`
+      }
+    >
+      {reading === null ? (
+        // `ok` with an unreadable body should not render an empty card. The
+        // model's own text is the honest fallback.
+        <pre
+          className="mono"
+          style={{ margin: 0, fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+        >
+          {result?.text}
+        </pre>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+          {/* No tone on these pills. The model answers in free text -- 「略偏低」
+              is a good answer (`market.MarketReading` keeps them as str for
+              that reason) -- so any colour mapping would be guessing, and
+              colour never carries meaning alone here anyway. */}
+          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+            <span className="pill">水位 {reading.level || "—"}</span>
+            <span className="pill">趋势 {reading.trend || "—"}</span>
+            <span className="pill">建议 {reading.advice || "—"}</span>
+          </div>
+          <p style={{ margin: 0, fontSize: 13.5, whiteSpace: "pre-wrap" }}>{reading.summary}</p>
+          {reading.reasons.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: "var(--space-4)", fontSize: 13 }}>
+              {reading.reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
+    </LlmPanel>
+  );
+}
+
 export default function AnalyticsPage() {
   const [params, setParams] = useSearchParams();
   const monitors = useQuery(monitorsOptions());
@@ -512,6 +602,11 @@ export default function AnalyticsPage() {
         以下数字都来自「{keyword}」这个关键词的搜索结果，包含被规则价格区间和排除词挡掉的商品——市场是市场，规则是规则。
         不是整个闲鱼。日期与日界均为 UTC。四块内容里「{days} 天」的含义各不相同，见每块自己的口径。
       </p>
+
+      {/* Above the numbers it reads, not below them: it is a reading OF the
+          four blocks, and burying the trigger at the bottom of a long scroll
+          hides the one control on this page that costs money. */}
+      <MarketPanel query={query} />
 
       <DistributionBlock query={query} />
       <DropsBlock query={query} />

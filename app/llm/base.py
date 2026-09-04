@@ -140,6 +140,11 @@ class LlmOutcome:
     text: str
     data: dict[str, Any] | None = None
     message: str | None = None
+    # Endpoint calls this outcome cost. One click can bill twice, because a
+    # first draw that fails validation is retried once, and the caller has no
+    # other way to know: `kind == "ok"` looks identical whether it took one
+    # call or two. Measured live, 100s + 52s for a single market click.
+    calls: int = 1
 
 
 class LlmAdapter(Protocol):

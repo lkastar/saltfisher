@@ -17,6 +17,7 @@ nothing more.
 """
 
 import logging
+from dataclasses import replace as dc_replace
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -85,6 +86,7 @@ def _scenario_public(row: LlmScenarioConfig) -> LlmScenarioPublic:
         model=row.model,
         prompt_template=row.prompt_template,
         send_images=row.send_images,
+        max_tokens=row.max_tokens,
         enabled=row.enabled,
     )
 
@@ -271,7 +273,11 @@ def save_scenario(
     # box is asking for the default back, and storing an empty template would
     # send the model a prompt with no instructions in it.
     row.prompt_template = payload.prompt_template or None
-    row.send_images = payload.send_images
+    # Forced off for `market`: that path never attaches an image, so storing
+    # `true` would record a setting the code cannot honour -- a config row
+    # that lies is worse than one that lacks a field.
+    row.send_images = payload.send_images and scenario == "item"
+    row.max_tokens = payload.max_tokens
     row.enabled = payload.enabled
     session.add(row)
     session.commit()
@@ -357,6 +363,10 @@ def _market_analysis(
         text=outcome.text,
         message=outcome.message,
         cached=cached,
+        # Zero on a cache hit: nothing was billed. Otherwise whatever the
+        # client actually spent, which is 2 when the first draw needed a
+        # retry -- a user who just paid double should be able to see it.
+        calls=0 if cached else outcome.calls,
     )
 
 
@@ -398,6 +408,8 @@ async def analyze_market(
 
     template = row.prompt_template or prompts.default_prompt(MARKET)
     llm_request = market.market_request(source, template)
+    if row.max_tokens:
+        llm_request = dc_replace(llm_request, max_tokens=row.max_tokens)
     key = market.market_cache_key(llm_request, endpoint_id=endpoint_id, model=model)
     cache = _market_cache(request.app.state)
     hit = cache.get(key)
@@ -484,12 +496,15 @@ async def analyze_item(item_id: str, session: SessionDep, request: Request) -> L
         model=row.model,
         send_images=row.send_images,
     )
+    item_request = built.request
+    if row.max_tokens:
+        item_request = dc_replace(item_request, max_tokens=row.max_tokens)
     try:
         outcome = await llm_client.complete_structured(
             request.app.state.notify_client,
             endpoint,
             row.model,
-            built.request,
+            item_request,
             items.ItemAdvice,
         )
     except LlmError as exc:
@@ -517,4 +532,5 @@ async def analyze_item(item_id: str, session: SessionDep, request: Request) -> L
         notes=list(built.notes),
         images_sent=len(built.request.images),
         disclaimer=prompts.DISCLAIMER,
+        calls=outcome.calls,
     )

@@ -321,4 +321,12 @@ class LlmScenarioConfig(SQLModel, table=True):
     model: str | None = None
     prompt_template: str | None = None  # None = use the built-in default
     send_images: bool = False
+    # None = the LlmRequest default. It is configurable because the starved
+    # message tells the user to raise it, and until this column existed the
+    # only way to take that advice was editing `app/llm/base.py` -- an error
+    # that names a knob the product does not expose is not actionable, which
+    # is the same failure as naming the wrong cause.
+    #
+    # Measured: 4096 starved on the market prompt, 16384 answered.
+    max_tokens: int | None = None
     enabled: bool = False

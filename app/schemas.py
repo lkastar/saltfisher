@@ -540,6 +540,10 @@ class LlmScenarioPublic(SQLModel):
     model: str | None
     prompt_template: str | None
     send_images: bool
+    # Null means the built-in default. Exposed because the starved answer's
+    # own advice is "raise max_tokens", and an error that names a knob the
+    # product does not offer is not actionable.
+    max_tokens: int | None = None
     enabled: bool
 
 
@@ -559,6 +563,10 @@ class LlmScenarioUpdate(SQLModel):
     model: str | None = Field(default=None, max_length=200)
     prompt_template: str | None = Field(default=None, max_length=20_000)
     send_images: bool = False
+    # Bounded rather than free: measured, 4096 starves the market prompt and
+    # 16384 answers it, so the floor keeps a user from configuring the failure
+    # the message just told them to fix.
+    max_tokens: int | None = Field(default=None, ge=1024, le=65_536)
     enabled: bool = False
 
 
@@ -624,6 +632,11 @@ class LlmMarketAnalysis(SQLModel):
     message: str | None = None
     # True means no endpoint call was billed for this response (FR-P4-3).
     cached: bool = False
+    # How many endpoint calls this answer cost. Not derivable from `cached`:
+    # a first draw that fails validation is retried once, so one click can
+    # bill twice, and `cached: false` alone cannot tell that apart from a
+    # single call. Measured live: 100s + 52s for one market click.
+    calls: int = 0
 
 
 # --------------------------------------------------------------------------- #
@@ -656,6 +669,9 @@ class LlmItemAnalysis(SQLModel):
     kind: Literal["ok", "starved", "empty", "unparsable"]
     text: str
     data: dict[str, Any] | None = None
+    # Endpoint calls billed. Two when the first draw failed validation and was
+    # retried; this scenario is never cached, so it is always at least one.
+    calls: int = 1
     message: str | None = None
     keyword: str | None = None
     notes: list[str]

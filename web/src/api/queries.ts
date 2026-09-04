@@ -7,7 +7,7 @@
 import { queryOptions } from "@tanstack/react-query";
 
 import { request } from "./client";
-import type { components } from "./types";
+import type { components, operations } from "./types";
 
 type Schemas = components["schemas"];
 
@@ -36,6 +36,26 @@ export type SupplyTrend = Schemas["SupplyTrend"];
 export type SupplyDay = Schemas["SupplyDay"];
 export type ListingDuration = Schemas["ListingDuration"];
 export type DurationBucket = Schemas["DurationBucket"];
+export type LlmEndpoint = Schemas["LlmEndpointPublic"];
+export type LlmEndpointCreate = Schemas["LlmEndpointCreate"];
+export type LlmEndpointUpdate = Schemas["LlmEndpointUpdate"];
+export type LlmModelList = Schemas["LlmModelList"];
+export type LlmTestResult = Schemas["LlmTestResult"];
+export type LlmScenarioConfig = Schemas["LlmScenarioPublic"];
+export type LlmScenarioUpdate = Schemas["LlmScenarioUpdate"];
+export type LlmDefaultPrompt = Schemas["LlmDefaultPrompt"];
+export type LlmMarketAnalysis = Schemas["LlmMarketAnalysis"];
+export type LlmMarketAnalyze = Schemas["LlmMarketAnalyze"];
+export type LlmItemAnalysis = Schemas["LlmItemAnalysis"];
+/** The two scenarios, from the backend's own `Scenario` literal.
+ *
+ *  Reached through `operations` rather than written out, because it is a path
+ *  parameter enum and not a named schema -- there is no
+ *  `components["schemas"]` entry to alias. Renaming the route or the literal
+ *  breaks this line loudly, which is the point.
+ */
+export type Scenario =
+  operations["read_scenario_api_llm_scenarios__scenario__get"]["parameters"]["path"]["scenario"];
 
 /** Key hierarchy. Invalidating a prefix invalidates everything under it. */
 export const keys = {
@@ -56,6 +76,13 @@ export const keys = {
   priceDrops: (q: AnalyticsDropsQuery) => ["analytics", "price-drops", q] as const,
   supplyTrend: (q: AnalyticsQuery) => ["analytics", "supply-trend", q] as const,
   listingDuration: (q: AnalyticsQuery) => ["analytics", "listing-duration", q] as const,
+  /** Coarse -> fine again, so deleting an endpoint can invalidate ["llm"] and
+   *  drop the scenario configs that just lost their endpoint with it. */
+  llmEndpoints: ["llm", "endpoints"] as const,
+  llmModels: (endpointId: number) => ["llm", "endpoints", endpointId, "models"] as const,
+  llmScenario: (scenario: Scenario) => ["llm", "scenarios", scenario] as const,
+  llmDefaultPrompt: (scenario: Scenario) =>
+    ["llm", "scenarios", scenario, "default-prompt"] as const,
 };
 
 /** What the analytics endpoints are scoped by. `days` means something
@@ -187,6 +214,55 @@ export function watchlistOptions() {
   });
 }
 
+export function llmEndpointsOptions() {
+  return queryOptions({
+    queryKey: keys.llmEndpoints,
+    queryFn: () => request<LlmEndpoint[]>("/api/llm/endpoints"),
+  });
+}
+
+/** Available models for one endpoint.
+ *
+ *  A query and not a mutation even though the page fires it from a button: it
+ *  is a GET, it caches, and the scenario form below reads the same key the
+ *  endpoint card filled. The caller gates it with `enabled` -- nothing should
+ *  poll a third party's models route on mount.
+ *
+ *  It answers 200 with `{models: [], error}` when the gateway does not
+ *  implement the route, so `isError` here means OUR request failed, not
+ *  theirs. Both have to render, and they render differently.
+ */
+export function llmModelsOptions(endpointId: number) {
+  return queryOptions({
+    queryKey: keys.llmModels(endpointId),
+    queryFn: () => request<LlmModelList>(`/api/llm/endpoints/${endpointId}/models`),
+    // A model list is a fact about someone else's server; re-asking it on
+    // every window focus spends their rate limit for nothing.
+    staleTime: Infinity,
+  });
+}
+
+export function llmScenarioOptions(scenario: Scenario) {
+  return queryOptions({
+    queryKey: keys.llmScenario(scenario),
+    queryFn: () => request<LlmScenarioConfig>(`/api/llm/scenarios/${scenario}`),
+  });
+}
+
+/** The built-in template plus the placeholder contract. Both come from one
+ *  response because the page needs both at once: "restore default" writes the
+ *  template, and the list beside the editor is the only place a user can
+ *  learn which `{names}` mean anything.
+ */
+export function llmDefaultPromptOptions(scenario: Scenario) {
+  return queryOptions({
+    queryKey: keys.llmDefaultPrompt(scenario),
+    queryFn: () => request<LlmDefaultPrompt>(`/api/llm/scenarios/${scenario}/default-prompt`),
+    // Compiled into the backend; it cannot change without a redeploy.
+    staleTime: Infinity,
+  });
+}
+
 /* ---------- mutations ----------
  * Plain functions, not hooks: the page calls useMutation with one of these as
  * its mutationFn and owns its own invalidation.
@@ -251,3 +327,51 @@ export const importCookies = (body: CookieImport) =>
 
 export const clearCookies = () =>
   request<SessionState>("/api/session/cookies", { method: "DELETE" });
+
+export const createLlmEndpoint = (body: LlmEndpointCreate) =>
+  request<LlmEndpoint>("/api/llm/endpoints", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+/** An omitted `api_key` keeps the stored one; `""` clears it. Nothing ever
+ *  hands the page a key to send back, so there is no redacted placeholder to
+ *  guard against here (unlike `updateChannel`).
+ */
+export const updateLlmEndpoint = (id: number, body: LlmEndpointUpdate) =>
+  request<LlmEndpoint>(`/api/llm/endpoints/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export const deleteLlmEndpoint = (id: number) =>
+  request<null>(`/api/llm/endpoints/${id}`, { method: "DELETE" });
+
+/** One real completion against the endpoint. `model` is required by the route
+ *  because a connection is only testable through the model it will use.
+ */
+export const testLlmEndpoint = (id: number, model: string) =>
+  request<LlmTestResult>(`/api/llm/endpoints/${id}/test${queryString({ model })}`, {
+    method: "POST",
+  });
+
+export const saveLlmScenario = (scenario: Scenario, body: LlmScenarioUpdate) =>
+  request<LlmScenarioConfig>(`/api/llm/scenarios/${scenario}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
+/* The two analyze calls are POSTs that cost money and take 30-60 seconds
+ * (measured: 59.2s for market, 4.4s for item). They are mutations, never
+ * queries: a query would be refetched on window focus and on mount, and each
+ * refetch is a billed call. Nothing here caches on this side either -- the
+ * market route has its own server-side cache keyed on the rendered prompt. */
+
+export const analyzeMarket = (body: LlmMarketAnalyze) =>
+  request<LlmMarketAnalysis>("/api/llm/analyze/market", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const analyzeItem = (itemId: string) =>
+  request<LlmItemAnalysis>(`/api/llm/analyze/item/${itemId}`, { method: "POST" });

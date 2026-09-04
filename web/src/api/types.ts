@@ -558,6 +558,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/analyze/market": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analyze Market
+         * @description One market reading for one keyword, from the aggregated statistics.
+         *
+         *     **User-triggered only.** Nothing schedules this, nothing warms the cache,
+         *     and the collection loop cannot reach it: a rule polls every 300 s, so an
+         *     LLM call wired into the cycle is per-minute billing (prd.md risk table).
+         *     POST rather than GET for the same reason — it spends money, and a GET is
+         *     something a browser or a link preview will fetch on its own.
+         *
+         *     A repeat click inside the same window is free: the cache key is a digest
+         *     of the prompt, so it hits until the statistics behind it actually move
+         *     (`market.market_cache_key`).
+         */
+        post: operations["analyze_market_api_llm_analyze_market_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/analyze/item/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analyze Item
+         * @description One listing, read against the market of one keyword. Never cached.
+         *
+         *     Never cached, unlike `market`: the price and the seller's state are the
+         *     two things this answer turns on, and a stored verdict on a listing that
+         *     has since dropped 800 yuan is worse than no verdict. There is nothing to
+         *     invalidate it either — a price change writes a snapshot, not an event.
+         *
+         *     Only ever reached by a user pressing the button (FR-P4-4). Nothing
+         *     schedules it; a per-cycle version of this route would bill per minute.
+         *
+         *     The five inputs are assembled by `llm/items.py` and every one of them
+         *     degrades to a sentence rather than to silence, so `notes` is part of the
+         *     answer: a verdict written without the photos must not look like one
+         *     written with them.
+         */
+        post: operations["analyze_item_api_llm_analyze_item__item_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -697,7 +760,12 @@ export interface components {
         };
         /**
          * DurationBucket
-         * @description One histogram column. Edges are whole hours, expressed in minutes.
+         * @description One histogram column, in minutes, on readable step boundaries.
+         *
+         *     The step adapts to the spread (`analytics.duration_align`): 5, 10, 15, 30
+         *     minutes, then hours. Hour-aligned edges were the original plan and they
+         *     collapsed the real data into two bars, because the median listing stays in
+         *     range for 1 to 9 minutes.
          */
         DurationBucket: {
             /** Lo Minutes */
@@ -818,7 +886,9 @@ export interface components {
          *     the same as one page.
          *
          *     Durations are integer minutes for the same reason prices are integer
-         *     cents. Histogram edges land on whole hours.
+         *     cents. Histogram edges land on a readable step chosen from the spread,
+         *     not on a fixed hour: at this poll interval most durations are minutes, and
+         *     hour buckets showed 264 samples as a single bar.
          */
         ListingDuration: {
             /** Sample Size */
@@ -922,6 +992,137 @@ export interface components {
             wire_format?: ("openai" | "anthropic") | null;
         };
         /**
+         * LlmItemAnalysis
+         * @description One single-item advice call, in the four states the panel renders.
+         *
+         *     `kind` carries `LlmOutcome`'s four values unchanged rather than collapsing
+         *     them into ok/error: `starved` is fixed by raising max_tokens, `empty` by
+         *     checking the model id, and `unparsable` by fixing the template — and
+         *     `unparsable` is the one that must still show `text`, because a user
+         *     breaking their own prompt is a normal event with the model's own words as
+         *     the only useful thing to look at.
+         *
+         *     `keyword` is which market the listing was compared against, echoed because
+         *     the choice is not obvious: an item can sit in two keywords' ledgers at
+         *     different price levels and this one is "the rule that saw it first"
+         *     (design §5). Null means it is in no ledger at all, and the advice was
+         *     written without any market statistics.
+         *
+         *     `notes` are the inputs that did NOT make it in — a photo the CDN answered
+         *     with a 1x1 pixel, an oversized one, a text-only degradation. An answer
+         *     that silently dropped the pictures is indistinguishable from one that read
+         *     them, which is why this is a field and not a log line.
+         */
+        LlmItemAnalysis: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "ok" | "starved" | "empty" | "unparsable";
+            /** Text */
+            text: string;
+            /** Data */
+            data?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Calls
+             * @default 1
+             */
+            calls: number;
+            /** Message */
+            message?: string | null;
+            /** Keyword */
+            keyword?: string | null;
+            /** Notes */
+            notes: string[];
+            /** Images Sent */
+            images_sent: number;
+            /** Disclaimer */
+            disclaimer: string;
+        };
+        /**
+         * LlmMarketAnalysis
+         * @description One market reading, in the four states the UI has to render.
+         *
+         *     `kind` carries the three HTTP-200 failure modes of design.md §4 apart, and
+         *     they are NOT interchangeable: `starved` is fixed by raising max_tokens and
+         *     `unparsable` by fixing the template, so collapsing them tells one of the
+         *     two users to go and edit the thing that was never wrong. `text` is the
+         *     model's own output, kept so the `unparsable` state can show it verbatim.
+         *
+         *     `no_data` is this layer's own fifth state: the keyword had no priced
+         *     listing in the window, so no call was made at all. A billed call whose
+         *     honest answer is "there is nothing here" is a call worth not making.
+         *
+         *     `reading` is a validated `app.llm.market.MarketReading` as a dict.
+         *     Typed as `dict` on purpose — the JSON field names are already stated twice
+         *     (in `prompts.MARKET_PROMPT` and in that model) and a third copy here would
+         *     be a third place to drift, while the frontend types are hand-written in
+         *     `web/src/api/types.ts` either way. `test_llm_market.py` pins the two that
+         *     do exist against each other.
+         *
+         *     `disclaimer` has no default: it is required by FR-P4-3 and a default is a
+         *     thing a later route can quietly stop passing.
+         */
+        LlmMarketAnalysis: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "ok" | "starved" | "empty" | "unparsable" | "no_data";
+            /** Keyword */
+            keyword: string;
+            /** Window Days */
+            window_days: number;
+            /** Data Days */
+            data_days: number;
+            /** Sample Size */
+            sample_size: number;
+            /** Disclaimer */
+            disclaimer: string;
+            /** Reading */
+            reading?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /** Message */
+            message?: string | null;
+            /**
+             * Cached
+             * @default false
+             */
+            cached: boolean;
+            /**
+             * Calls
+             * @default 0
+             */
+            calls: number;
+        };
+        /**
+         * LlmMarketAnalyze
+         * @description What the market panel asks for: a keyword and the window it is showing.
+         *
+         *     `days` bounds all four metrics at once, unlike the analytics routes where
+         *     it means something different in each. The prompt says "最近 N 天" over a
+         *     single block of numbers, and mixing windows inside it would be a lie to
+         *     the model about figures it has no way to check. Default 30 matches the
+         *     analytics page's window selector, which is where the button lives.
+         */
+        LlmMarketAnalyze: {
+            /** Keyword */
+            keyword: string;
+            /**
+             * Days
+             * @default 30
+             */
+            days: number;
+        };
+        /**
          * LlmModelList
          * @description An empty list plus a reason is a NORMAL answer, not a failure.
          *
@@ -951,6 +1152,8 @@ export interface components {
             prompt_template: string | null;
             /** Send Images */
             send_images: boolean;
+            /** Max Tokens */
+            max_tokens?: number | null;
             /** Enabled */
             enabled: boolean;
         };
@@ -978,6 +1181,8 @@ export interface components {
              * @default false
              */
             send_images: boolean;
+            /** Max Tokens */
+            max_tokens?: number | null;
             /**
              * Enabled
              * @default false
@@ -2611,6 +2816,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LlmDefaultPrompt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyze_market_api_llm_analyze_market_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmMarketAnalyze"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmMarketAnalysis"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyze_item_api_llm_analyze_item__item_id__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmItemAnalysis"];
                 };
             };
             /** @description Validation Error */

@@ -10,6 +10,7 @@ logged-in session to a third-party endpoint. This module cannot reach it —
 import json
 import logging
 import time
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -140,7 +141,7 @@ async def complete_structured(
     second = await complete(client, endpoint, model, request)
     retried = _classify(second, schema)
     if retried.kind != "unparsable":
-        return retried
+        return replace(retried, calls=2)
 
     log.warning(
         "llm output failed validation twice",
@@ -150,6 +151,7 @@ async def complete_structured(
         kind="unparsable",
         text=second.text or first.text,
         message=UNPARSABLE_MESSAGE,
+        calls=2,
     )
 
 
