@@ -154,8 +154,9 @@ NEWEST_FIRST = (
 )
 
 
-def newest_snapshot_ids() -> Select:
-    """Subquery selecting the newest snapshot id per item.
+def snapshot_ids_at(cutoff: datetime | None = None) -> Select:
+    """Subquery selecting the newest snapshot id per item, optionally as of a
+    point in time.
 
     `row_number()` rather than `max(id)`: keying on the largest id would assume
     snapshots are always inserted in observation order. Both writers do append
@@ -163,15 +164,29 @@ def newest_snapshot_ids() -> Select:
     and "current price" silently reading an older row is the kind of wrong that
     no test notices. Ordering by the column that actually carries the meaning
     removes the assumption instead of documenting it.
+
+    `cutoff` answers "what was it priced at then", which is what a drop over a
+    window has to be measured against. It is a parameter rather than a second
+    ranking query on purpose: this file is allowed exactly ONE definition of
+    "the newest snapshot", and a near-copy of the window function is how two
+    parts of the app start disagreeing about the current price.
     """
-    ranked = select(
+    ranked: Select = select(
         PriceSnapshot.id.label("snapshot_id"),  # type: ignore[union-attr]
         col(PriceSnapshot.item_id).label("item_id"),
         func.row_number()
         .over(partition_by=col(PriceSnapshot.item_id), order_by=NEWEST_FIRST)
         .label("rank"),
-    ).subquery()
-    return select(ranked.c.snapshot_id, ranked.c.item_id).where(ranked.c.rank == 1)
+    )
+    if cutoff is not None:
+        ranked = ranked.where(col(PriceSnapshot.captured_at) <= cutoff)
+    sub = ranked.subquery()
+    return select(sub.c.snapshot_id, sub.c.item_id).where(sub.c.rank == 1)
+
+
+def newest_snapshot_ids() -> Select:
+    """The current price, i.e. `snapshot_ids_at` with no cutoff."""
+    return snapshot_ids_at(None)
 
 
 def latest_snapshots(session: Session, item_ids: list[str]) -> dict[str, PriceSnapshot]:
