@@ -31,7 +31,10 @@ APP_KEY = "12574478"
 BASE_URL = "https://h5api.m.goofish.com/h5"
 SEARCH_API = "mtop.taobao.idlemtopsearch.pc.search"
 ITEM_API = "mtop.taobao.idle.pc.detail"
-SELLER_API = "mtop.idle.web.user.page.head"
+# No separate seller endpoint exists in our path: the item detail response
+# carries a richer `sellerDO` than a profile page would, and the three other
+# candidate API names all returned FAIL_SYS_API_NOT_FOUNDED (verified
+# 2026-09-04, see the task research note).
 
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -39,7 +42,16 @@ UA = (
 )
 
 # ret prefix -> action. Derived from observed responses; see the probe record.
-_CHALLENGE_PREFIXES = ("RGV587_ERROR", "FAIL_SYS_ILLEGAL_ACCESS", "SM::")
+_CHALLENGE_PREFIXES = (
+    "RGV587_ERROR",
+    "FAIL_SYS_ILLEGAL_ACCESS",
+    # Observed live on the detail endpoint after a burst of requests: risk
+    # control demands human validation. It is a challenge, not a transport
+    # failure — classifying it as a generic CollectorError would send every
+    # subsequent cycle through a browser launch that is equally blocked.
+    "FAIL_SYS_USER_VALIDATE",
+    "SM::",
+)
 # Note the upstream typo: EXOIRED, not EXPIRED. Both are matched because the
 # spelling is not ours to rely on.
 _TOKEN_PREFIXES = ("FAIL_SYS_TOKEN_EMPTY", "FAIL_SYS_TOKEN_EXOIRED", "FAIL_SYS_TOKEN_EXPIRED")
@@ -164,7 +176,7 @@ class MtopClient:
             sess.refresh(dict(response.cookies))
 
             if CHALLENGE_COOKIE in response.cookies and session_health:
-                sess.mark_challenged("upstream issued x5secdata challenge cookie")
+                sess.mark_challenged(api, "upstream issued x5secdata challenge cookie")
 
             try:
                 body = response.json()
@@ -182,15 +194,16 @@ class MtopClient:
                 # unusable and a human has to re-establish it.
                 if not session_health:
                     raise CollectorError(f"{api} unavailable: {exc}") from exc
-                sess.mark_challenged(str(exc))
+                sess.mark_challenged(api, str(exc))
                 raise ChallengeError(str(exc)) from exc
             except ChallengeError as exc:
                 if not session_health:
                     # Auxiliary path: report it as merely unavailable so callers
                     # can degrade one filter instead of the whole session.
                     raise CollectorError(f"{api} unavailable: {exc}") from exc
-                sess.mark_challenged(str(exc))
+                sess.mark_challenged(api, str(exc))
                 raise
+            sess.clear_challenge(api)
             return body.get("data") or {}
 
         raise CollectorError(f"{api}: token retry exhausted")
@@ -227,19 +240,27 @@ class MtopClient:
             raise ParseError(f"{SEARCH_API}: {len(rows_out)} rows, none parseable")
         return items
 
-    async def fetch_item(self, item_id: str, now_ms: str) -> RawItem:
-        data = await self._call(ITEM_API, {"itemId": item_id}, now_ms)
-        if not data:
-            raise ItemGoneError(f"item {item_id} returned no data")
-        return base.normalize_item(flatten_search_row(data) or data, source="mtop")
+    async def fetch_item(self, item_id: str, now_ms: str) -> tuple[RawItem, RawSeller | None]:
+        """Item detail plus its seller profile, in ONE call.
 
-    async def fetch_seller(self, seller_id: str, now_ms: str) -> RawSeller:
-        # NOTE: this API name is still unverified — the live probe never got a
-        # successful profile response. It is auxiliary on purpose, so a wrong
-        # guess degrades the seller filters instead of breaking collection.
-        # Confirm it in T5 with `capture_fixture --seller <id>`.
-        data = await self._call(SELLER_API, {"userId": seller_id}, now_ms, session_health=False)
-        return base.normalize_seller(data, seller_id=seller_id, source="mtop")
+        The detail response carries `sellerDO`, so a separate seller endpoint
+        would be a second request for less data — and its `sellerId` lands in
+        a different id space than the opaque token search returns.
+        """
+        data = await self._call(ITEM_API, {"itemId": item_id}, now_ms)
+        item_do = data.get("itemDO") or {}
+        if not item_do:
+            raise ItemGoneError(f"item {item_id}: detail response carries no itemDO")
+        seller_do = data.get("sellerDO") or {}
+        item = base.normalize_item(flatten_detail(item_do, seller_do, item_id), source="detail")
+        seller = None
+        if seller_do:
+            seller = base.normalize_seller(
+                flatten_seller(seller_do),
+                seller_id=str(seller_do.get("sellerId") or ""),
+                source="detail",
+            )
+        return item, seller
 
 
 # --------------------------------------------------------------------------- #
@@ -370,3 +391,100 @@ def _publish_hint(ex: dict[str, Any]) -> str | None:
         if content:
             return str(content)
     return None
+
+
+# --------------------------------------------------------------------------- #
+# Detail shape (verified against a live response, 2026-09-04)
+# --------------------------------------------------------------------------- #
+# Unlike a search row, the detail payload states as FACTS what search could
+# only guess: 成色 is a structured cpvLabel and 包邮 a commonTag. An item
+# fetched this way must therefore not be tagged "heuristic".
+
+_CONDITION_PROPERTY = "成色"
+_FREE_SHIPPING_TAG = "包邮"
+
+
+def _cpv(item_do: dict[str, Any], property_name: str) -> str | None:
+    for label in item_do.get("cpvLabels") or []:
+        if label.get("propertyName") == property_name:
+            value = label.get("valueName")
+            return str(value) if value else None
+    return None
+
+
+def detail_status(item_do: dict[str, Any]) -> str:
+    """Upstream status -> on_sale | sold | removed.
+
+    Only the online value has been observed (`itemStatus` "0",
+    `itemStatusStr` "在线"). Anything else is treated as no longer on sale
+    rather than guessed at, and the raw text is kept on the item for a human
+    to check. Erring toward "gone" is the safe direction: a watched item
+    wrongly reported as sold is noticed immediately, while one wrongly
+    reported as on sale is silently never followed up.
+    """
+    raw_status = str(item_do.get("itemStatus") or "")
+    text = str(item_do.get("itemStatusStr") or "")
+    if raw_status == "0" or text == "在线":
+        return "on_sale"
+    # These markers are GUESSES: no sold or delisted item was observed live,
+    # only the online state. They are best-effort labelling, and the PRD
+    # already declines to claim we can tell a sale from a delisting — the
+    # analytics metric is "time until it disappeared", not a sell-through rate.
+    # Both outcomes collapse to "no longer on sale" everywhere it matters.
+    if any(marker in text for marker in ("售", "成交", "成功")):
+        return "sold"
+    return "removed"
+
+
+def flatten_detail(
+    item_do: dict[str, Any], seller_do: dict[str, Any], item_id: str
+) -> dict[str, Any]:
+    """Detail payload -> the flat keys ITEM_FIELD_MAP expects."""
+    images = [str(info.get("url")) for info in item_do.get("imageInfos") or [] if info.get("url")]
+    tags = tuple(str(tag.get("text")) for tag in item_do.get("commonTags") or [] if tag.get("text"))
+    flat: dict[str, Any] = {
+        "itemId": item_do.get("itemId") or item_id,
+        "title": item_do.get("title"),
+        # The long description lives on `desc` here, not on a nested title.
+        "detailTitle": item_do.get("desc"),
+        "soldPrice": item_do.get("soldPrice"),
+        "picUrl": images[0] if images else None,
+        "images": images,
+        "area": seller_do.get("publishCity") or seller_do.get("city"),
+        "seller_id": seller_do.get("sellerId"),
+        "userNickName": seller_do.get("nick"),
+        "userAvatarUrl": seller_do.get("portraitUrl"),
+        "want": item_do.get("wantCnt"),
+        "browseCnt": item_do.get("browseCnt"),
+        "publishTime": item_do.get("gmtCreate"),
+        "condition_fact": _cpv(item_do, _CONDITION_PROPERTY),
+        "free_shipping_fact": (_FREE_SHIPPING_TAG in tags) or item_do.get("transportFee") == "0.00",
+        "status": detail_status(item_do),
+    }
+    return {k: v for k, v in flat.items() if v not in (None, "")}
+
+
+def flatten_seller(seller_do: dict[str, Any]) -> dict[str, Any]:
+    """`sellerDO` -> the flat keys SELLER_FIELD_MAP expects."""
+    credit = (seller_do.get("idleFishCreditTag") or {}).get("trackParams") or {}
+    remarks = seller_do.get("remarkDO") or {}
+    review_count = sum(
+        int(remarks.get(key) or 0)
+        for key in ("sellerGoodRemarkCnt", "sellerBadRemarkCnt", "sellerDefaultRemarkCnt")
+    )
+    flat: dict[str, Any] = {
+        "nick": seller_do.get("nick") or seller_do.get("uniqueName"),
+        "avatar": seller_do.get("portraitUrl"),
+        "creditLevel": credit.get("sellerLevel"),
+        "soldCount": seller_do.get("hasSoldNumInteger"),
+        "registerDays": seller_do.get("userRegDay"),
+        "replyRate": seller_do.get("replyRatio24h"),
+        "goodRate": seller_do.get("newGoodRatioRate"),
+        "verified": seller_do.get("zhimaAuth"),
+        "reviewCount": review_count or None,
+        # A personal seller does not keep 189 listings on sale. This is a
+        # stronger merchant signal than the identity label, which the live
+        # search capture showed to be absent on obvious wholesalers.
+        "listingCount": seller_do.get("itemCount"),
+    }
+    return {k: v for k, v in flat.items() if v not in (None, "")}

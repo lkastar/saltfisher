@@ -18,7 +18,7 @@ from typing import Any
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from app.collector import base
-from app.collector.base import ChallengeError, ItemGoneError, ParseError, RawItem, RawSeller
+from app.collector.base import ChallengeError, ItemGoneError, ParseError, RawItem
 from app.collector.session import UpstreamSession
 from app.config import settings
 
@@ -26,13 +26,11 @@ log = logging.getLogger(__name__)
 
 SEARCH_URL = "https://www.goofish.com/search?q={keyword}"
 ITEM_URL = "https://www.goofish.com/item?id={item_id}"
-SELLER_URL = "https://www.goofish.com/personal?userId={seller_id}"
 
 # The page's own XHR carries the same JSON as the API, so intercepting it beats
 # scraping the DOM: identical data, immune to markup changes.
 SEARCH_XHR = "mtop.taobao.idlemtopsearch.pc.search"
 ITEM_XHR = "mtop.taobao.idle.pc.detail"
-SELLER_XHR = "mtop.idle.web.user.page"
 
 # DOM fallback selectors, kept in one dict so a goofish redesign is a one-place
 # fix rather than a hunt.
@@ -141,7 +139,9 @@ class BrowserCollector:
         cookies = {c["name"]: c["value"] for c in await self._context().cookies()}
         self._session.adopt(cookies, origin="browser")
 
-    async def _guard_challenge(self, page: Page, captured: list[dict[str, Any]]) -> None:
+    async def _guard_challenge(
+        self, page: Page, captured: list[dict[str, Any]], xhr_marker: str
+    ) -> None:
         """Turn a risk-control interstitial into ChallengeError.
 
         The observed shape is `ret: ["RGV587_ERROR::SM::..."]` with
@@ -150,17 +150,18 @@ class BrowserCollector:
         for body in captured:
             ret = (body.get("ret") or [""])[0]
             if not ret.startswith("SUCCESS"):
-                self._session.mark_challenged(ret)
+                self._session.mark_challenged(xhr_marker, ret)
                 raise ChallengeError(ret)
         if await page.locator(SELECTORS["challenge_marker"]).count():
-            self._session.mark_challenged("verification dialog rendered on page")
+            self._session.mark_challenged(xhr_marker, "verification dialog rendered on page")
             raise ChallengeError("verification dialog rendered on page")
 
     async def search(self, keyword: str, rows: int) -> list[RawItem]:
         page, captured = await self._open(SEARCH_URL.format(keyword=keyword), SEARCH_XHR)
+        xhr_marker = SEARCH_XHR
         try:
             await self._adopt_session()
-            await self._guard_challenge(page, captured)
+            await self._guard_challenge(page, captured, xhr_marker)
             for body in captured:
                 data = body.get("data") or {}
                 for key in ("resultList", "items", "itemList"):
@@ -218,28 +219,18 @@ class BrowserCollector:
         return items
 
     async def fetch_item(self, item_id: str) -> RawItem:
+        """Item only. The browser path scrapes the rendered page, which does
+        not expose the `sellerDO` block the API gives, so the seller profile
+        simply is not available on this route."""
         page, captured = await self._open(ITEM_URL.format(item_id=item_id), ITEM_XHR)
+        xhr_marker = ITEM_XHR
         try:
             await self._adopt_session()
-            await self._guard_challenge(page, captured)
+            await self._guard_challenge(page, captured, xhr_marker)
             for body in captured:
                 data = body.get("data") or {}
                 if data:
                     return base.normalize_item(data, source="browser")
             raise ItemGoneError(f"item {item_id}: no detail payload")
-        finally:
-            await page.close()
-
-    async def fetch_seller(self, seller_id: str) -> RawSeller:
-        page, captured = await self._open(SELLER_URL.format(seller_id=seller_id), SELLER_XHR)
-        try:
-            await self._adopt_session()
-            await self._guard_challenge(page, captured)
-            merged: dict[str, Any] = {}
-            for body in captured:
-                data = body.get("data") or {}
-                if isinstance(data, dict):
-                    merged.update(data)
-            return base.normalize_seller(merged, seller_id=seller_id, source="browser")
         finally:
             await page.close()

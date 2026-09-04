@@ -31,8 +31,12 @@ class UpstreamSession:
     cookies: dict[str, str] = field(default_factory=dict)
     origin: str = "none"  # none | browser | imported
     established_at: datetime | None = None
-    needs_verification: bool = False
     last_error: str | None = None
+    # Risk control is applied PER ENDPOINT, not per session: measured live, the
+    # detail API was demanding validation while search kept working normally.
+    # One global flag therefore auto-disabled healthy keyword rules because a
+    # watchlist lookup got challenged.
+    challenged_apis: dict[str, str] = field(default_factory=dict)
 
     @property
     def token(self) -> str | None:
@@ -42,13 +46,26 @@ class UpstreamSession:
 
     @property
     def usable(self) -> bool:
-        return bool(self.token) and not self.needs_verification
+        """Has a token and nothing globally blocks its use."""
+        return bool(self.token)
+
+    def is_challenged(self, api: str) -> bool:
+        return api in self.challenged_apis
+
+    @property
+    def needs_verification(self) -> bool:
+        """Whether a human has to act.
+
+        Derived from the endpoints actually blocked, so the UI can say *what*
+        stopped working instead of declaring everything broken.
+        """
+        return bool(self.challenged_apis)
 
     def adopt(self, cookies: dict[str, str], origin: str) -> None:
         self.cookies.update(cookies)
         self.origin = origin
         self.established_at = datetime.now(UTC)
-        self.needs_verification = not self.token
+        self.challenged_apis.clear()
         self.last_error = None if self.token else "no _m_h5_tk in adopted cookies"
         log.info(
             "session adopted",
@@ -78,15 +95,21 @@ class UpstreamSession:
         if self.token and self.token != before:
             log.debug("session token rotated")
 
-    def mark_challenged(self, detail: str) -> None:
-        """Risk control wants a human. Stop retrying and say so."""
-        self.needs_verification = True
-        self.last_error = detail
-        log.warning("session challenged, verification required", extra={"detail": detail})
+    def mark_challenged(self, api: str, detail: str) -> None:
+        """Record that ONE endpoint wants human verification.
 
+        Scoped per API on purpose: search and detail are challenged
+        independently, and collapsing them takes a working path down with a
+        blocked one.
+        """
+        self.challenged_apis[api] = detail
+        self.last_error = f"{api}: {detail}"
+        log.warning(
+            "endpoint challenged, verification required",
+            extra={"api": api, "detail": detail},
+        )
 
-# Deliberately NO module-level singleton. An imported-by-value global cannot be
-# replaced (only mutated), so anything that re-establishes the session would be
-# invisible to modules that imported it — and it violates the project's own
-# forbidden-patterns rule in .trellis/spec/backend/quality-guidelines.md.
-# The lifespan owns one instance and injects it.
+    def clear_challenge(self, api: str) -> None:
+        """An endpoint answered normally again."""
+        if self.challenged_apis.pop(api, None) is not None:
+            log.info("endpoint recovered", extra={"api": api})

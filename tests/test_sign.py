@@ -58,6 +58,7 @@ def test_payload_whitespace_changes_the_signature():
         (["FAIL_SYS_TOKEN_EMPTY::令牌为空"], TokenStaleError),
         (["FAIL_SYS_TOKEN_EXOIRED::令牌过期"], TokenStaleError),
         (["FAIL_SYS_ILLEGAL_ACCESS::非法请求"], ChallengeError),
+        (["FAIL_SYS_USER_VALIDATE"], ChallengeError),
         (["FAIL_SYS_TRAFFIC_LIMIT::限流"], TransientCollectorError),
         (["FAIL_SYS_API_NOT_FOUNDED::请求API不存在"], CollectorError),
         (["FAIL_BIZ_ITEM_NOT_EXIST::商品不存在"], ItemGoneError),

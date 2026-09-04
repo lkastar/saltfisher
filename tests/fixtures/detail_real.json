@@ -1,0 +1,93 @@
+{
+  "api": "mtop.taobao.idle.pc.detail",
+  "ret": [
+    "SUCCESS::调用成功"
+  ],
+  "data": {
+    "itemDO": {
+      "soldCnt": 0,
+      "soldPrice": "720",
+      "browseCnt": 3,
+      "imageInfos": [
+        {
+          "url": "http://img.alicdn.com/bao/uploaded/i2/2218219939144/O1CN01R8VT0y0jBHC1lGuy_!!4611686018427381064-0-xy_item.jpg"
+        },
+        {
+          "url": "http://img.alicdn.com/bao/uploaded/i2/2218219939144/O1CN01rlnfQoJpS3G1lGuy_!!4611686018427381064-0-xy_item.jpg"
+        },
+        {
+          "url": "http://img.alicdn.com/bao/uploaded/i4/2218219939144/O1CN010p34HiVqIdJ1klhQ_!!4611686018427381064-0-xy_item.jpg"
+        }
+      ],
+      "itemId": 1079129727205,
+      "GMT_CREATE_DATE_KEY": "2026-09-04 16:38:36",
+      "commonTags": [
+        {
+          "text": "包邮"
+        }
+      ],
+      "desc": "苹果15游戏机\n不能刷机还原和升级系统，当前版本是18.3\n电池87，726循环\n除了没有前置摄像头，其他配件都齐全 由于主板是后面装的，所以说有些部件会弹窗，后置拍照看视频，没有无线充功能，但是手电筒能用，只不过不是原装的，左下角屏幕是碎的，完美主义者勿扰\n手机从收到货开始可以保修30天，但是配件要自己买 手工费包来回运费\n二手商品售出非质量问题不退不换\n爽快的买家可以发顺丰，还有其他功能要问的，可以私信来找我",
+      "originalPrice": "0",
+      "transportFee": "0.00",
+      "itemStatusStr": "在线",
+      "cpvLabels": [
+        {
+          "propertyName": "品牌",
+          "valueName": "Apple/苹果"
+        },
+        {
+          "propertyName": "型号",
+          "valueName": "iPhone 15"
+        },
+        {
+          "propertyName": "存储容量",
+          "valueName": "128GB"
+        },
+        {
+          "propertyName": "运行内存",
+          "valueName": "6GB"
+        },
+        {
+          "propertyName": "版本",
+          "valueName": "其他版本"
+        },
+        {
+          "propertyName": "成色",
+          "valueName": "屏幕破损或外壳破碎"
+        }
+      ],
+      "title": "苹果15游戏机",
+      "itemStatus": 0,
+      "quantity": 1,
+      "collectCnt": 0,
+      "gmtCreate": 1788511116000,
+      "wantCnt": 0
+    },
+    "sellerDO": {
+      "newGoodRatioRate": "97%",
+      "city": "河源",
+      "userRegDay": 795,
+      "hasSoldNumInteger": 131,
+      "publishCity": "河源",
+      "nick": "小顾数码",
+      "sellerId": 2218219939144,
+      "idleFishCreditTag": {
+        "trackParams": {
+          "sellerLevel": "5"
+        }
+      },
+      "replyRatio24h": "100%",
+      "replyInterval": "1小时",
+      "portraitUrl": "http://img.alicdn.com/bao/uploaded/i4/O1CN01SeOukkPZvAB1WA3c_!!4611686018427381064-0-mtopupload.jpg",
+      "remarkDO": {
+        "sellerDefaultRemarkCnt": 20,
+        "sellerGoodRemarkCnt": 40,
+        "sellerBadRemarkCnt": 1
+      },
+      "zhimaAuth": true,
+      "itemCount": 189,
+      "uniqueName": "小顾数码",
+      "xianyuSummary": "卖出过131件宝贝。男生。喜欢运动。"
+    }
+  }
+}

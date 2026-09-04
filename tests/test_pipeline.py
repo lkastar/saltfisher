@@ -57,16 +57,15 @@ class StubMtop:
         return [make_item("mtop-1", source="mtop")]
 
     async def fetch_item(self, item_id, now_ms):
+        # One call returns both: the detail response carries `sellerDO`.
         self.item_calls += 1
-        if self.raises:
-            raise self.raises
-        return make_item(item_id, source="mtop")
-
-    async def fetch_seller(self, seller_id, now_ms):
         self.seller_calls += 1
         if self.raises:
             raise self.raises
-        return RawSeller(seller_id=seller_id, nick="老王", source="mtop", credit_level=5)
+        return (
+            make_item(item_id, source="mtop"),
+            RawSeller(seller_id="s1", nick="老王", source="detail", credit_level=5),
+        )
 
 
 class StubBrowser:
@@ -83,16 +82,11 @@ class StubBrowser:
         return [make_item("browser-1", source="browser")]
 
     async def fetch_item(self, item_id):
+        # The scraped page exposes no seller profile block.
         self.item_calls += 1
         if self.raises:
             raise self.raises
         return make_item(item_id, source="browser")
-
-    async def fetch_seller(self, seller_id):
-        self.seller_calls += 1
-        if self.raises:
-            raise self.raises
-        return RawSeller(seller_id=seller_id, nick="老王", source="browser", credit_level=5)
 
 
 @pytest.fixture
@@ -187,6 +181,25 @@ async def test_item_gone_is_not_a_failure_to_retry(usable_session):
     assert browser.item_calls == 0
 
 
+async def test_detail_returns_the_item_and_its_seller_together(usable_session):
+    """One request, both answers — there is no standalone seller endpoint."""
+    mtop, browser = StubMtop(), StubBrowser()
+    item, seller = await Pipeline(mtop, browser, usable_session).collect_item("42")
+    assert item.source == "mtop"
+    assert seller is not None and seller.credit_level == 5
+    assert mtop.item_calls == 1
+
+
+async def test_the_browser_route_has_no_seller_profile(usable_session):
+    """Scraping the page cannot produce what the API returns; saying so is
+    better than fabricating an empty profile that looks fetched."""
+    mtop = StubMtop(raises=CollectorError("api down"))
+    browser = StubBrowser()
+    item, seller = await Pipeline(mtop, browser, usable_session).collect_item("42")
+    assert item.source == "browser"
+    assert seller is None
+
+
 # --------------------------------------------------------------------------- #
 # Seller profile: unavailable is a state, not an error
 # --------------------------------------------------------------------------- #
@@ -195,29 +208,27 @@ async def test_item_gone_is_not_a_failure_to_retry(usable_session):
 async def test_seller_profile_returns_none_when_both_paths_fail(usable_session):
     mtop = StubMtop(raises=CollectorError("nope"))
     browser = StubBrowser(raises=CollectorError("nope"))
-    assert await Pipeline(mtop, browser, usable_session).collect_seller("s1") is None
+    assert await Pipeline(mtop, browser, usable_session).collect_seller_via_item("i1") is None
 
 
-async def test_a_challenged_seller_profile_does_not_kill_the_session(usable_session):
-    """Regression, found on live data.
+async def test_a_challenged_profile_lookup_does_not_kill_the_session(usable_session):
+    """Regression, found on live data twice over.
 
-    The seller-profile endpoint answered with a challenge and the client marked
-    the SHARED session as needing verification — which would auto-disable the
-    rule even though search had just succeeded. An auxiliary failure may
-    degrade one filter, never the session.
+    A challenged profile lookup used to mark the SHARED session as needing
+    verification, auto-disabling rules whose search path was working fine.
+    Risk control is applied per endpoint, so an auxiliary lookup may degrade
+    one filter and nothing more.
     """
-    mtop = StubMtop(raises=CollectorError("seller api unavailable"))
+    mtop = StubMtop(raises=ChallengeError("FAIL_SYS_USER_VALIDATE"))
     browser = StubBrowser(raises=CollectorError("no browser session"))
-    assert await Pipeline(mtop, browser, usable_session).collect_seller("s1") is None
+    assert await Pipeline(mtop, browser, usable_session).collect_seller_via_item("i1") is None
     assert usable_session.usable
-    assert not usable_session.needs_verification
 
 
-async def test_seller_profile_falls_back_to_browser(usable_session):
+async def test_seller_profile_is_absent_when_only_the_browser_answers(usable_session):
     mtop = StubMtop(raises=CollectorError("nope"))
     browser = StubBrowser()
-    seller = await Pipeline(mtop, browser, usable_session).collect_seller("s1")
-    assert seller is not None and seller.source == "browser"
+    assert await Pipeline(mtop, browser, usable_session).collect_seller_via_item("i1") is None
 
 
 # --------------------------------------------------------------------------- #

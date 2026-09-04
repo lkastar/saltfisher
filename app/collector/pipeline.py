@@ -81,7 +81,13 @@ class Pipeline:
                 )
         return await self._browser.search(keyword, rows=rows)
 
-    async def collect_item(self, item_id: str) -> RawItem:
+    async def collect_item(self, item_id: str) -> tuple[RawItem, RawSeller | None]:
+        """Item detail and its seller profile — one request, both answers.
+
+        The detail payload states 成色, 包邮, publish time, want/view counts and
+        the item status as facts, all of which a search row can only guess at
+        or omit entirely.
+        """
         if self._session.usable:
             try:
                 return await self._mtop.fetch_item(item_id, now_ms=_now_ms())
@@ -92,29 +98,31 @@ class Pipeline:
                     "mtop detail failed, falling back to browser",
                     extra={"item_id": item_id, "err": str(exc)},
                 )
-        return await self._browser.fetch_item(item_id)
+        return await self._browser.fetch_item(item_id), None
 
-    async def collect_seller(self, seller_id: str) -> RawSeller | None:
-        """Seller profile. Returns None instead of raising when unavailable.
+    async def collect_seller_via_item(self, item_id: str) -> RawSeller | None:
+        """Seller profile, obtained by fetching the item's detail page.
 
-        An unfetchable profile is a normal state (guest mode sees little of
-        it), and the filter policy waives seller checks rather than dropping
-        the item — so a None here must not abort the cycle.
+        There is no standalone seller endpoint in our path (three candidate
+        names returned FAIL_SYS_API_NOT_FOUNDED). Going through the item costs
+        the same single request, uses an API we have actually verified, and
+        avoids the opaque-vs-numeric seller id mismatch: the caller already
+        knows which seller row this item points at.
+
+        Returns None rather than raising when unavailable — an unfetchable
+        profile is a normal state, and the filter policy waives seller checks
+        rather than dropping the item, so a None here must not abort the cycle.
         """
         try:
-            if self._session.usable:
-                try:
-                    return await self._mtop.fetch_seller(seller_id, now_ms=_now_ms())
-                except (TransientCollectorError, ChallengeError):
-                    raise
-                except CollectorError:
-                    pass
-            return await self._browser.fetch_seller(seller_id)
-        except CollectorError as exc:
-            log.warning(
-                "seller profile unavailable", extra={"seller_id": seller_id, "err": str(exc)}
-            )
+            _, seller = await self.collect_item(item_id)
+        except ChallengeError:
+            # An auxiliary lookup must not decide the session is dead.
+            log.warning("seller profile unavailable: session challenged")
             return None
+        except CollectorError as exc:
+            log.warning("seller profile unavailable", extra={"item_id": item_id, "err": str(exc)})
+            return None
+        return seller
 
     async def ensure_session(self) -> bool:
         """Establish or refresh the upstream session via the browser.
@@ -159,8 +167,8 @@ class Pipeline:
                 candidates.append(Candidate(item=item, outcome=outcome))
                 continue
             if outcome.needs_seller_profile:
-                if fetch_seller and item.seller_id:
-                    seller = await self.collect_seller(item.seller_id)
+                if fetch_seller:
+                    seller = await self.collect_seller_via_item(item.item_id)
                     outcome = filters.apply_seller(seller, rule, outcome)
                 else:
                     # Still honour whatever the row itself revealed rather than

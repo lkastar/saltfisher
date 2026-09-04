@@ -15,7 +15,7 @@ import time
 import httpx
 import pytest
 
-from app.collector.base import ChallengeError, CollectorError
+from app.collector.base import ChallengeError
 from app.collector.mtop import MtopClient, TokenStaleError, classify_ret
 from app.collector.session import UpstreamSession
 
@@ -177,18 +177,40 @@ async def test_a_challenge_is_not_retried():
 
 
 @pytest.mark.asyncio
-async def test_an_auxiliary_call_degrades_instead_of_escalating():
-    """The seller profile is auxiliary: two token failures there report
-    unavailability rather than declaring the shared session dead.
+async def test_a_challenge_is_scoped_to_the_endpoint_that_raised_it():
+    """Measured live: the detail endpoint demanded validation while search kept
+    working. One global flag auto-disabled healthy keyword rules because a
+    watchlist lookup got blocked.
     """
-    tr, calls = transport([EXPIRED, EXPIRED])
+    from app.collector.mtop import ITEM_API, SEARCH_API
+
+    tr, calls = transport([CHALLENGED], new_token=None)
     sess = session_with()
     client = MtopClient(sess)
     client._client = httpx.AsyncClient(transport=tr)
 
-    with pytest.raises(CollectorError) as exc:
-        await client.fetch_seller("s1", now_ms="1700000000000")
-    assert not isinstance(exc.value, ChallengeError)
+    with pytest.raises(ChallengeError):
+        await client.fetch_item("i1", now_ms="1700000000000")
+
+    assert sess.is_challenged(ITEM_API)
+    assert not sess.is_challenged(SEARCH_API), "search must stay usable"
+    assert sess.usable
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_endpoint_clears_its_own_challenge():
+    from app.collector.mtop import SEARCH_API
+
+    sess = session_with()
+    sess.mark_challenged(SEARCH_API, "RGV587_ERROR")
+    assert sess.needs_verification
+
+    tr, _ = transport([OK])
+    client = MtopClient(sess)
+    client._client = httpx.AsyncClient(transport=tr)
+    await client.search("iPhone 15", page=1, rows=5, now_ms="1700000000000")
+
+    assert not sess.is_challenged(SEARCH_API)
     assert not sess.needs_verification
 
 

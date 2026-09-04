@@ -72,6 +72,11 @@ class RawItem:
     # timestamp, only this tag, so a precise publish filter is not possible
     # from a list page — see filters.parse_publish_hint.
     publish_hint: str | None = None
+    # Detail-only facts. None means "we only had a search row", which is what
+    # keeps a heuristic guess from being presented as certainty.
+    condition_fact: str | None = None
+    free_shipping_fact: bool | None = None
+    status_text: str | None = None
     # Field names that were expected but absent in the payload. Feeds the
     # "collector field map may be stale" warning rather than dying silently.
     missing_fields: tuple[str, ...] = ()
@@ -96,6 +101,9 @@ class RawSeller:
     review_count: int | None = None
     positive_rate: float | None = None
     account_age_days: int | None = None
+    # On-sale listing count. 189 live listings is not a personal seller, and
+    # this discriminates better than the identity label.
+    listing_count: int | None = None
     missing_fields: tuple[str, ...] = field(default=())
 
 
@@ -144,6 +152,7 @@ SELLER_FIELD_MAP: dict[str, tuple[str, ...]] = {
     "reply_rate": ("replyRate", "responseRate"),
     "review_count": ("reviewCount", "rateCount", "evaluateCount"),
     "positive_rate": ("positiveRate", "goodRate", "praiseRate"),
+    "listing_count": ("listingCount", "itemCount"),
     "account_age_days": ("accountAgeDays", "registerDays"),
 }
 
@@ -304,6 +313,9 @@ def normalize_item(payload: dict[str, Any], source: str) -> RawItem:
         publish_time=parse_timestamp(get("publish_time")),
         want_count=_as_count(want_raw),
         view_count=_as_count(get("view_count")),
+        status=str(payload.get("status") or "on_sale"),
+        condition_fact=payload.get("condition_fact"),
+        free_shipping_fact=payload.get("free_shipping_fact"),
         seller_is_shop=payload.get("seller_is_shop"),
         seller_review_count=payload.get("seller_review_count"),
         seller_positive_rate=payload.get("seller_positive_rate"),
@@ -368,6 +380,7 @@ def normalize_seller(payload: dict[str, Any], seller_id: str, source: str) -> Ra
         reply_rate=as_float(get("reply_rate")),
         review_count=as_int(get("review_count")),
         positive_rate=as_float(get("positive_rate")),
+        listing_count=as_int(get("listing_count")),
         account_age_days=as_int(get("account_age_days")),
         missing_fields=tuple(sorted(set(missing))),
     )
