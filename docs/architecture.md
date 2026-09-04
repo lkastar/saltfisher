@@ -67,7 +67,7 @@ uvicorn app.main:app
 
 ---
 
-## 数据模型（11 张表）
+## 数据模型（12 张表）
 
 全部在 `app/models.py`。两条贯穿全局的不变量：
 
@@ -86,13 +86,33 @@ uvicorn app.main:app
 | `NotifyChannel` | 渠道配置（密钥明文存此，见运维文档） |
 | `MonitorChannel` | 规则 ↔ 渠道多对多。**空关联 = 这条规则不通知任何人** |
 | `NotifyLog` | 发送记录，含失败原因 |
+| `CollectRun` | **每个采集周期一行**，成功与失败都写。见下 |
 | `LlmEndpoint` / `LlmScenarioConfig` | M4 的配置面，表已建，暂无代码读取 |
 
 ### 为什么快照只在变化时写
 
 行量因此跟的是**变价频率**而不是轮询频率。实测：一条规则连续跑 9.2 分钟（约 60 次观测）
-新增 **0 条**快照；全库 131 个商品里 124 个只有 1 条快照。代价是查「当前价」要一次查询而不是
-读一列——`store.latest_snapshots` 用一个窗口函数一次解决，与行数无关。
+新增 **0 条**快照；开发库在 2026-09-05 是 328 个商品 343 条快照，其中 317 个只有 1 条
+（这三个数每采集一轮就会变，看的是比例不是绝对值）。代价是查「当前价」
+要一次查询而不是读一列——`store.snapshot_ids_at()` 用一个窗口函数一次解决，与行数无关。
+
+**代价之二，M2 才付出来**：快照的**存在性**因此不能用来判断「那天这件在不在售」。
+一件从头到尾没变价的商品和一件早就下架的商品，快照行数一样多（都是 1 条）。在售看
+`Item.last_seen_at` 的新鲜度；`Item.status` 也不行——它对关键词商品恒为 `on_sale`
+（2026-09-05 实测 328 件里 **0 件**例外），只有收藏项的详情抓取会改它，所以
+`status` 只用来**排除**真正观测到已售/下架的那几件。
+
+### `CollectRun`：「那天没新货」和「那天没采集」是两件事
+
+只看 `Item` / `PriceSnapshot`，这两种情况长得完全一样，供应量趋势图会把它们画成同一根
+零柱——也就是进程挂了三天，图上显示市场冷了三天。`CollectRun` 每周期一行（成功和四个失败
+分支都写），是「那天到底采没采」的唯一依据。它早于 M2 的日期一律画成「未采集」，这是准确的：
+我们确实没有那几天的采集记录，而记录无法事后补。
+
+- **全量保留，不降采样**，与快照同一个决定。300s 间隔下约 288 行/天/规则。
+- **写日志用自己的 session、自己吞异常**（`scheduler._sync_record_run`）。与业务写共用事务
+  的话，一次失败的日志写会把它本该只是观测的采集一起回滚——能毁掉被观测对象的观测手段，
+  比没有观测手段更糟。
 
 ---
 
@@ -143,9 +163,9 @@ Vite + React 19 + TS，plain CSS + 设计令牌，无组件库、无图表库、
 ```
 web/src/
 ├── api/{types.ts(生成), client.ts, queries.ts}
-├── pages/       六个页面，单用组件留在页内
-├── components/  States(三态) / RemoteImage / SellerProfile / PriceChart
-├── lib/         format.ts(分转元唯一出口) · chart.ts(阶梯几何，纯函数)
+├── pages/       八个页面，单用组件留在页内
+├── components/  States(三态) / RemoteImage / SellerProfile / PriceChart / Histogram / DailyBars
+├── lib/         format.ts(分转元唯一出口) · chart.ts(图形几何，纯函数，三张图共用)
 └── styles/      tokens.css · base.css
 ```
 
@@ -158,7 +178,13 @@ web/src/
 5. 价格是整数分，只由 `lib/format.ts` 转显示
 
 价格图是**手写 SVG 阶梯线**：一种图表不值得引一个比整个应用还大的依赖，而且阶梯语义
-（价格在下次观测前一直保持）不能画成平滑曲线——那会画出从未存在过的价格。
+（价格在下次观测前一直保持）不能画成平滑曲线——那会画出从未存在过的价格。M2 的直方图与
+按日柱状同理：都是线性刻度上的矩形，与阶梯线共用同一个 `scale()`，各约 40 行。该换图表库
+的触发点不是「第三种图」，而是需要缩放/刷选，或出现非矩形几何。
+
+「未采集」用**斜纹图案**而不是只换颜色，降幅用 `▼` 加数字而不是只用绿色：颜色不单独承载
+含义。每张 SVG 配 `role="img"` + `aria-label`，下方给同数据的表格——SVG 回答不了「哪天」，
+表格能，而且屏幕阅读器只拿得到表格。
 
 ---
 
@@ -167,7 +193,7 @@ web/src/
 完整契约以 OpenAPI 为准，运行后看 **`/docs`**（Swagger UI）或 `/openapi.json`。
 前端类型由它生成，所以文档与代码不可能不一致。
 
-24 个端点，除 `/api/health` 外全部需要 `Authorization: Bearer <SFD_API_TOKEN>`：
+19 条路径上 27 个操作，除 `/api/health` 外全部需要 `Authorization: Bearer <SFD_API_TOKEN>`：
 
 ```
 监控规则   GET/POST /api/monitors · GET/PATCH/DELETE /api/monitors/{id} · POST /api/monitors/{id}/run
@@ -176,7 +202,21 @@ web/src/
 通知渠道   GET/POST /api/channels · PATCH/DELETE /api/channels/{id} · POST /api/channels/{id}/test
            GET /api/notify-logs
 采集会话   GET /api/session · POST/DELETE /api/session/cookies
+行情分析   GET /api/analytics/price-distribution · /price-drops · /supply-trend
 其它       GET /api/health（免认证，容器健康检查用） · GET /api/whoami
 ```
+
+三个行情端点都收 `days`，但**每个里它的含义不同**（这不是不一致，是各自的自然含义）：
+
+| 端点 | `days` 限定什么 | 默认 |
+|---|---|---|
+| `price-distribution` | 哪些商品算进来：窗口内至少被看到过一次 | 7 |
+| `price-drops` | 比价基准点：窗口起点的价 vs 现价 | 7 |
+| `supply-trend` | 图表横轴跨度，窗口内每一天都返回 | 30 |
+
+分布的默认是 7 天而不是「只看此刻在售」，因为一个周期只读搜索前 30 条，此刻在观测范围内的
+永远只有约 30 件/关键词。响应里的 `fresh_size` 才是「其中多少件最近仍被看到」。
+
+日界是 **UTC** 日界（列里存的就是 UTC），时区转换在前端做。
 
 `/api/health` 刻意免认证：它要能作为容器健康检查。
