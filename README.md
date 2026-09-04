@@ -84,7 +84,7 @@ curl -X POST localhost:8000/api/channels \
 ```
 
 - type：`feat` `fix` `docs` `style` `refactor` `test` `chore`
-- scope：`collector` `notify` `api` `db` `scheduler` `analytics` `web` `spec` `docker` `deps`
+- scope：`collector` `notify` `watchlist` `api` `db` `scheduler` `analytics` `web` `spec` `docker` `deps`
 - subject ≤ 50 字符，动词原形开头，小写，不加句号
 - body 用 `- ` bullet 逐条列改动（changelog 风格），不写动机铺垫和总结句
 - 不写 AI co-author 尾注

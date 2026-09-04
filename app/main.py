@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import Depends, FastAPI
 
-from app.api import channels, monitors
+from app.api import channels, monitors, watchlist
 from app.auth import require_token
 from app.collector.browser import BrowserCollector
 from app.collector.mtop import MtopClient
@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # A separate client from the collector's: different host, different
     # headers, and a goofish-shaped user-agent has no business on api.telegram.
     notify_client = httpx.AsyncClient(timeout=20.0)
+    app.state.notify_client = notify_client
     app.state.notify_registry = build_registry(notify_client)
     mtop = MtopClient(session)
     browser = BrowserCollector(session)
@@ -69,6 +70,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="saltfish-digger", lifespan=lifespan)
 app.include_router(monitors.router, dependencies=[Depends(require_token)])
 app.include_router(channels.router, dependencies=[Depends(require_token)])
+app.include_router(watchlist.router, dependencies=[Depends(require_token)])
 
 
 @app.get("/api/health")

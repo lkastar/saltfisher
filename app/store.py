@@ -12,7 +12,7 @@ item?" from in-memory state re-notifies everything after a restart.
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
@@ -21,7 +21,7 @@ from app.collector.base import RawItem, RawSeller
 from app.collector.filters import describe_unverified
 from app.collector.pipeline import Candidate
 from app.config import settings
-from app.models import Item, MonitorHit, PriceSnapshot, Seller, utcnow
+from app.models import Item, MonitorHit, PriceSnapshot, Seller, Watchlist, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -351,3 +351,144 @@ def persist_cycle(
             notifiable.append(hit)
 
     return notifiable
+
+
+# --------------------------------------------------------------------------- #
+# Watchlist
+# --------------------------------------------------------------------------- #
+
+
+def watch_baseline(entry: Watchlist) -> int:
+    """The price a drop is measured against.
+
+    Falls back to the price at the time of adding, so a freshly watched item
+    whose price falls is caught before any notification has ever been sent.
+    """
+    return entry.notified_price_cents or entry.added_price_cents
+
+
+def evaluate_watch(
+    entry: Watchlist, raw: RawItem, *, now: datetime | None = None
+) -> NotifiableHit | None:
+    """Decide whether a watched item deserves an immediate alert.
+
+    Two triggers, in priority order:
+
+    1. **It is gone** (sold or delisted). The thing the user was waiting for no
+       longer exists, which is exactly as time-critical as a price drop.
+    2. **The price fell past the threshold** relative to the last announced
+       price, or the price at the time it was added.
+
+    A price rise is not news, and neither is an unchanged price.
+    """
+    now = now or utcnow()
+    baseline = watch_baseline(entry)
+
+    if raw.status != "on_sale":
+        return NotifiableHit(
+            item_id=raw.item_id,
+            title=raw.title,
+            price_cents=raw.price_cents,
+            previous_price_cents=baseline,
+            reason="gone",
+            url=item_url(raw.item_id),
+            cover_url=raw.cover_url,
+            seller_nick=raw.seller_nick,
+            unverified_labels=(),
+        )
+
+    if raw.price_cents < _drop_threshold(baseline):
+        return _notifiable(raw, baseline, "price_drop", ())
+    return None
+
+
+def persist_watch_observation(
+    session: Session,
+    item_id: str,
+    raw: RawItem | None,
+    seller: RawSeller | None,
+    *,
+    gone: bool = False,
+    now: datetime | None = None,
+) -> NotifiableHit | None:
+    """Record one watch cycle and return what deserves an alert.
+
+    `gone=True` is for the case where the detail fetch itself reported the
+    listing missing: there is no payload to store, but the disappearance is a
+    valid observation and must still reach the user.
+    """
+    now = now or utcnow()
+    entry = session.get(Watchlist, item_id)
+    if entry is None:
+        return None
+
+    if gone or raw is None:
+        item = session.get(Item, item_id)
+        if item is not None:
+            item.status = "removed"
+            item.last_seen_at = now
+        entry.last_run_at = now
+        entry.last_error = None
+        baseline = watch_baseline(entry)
+        return NotifiableHit(
+            item_id=item_id,
+            title=item.title if item is not None else item_id,
+            # The listing is gone, so there is no current price. Reporting the
+            # last known one keeps the message readable without inventing data.
+            price_cents=baseline,
+            previous_price_cents=baseline,
+            reason="gone",
+            url=item_url(item_id),
+            cover_url=item.cover_url if item is not None else None,
+            seller_nick=item.seller_nick if item is not None else "",
+            unverified_labels=(),
+        )
+
+    if seller is not None:
+        # Key the profile on the id the item already points at: the search and
+        # detail routes use different id spaces for the same seller, so keying
+        # on the detail id would create a second, unlinkable row.
+        existing = session.get(Item, item_id)
+        target_id = existing.seller_id if existing else seller.seller_id
+        upsert_seller_profile(session, replace(seller, seller_id=target_id))
+    else:
+        upsert_seller_from_item(session, raw)
+    session.flush()
+
+    upsert_item(session, raw, now=now)
+    maybe_snapshot(session, raw, now=now)
+
+    hit = evaluate_watch(entry, raw, now=now)
+    entry.last_run_at = now
+    entry.last_error = None
+    entry.consecutive_failures = 0
+    return hit
+
+
+def mark_watch_notified(
+    session: Session, hit: NotifiableHit, *, now: datetime | None = None
+) -> None:
+    """Record delivery AFTER a successful send.
+
+    A gone item also stops being watched: there is nothing left to poll, and
+    the row stays in the list with its status so it can still serve as a price
+    reference.
+    """
+    entry = session.get(Watchlist, hit.item_id)
+    if entry is None:
+        return
+    entry.notified_price_cents = hit.price_cents
+    if hit.reason == "gone":
+        entry.price_watch_enabled = False
+
+
+def record_watch_failure(session: Session, item_id: str, error: str) -> None:
+    entry = session.get(Watchlist, item_id)
+    if entry is None:
+        return
+    entry.last_run_at = utcnow()
+    entry.last_error = error
+    entry.consecutive_failures += 1
+    if entry.consecutive_failures >= settings.max_consecutive_failures:
+        entry.price_watch_enabled = False
+        entry.last_error = f"auto-disabled after {entry.consecutive_failures} failures: {error}"

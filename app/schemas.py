@@ -141,3 +141,58 @@ class NotifyLogPublic(SQLModel):
 class TestSendResult(SQLModel):
     ok: bool
     error: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Watchlist
+# --------------------------------------------------------------------------- #
+
+
+class WatchlistCreate(SQLModel):
+    """Two ways in: an item already in the database, or a pasted link.
+
+    The link path matters — without it the tool is closed inside its own search
+    results, and the specific thing the user actually wants to buy (spotted in
+    the app, or sent by a friend) cannot be watched at all.
+    """
+
+    item_id: str | None = None
+    url: str | None = None
+    note: str | None = Field(default=None, max_length=500)
+    interval_seconds: int = Field(default=300, ge=settings.min_interval_seconds)
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> "WatchlistCreate":
+        if bool(self.item_id) == bool(self.url):
+            raise ValueError("provide exactly one of item_id or url")
+        return self
+
+
+class WatchlistUpdate(SQLModel):
+    note: str | None = Field(default=None, max_length=500)
+    price_watch_enabled: bool | None = None
+    interval_seconds: int | None = Field(default=None, ge=settings.min_interval_seconds)
+
+
+class WatchlistPublic(SQLModel):
+    item_id: str
+    title: str
+    price_cents: int
+    added_price_cents: int
+    change_cents: int
+    change_ratio: float
+    status: str
+    cover_url: str | None
+    seller_nick: str
+    seller_is_shop: bool | None
+    seller_credit_level: int | None
+    seller_positive_rate: float | None
+    first_seen_at: datetime
+    last_seen_at: datetime
+    listed_days: float
+    note: str | None
+    price_watch_enabled: bool
+    interval_seconds: int
+    last_run_at: datetime | None
+    last_error: str | None
+    added_at: datetime

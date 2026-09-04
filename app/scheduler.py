@@ -20,15 +20,33 @@ from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
 
-from app.collector.base import ChallengeError, CollectorError, TransientCollectorError
+from app.collector.base import (
+    ChallengeError,
+    CollectorError,
+    ItemGoneError,
+    TransientCollectorError,
+)
 from app.collector.filters import RuleFilters
 from app.collector.pipeline import Pipeline
 from app.config import settings
 from app.db import engine
-from app.models import Monitor, NotifyChannel, utcnow
-from app.notify import channels_for_monitor, deliver, group_by_reason, log_delivery
+from app.models import Monitor, NotifyChannel, Watchlist, utcnow
+from app.notify import (
+    channels_for_monitor,
+    deliver,
+    enabled_channels,
+    group_by_reason,
+    log_delivery,
+)
 from app.notify.base import Notification, Notifier
-from app.store import NotifiableHit, mark_notified, persist_cycle
+from app.store import (
+    NotifiableHit,
+    mark_notified,
+    mark_watch_notified,
+    persist_cycle,
+    persist_watch_observation,
+    record_watch_failure,
+)
 
 log = logging.getLogger(__name__)
 
@@ -313,14 +331,127 @@ async def search_loop(
     log.info("search loop stopped")
 
 
+def _sync_due_watch_ids(now: datetime | None = None) -> list[str]:
+    now = now or utcnow()
+    with Session(engine) as session:
+        due: list[str] = []
+        stmt = select(Watchlist).where(Watchlist.price_watch_enabled)
+        for entry in session.exec(stmt).all():
+            wait = jittered(entry.interval_seconds)
+            if entry.last_run_at is None or entry.last_run_at + timedelta(seconds=wait) <= now:
+                due.append(entry.item_id)
+        return due
+
+
+def _sync_persist_watch(
+    item_id: str, raw: object | None, seller: object | None, *, gone: bool
+) -> NotifiableHit | None:
+    with Session(engine) as session:
+        hit = persist_watch_observation(session, item_id, raw, seller, gone=gone)  # type: ignore[arg-type]
+        session.commit()
+        return hit
+
+
+def _sync_watch_channels() -> list[NotifyChannel]:
+    """Every enabled channel: a watched item is not bound to a rule, so there
+    is no rule-level channel list to consult."""
+    with Session(engine) as session:
+        channels = enabled_channels(session)
+        for channel in channels:
+            session.expunge(channel)
+        return channels
+
+
+def _sync_commit_watch_delivery(
+    channel_id: int, notification: Notification, hit: NotifiableHit, error: str | None
+) -> None:
+    with Session(engine) as session:
+        log_delivery(session, channel_id, notification, None, error)
+        if error is None:
+            mark_watch_notified(session, hit)
+        session.commit()
+
+
+async def dispatch_watch_hit(registry: dict[str, Notifier], hit: NotifiableHit) -> None:
+    channels = await asyncio.to_thread(_sync_watch_channels)
+    if not channels:
+        log.info("no channels enabled", extra={"item_id": hit.item_id})
+        return
+    notification = Notification(kind=hit.reason, hits=[hit])
+    for channel in channels:
+        assert channel.id is not None
+        error = await deliver(registry, channel, notification)
+        if error is not None:
+            log.error(
+                "watch notification failed",
+                extra={"channel_id": channel.id, "err": error},
+            )
+        await asyncio.to_thread(_sync_commit_watch_delivery, channel.id, notification, hit, error)
+
+
+async def run_watch_cycle(
+    pipeline: Pipeline, item_id: str, registry: dict[str, Notifier] | None = None
+) -> NotifiableHit | None:
+    """One cycle for one watched item.
+
+    Uses the detail route, which is the only one that reports the item status —
+    the signal that the thing the user was waiting for is gone.
+    """
+    try:
+        raw, seller = await pipeline.collect_item(item_id)
+    except ItemGoneError:
+        # Not a failure: the disappearance IS the observation, and it is what
+        # the user most needs to hear.
+        hit = await asyncio.to_thread(_sync_persist_watch, item_id, None, None, gone=True)
+    except TransientCollectorError as exc:
+        await asyncio.to_thread(record_watch_failure_sync, item_id, f"transient: {exc}")
+        return None
+    except ChallengeError as exc:
+        await asyncio.to_thread(record_watch_failure_sync, item_id, f"needs verification: {exc}")
+        return None
+    except CollectorError as exc:
+        await asyncio.to_thread(record_watch_failure_sync, item_id, str(exc))
+        return None
+    except Exception as exc:  # noqa: BLE001 - the loop must outlive any bug
+        log.exception("watch cycle failed", extra={"item_id": item_id})
+        await asyncio.to_thread(record_watch_failure_sync, item_id, f"{type(exc).__name__}: {exc}")
+        return None
+    else:
+        hit = await asyncio.to_thread(_sync_persist_watch, item_id, raw, seller, gone=False)
+
+    if hit is not None:
+        log.info("watch alert", extra={"item_id": item_id, "reason": hit.reason})
+        if registry is not None:
+            await dispatch_watch_hit(registry, hit)
+    return hit
+
+
+def record_watch_failure_sync(item_id: str, error: str) -> None:
+    with Session(engine) as session:
+        record_watch_failure(session, item_id, error)
+        session.commit()
+
+
 async def watch_loop(
     pipeline: Pipeline, stop: asyncio.Event, registry: dict[str, Notifier] | None = None
 ) -> None:
-    """Poll watched items. Wired up in T5; the loop exists here so both
-    cadences share one semaphore from the start.
+    """Poll watched items.
+
+    Separate from the search loop because the cadences differ by roughly five
+    times, but sharing its semaphore: the pacing rules are a safety measure,
+    not a per-loop budget.
     """
     log.info("watch loop started")
     while not stop.is_set():
+        try:
+            for item_id in await asyncio.to_thread(_sync_due_watch_ids):
+                if stop.is_set():
+                    break
+                async with COLLECT_SEMAPHORE:
+                    await run_watch_cycle(pipeline, item_id, registry)
+                await asyncio.sleep(random.uniform(*INTER_MONITOR_PAUSE))
+        except Exception:  # noqa: BLE001 - the loop itself must never die
+            log.exception("watch loop iteration failed")
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=SWEEP_TICK_SECONDS)
     log.info("watch loop stopped")
