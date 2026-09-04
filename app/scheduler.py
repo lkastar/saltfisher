@@ -1,0 +1,253 @@
+"""The two polling loops.
+
+Design (design.md section 1): keyword rules and watched items poll at very
+different cadences, so each gets its own loop and its own timing — but every
+request to the upstream goes through ONE semaphore, because the pacing rules
+are a safety measure, not a throughput knob. That single permit also gives the
+SQLite single-writer guarantee for free.
+
+    search_loop ─┐
+                 ├─ COLLECT_SEMAPHORE(1) ─▶ upstream
+    watch_loop ──┘
+"""
+
+import asyncio
+import contextlib
+import logging
+import random
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+
+from sqlmodel import Session, select
+
+from app.collector.base import ChallengeError, CollectorError, TransientCollectorError
+from app.collector.filters import RuleFilters
+from app.collector.pipeline import Pipeline
+from app.config import settings
+from app.db import engine
+from app.models import Monitor, utcnow
+from app.store import NotifiableHit, persist_cycle
+
+log = logging.getLogger(__name__)
+
+# One permit shared by both loops: monitors are collected one at a time.
+COLLECT_SEMAPHORE = asyncio.Semaphore(1)
+
+# Spacing between two monitors inside one sweep. Fixed cadence is the easiest
+# bot signature there is, so every wait is jittered.
+INTER_MONITOR_PAUSE = (3.0, 8.0)
+SWEEP_TICK_SECONDS = 15.0
+BACKOFF_CAP_SECONDS = 1800
+
+# Per-monitor backoff, in memory on purpose: a restart legitimately clears it.
+_backoff: dict[int, float] = {}
+
+
+def jittered(seconds: float) -> float:
+    return seconds * random.uniform(0.85, 1.15)
+
+
+def rule_filters(monitor: Monitor) -> RuleFilters:
+    return RuleFilters(
+        exclude_words=monitor.exclude_words,
+        price_min_cents=monitor.price_min_cents,
+        price_max_cents=monitor.price_max_cents,
+        published_within_hours=monitor.published_within_hours,
+        region=monitor.region,
+        condition=monitor.condition,
+        free_shipping=monitor.free_shipping,
+        min_seller_credit=monitor.min_seller_credit,
+        exclude_shop=monitor.exclude_shop,
+    )
+
+
+def _sync_due_monitor_ids(now: datetime | None = None) -> list[int]:
+    now = now or utcnow()
+    with Session(engine) as session:
+        due: list[int] = []
+        for monitor in session.exec(select(Monitor).where(Monitor.enabled)).all():
+            if monitor.id is None:
+                continue
+            wait = jittered(monitor.interval_seconds) + _backoff.get(monitor.id, 0.0)
+            if monitor.last_run_at is None or monitor.last_run_at + timedelta(seconds=wait) <= now:
+                due.append(monitor.id)
+        return due
+
+
+def _sync_load_monitor(monitor_id: int) -> Monitor | None:
+    with Session(engine) as session:
+        monitor = session.get(Monitor, monitor_id)
+        if monitor is not None:
+            session.expunge(monitor)
+        return monitor
+
+
+def _sync_persist_cycle(
+    monitor_id: int, candidates: list, *, baseline_done: bool
+) -> list[NotifiableHit]:
+    with Session(engine) as session:
+        hits = persist_cycle(session, monitor_id, candidates, baseline_done=baseline_done)
+        monitor = session.get(Monitor, monitor_id)
+        if monitor is not None:
+            monitor.hit_count += len(hits)
+            if not monitor.baseline_done:
+                # Flipped in the SAME transaction that wrote the baseline hits,
+                # so a crash mid-baseline cannot turn into a full-volume push
+                # on the next cycle.
+                monitor.baseline_done = True
+        session.commit()
+        return hits
+
+
+def _sync_record_outcome(
+    monitor_id: int, *, collector: str | None, error: str | None, disable: bool = False
+) -> None:
+    with Session(engine) as session:
+        monitor = session.get(Monitor, monitor_id)
+        if monitor is None:
+            return
+        monitor.last_run_at = utcnow()
+        monitor.last_error = error
+        if collector:
+            monitor.last_collector = collector
+        if error is None:
+            monitor.consecutive_failures = 0
+        else:
+            monitor.consecutive_failures += 1
+            if disable or monitor.consecutive_failures >= settings.max_consecutive_failures:
+                monitor.enabled = False
+                monitor.last_error = (
+                    f"auto-disabled after {monitor.consecutive_failures} failures: {error}"
+                )
+        session.commit()
+
+
+@dataclass(frozen=True, slots=True)
+class CycleOutcome:
+    """What one cycle produced. `collector` must reach the database: it is how
+    the management page shows that the cheap path has degraded.
+    """
+
+    hits: list[NotifiableHit] = field(default_factory=list)
+    collector: str | None = None
+    collected: int = 0
+    passed: int = 0
+
+
+async def run_monitor_cycle(pipeline: Pipeline, monitor: Monitor) -> CycleOutcome:
+    """One collection cycle for one rule.
+
+    Order is fixed (design.md section 5): collect, screen, persist, then hand
+    the notifiable list back. Deciding "should we notify?" is a database
+    question answered inside persist_cycle — answering it from in-memory state
+    re-announces everything after a restart.
+    """
+    assert monitor.id is not None
+    items = await pipeline.collect_search(monitor.keyword, rows=30)
+    candidates = await pipeline.screen(items, rule_filters(monitor))
+    hits = await asyncio.to_thread(
+        _sync_persist_cycle, monitor.id, candidates, baseline_done=monitor.baseline_done
+    )
+    source = items[0].source if items else None
+    passed = sum(1 for c in candidates if c.passed)
+    log.info(
+        "cycle ok",
+        extra={
+            "monitor_id": monitor.id,
+            "collector": source,
+            "found": len(items),
+            "passed": passed,
+            "notifiable": len(hits),
+        },
+    )
+    return CycleOutcome(hits=hits, collector=source, collected=len(items), passed=passed)
+
+
+async def _run_and_record(pipeline: Pipeline, monitor_id: int) -> CycleOutcome:
+    """Wrap one cycle so that no failure can escape into the loop.
+
+    The bare `except Exception` here is the one the project allows (see
+    .trellis/spec/backend/error-handling.md): a single malformed listing must
+    not stop every other monitor. It is paired with a full traceback and a
+    persisted last_error, so nothing is ever swallowed silently.
+    """
+    monitor = await asyncio.to_thread(_sync_load_monitor, monitor_id)
+    if monitor is None or not monitor.enabled:
+        return CycleOutcome()
+    try:
+        outcome = await run_monitor_cycle(pipeline, monitor)
+    except TransientCollectorError as exc:
+        _bump_backoff(monitor_id)
+        await asyncio.to_thread(
+            _sync_record_outcome, monitor_id, collector=None, error=f"transient: {exc}"
+        )
+        return CycleOutcome()
+    except ChallengeError as exc:
+        # Not a rate limit: a human must re-verify or re-import cookies. Stop
+        # hammering and make the reason visible instead of backing off quietly.
+        await asyncio.to_thread(
+            _sync_record_outcome,
+            monitor_id,
+            collector=None,
+            error=f"needs verification: {exc}",
+            disable=True,
+        )
+        return CycleOutcome()
+    except CollectorError as exc:
+        _bump_backoff(monitor_id)
+        await asyncio.to_thread(_sync_record_outcome, monitor_id, collector=None, error=str(exc))
+        return CycleOutcome()
+    except Exception as exc:  # noqa: BLE001 - the loop must outlive any bug
+        log.exception("cycle failed", extra={"monitor_id": monitor_id})
+        await asyncio.to_thread(
+            _sync_record_outcome,
+            monitor_id,
+            collector=None,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return CycleOutcome()
+    _backoff.pop(monitor_id, None)
+    await asyncio.to_thread(
+        _sync_record_outcome, monitor_id, collector=outcome.collector, error=None
+    )
+    return outcome
+
+
+def _bump_backoff(monitor_id: int) -> None:
+    current = _backoff.get(monitor_id, 0.0)
+    _backoff[monitor_id] = min(max(current * 2, 60.0), BACKOFF_CAP_SECONDS)
+
+
+async def search_loop(pipeline: Pipeline, stop: asyncio.Event) -> None:
+    """Poll keyword rules until told to stop.
+
+    Serial by design. With a handful of rules the worst-case delay is roughly
+    rule_count x cycle_duration, which is why the management page has to show
+    each rule's last run time — the delay must be visible rather than guessed.
+    """
+    log.info("search loop started")
+    while not stop.is_set():
+        try:
+            due = await asyncio.to_thread(_sync_due_monitor_ids)
+            for monitor_id in due:
+                if stop.is_set():
+                    break
+                async with COLLECT_SEMAPHORE:
+                    await _run_and_record(pipeline, monitor_id)
+                await asyncio.sleep(random.uniform(*INTER_MONITOR_PAUSE))
+        except Exception:  # noqa: BLE001 - the loop itself must never die
+            log.exception("search loop iteration failed")
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=SWEEP_TICK_SECONDS)
+    log.info("search loop stopped")
+
+
+async def watch_loop(pipeline: Pipeline, stop: asyncio.Event) -> None:
+    """Poll watched items. Wired up in T5; the loop exists here so both
+    cadences share one semaphore from the start.
+    """
+    log.info("watch loop started")
+    while not stop.is_set():
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=SWEEP_TICK_SECONDS)
+    log.info("watch loop stopped")

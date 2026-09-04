@@ -198,6 +198,21 @@ async def test_seller_profile_returns_none_when_both_paths_fail(usable_session):
     assert await Pipeline(mtop, browser, usable_session).collect_seller("s1") is None
 
 
+async def test_a_challenged_seller_profile_does_not_kill_the_session(usable_session):
+    """Regression, found on live data.
+
+    The seller-profile endpoint answered with a challenge and the client marked
+    the SHARED session as needing verification — which would auto-disable the
+    rule even though search had just succeeded. An auxiliary failure may
+    degrade one filter, never the session.
+    """
+    mtop = StubMtop(raises=CollectorError("seller api unavailable"))
+    browser = StubBrowser(raises=CollectorError("no browser session"))
+    assert await Pipeline(mtop, browser, usable_session).collect_seller("s1") is None
+    assert usable_session.usable
+    assert not usable_session.needs_verification
+
+
 async def test_seller_profile_falls_back_to_browser(usable_session):
     mtop = StubMtop(raises=CollectorError("nope"))
     browser = StubBrowser()
@@ -227,7 +242,8 @@ async def test_seller_profile_is_fetched_only_for_survivors(usable_session):
         min_seller_credit=3,
     )
     candidates = await Pipeline(mtop, browser, usable_session).screen(items, rule)
-    assert [c.item.item_id for c in candidates] == ["1"]
+    assert len(candidates) == 3, "every item gets a verdict, not just survivors"
+    assert [c.item.item_id for c in candidates if c.passed] == ["1"]
     assert mtop.seller_calls == 1
 
 
@@ -247,8 +263,22 @@ async def test_unfetchable_profile_waives_the_check_and_labels_it(usable_session
     candidates = await Pipeline(mtop, browser, usable_session).screen(
         [make_item("1")], RuleFilters(min_seller_credit=3)
     )
-    assert len(candidates) == 1
+    assert len(candidates) == 1 and candidates[0].passed
     assert "min_seller_credit" in candidates[0].outcome.unverified
+
+
+async def test_rejected_items_keep_their_verdict_for_the_ledger(usable_session):
+    """An item that has risen out of budget must be reported as rejected, so the
+    hit ledger can flip in_range back to False. Dropping it silently means the
+    next price fall never registers as a fresh entry into the range.
+    """
+    mtop, browser = StubMtop(), StubBrowser()
+    candidates = await Pipeline(mtop, browser, usable_session).screen(
+        [make_item("1", price_cents=900000)], RuleFilters(price_max_cents=350000)
+    )
+    assert len(candidates) == 1
+    assert not candidates[0].passed
+    assert candidates[0].outcome.rejected_by == "price"
 
 
 async def test_screen_can_skip_profile_fetching_entirely(usable_session):

@@ -93,7 +93,22 @@ class MtopClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def _call(self, api: str, payload: dict[str, Any], now_ms: str) -> dict[str, Any]:
+    async def _call(
+        self,
+        api: str,
+        payload: dict[str, Any],
+        now_ms: str,
+        *,
+        session_health: bool = True,
+    ) -> dict[str, Any]:
+        """Call one mtop API.
+
+        `session_health=False` for auxiliary calls: a challenge on the seller
+        profile endpoint is not evidence that the session is dead — the search
+        call moments earlier succeeded. Marking the shared session from an
+        auxiliary failure took the working search path down with it and
+        auto-disabled the rule (seen on live data).
+        """
         sess = self._session
         token = sess.token
         if not token:
@@ -129,7 +144,7 @@ class MtopClient:
             base.CHALLENGE_COOKIE if hasattr(base, "CHALLENGE_COOKIE") else False
         ):  # pragma: no cover
             pass
-        if CHALLENGE_COOKIE in response.cookies:
+        if CHALLENGE_COOKIE in response.cookies and session_health:
             sess.mark_challenged("upstream issued x5secdata challenge cookie")
 
         try:
@@ -141,6 +156,10 @@ class MtopClient:
         try:
             classify_ret(body.get("ret"))
         except ChallengeError as exc:
+            if not session_health:
+                # Auxiliary path: report it as merely unavailable so callers
+                # can degrade one filter instead of the whole session.
+                raise CollectorError(f"{api} unavailable: {exc}") from exc
             sess.mark_challenged(str(exc))
             raise
         return body.get("data") or {}
@@ -184,7 +203,11 @@ class MtopClient:
         return base.normalize_item(flatten_search_row(data) or data, source="mtop")
 
     async def fetch_seller(self, seller_id: str, now_ms: str) -> RawSeller:
-        data = await self._call(SELLER_API, {"userId": seller_id}, now_ms)
+        # NOTE: this API name is still unverified — the live probe never got a
+        # successful profile response. It is auxiliary on purpose, so a wrong
+        # guess degrades the seller filters instead of breaking collection.
+        # Confirm it in T5 with `capture_fixture --seller <id>`.
+        data = await self._call(SELLER_API, {"userId": seller_id}, now_ms, session_health=False)
         return base.normalize_seller(data, seller_id=seller_id, source="mtop")
 
 

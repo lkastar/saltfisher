@@ -1,0 +1,122 @@
+"""Monitor rule endpoints."""
+
+import logging
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from sqlmodel import select
+
+from app.collector.base import ChallengeError, CollectorError
+from app.db import SessionDep
+from app.models import Monitor, MonitorChannel, MonitorHit
+from app.scheduler import COLLECT_SEMAPHORE, run_monitor_cycle
+from app.schemas import CycleResult, MonitorCreate, MonitorPublic, MonitorUpdate
+
+log = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/monitors", tags=["monitors"])
+
+
+@router.get("", response_model=list[MonitorPublic])
+def list_monitors(
+    session: SessionDep,
+    limit: Annotated[int, Query(le=200)] = 100,
+    offset: int = 0,
+) -> list[Monitor]:
+    stmt = select(Monitor).order_by(Monitor.id).offset(offset).limit(limit)  # type: ignore[arg-type]
+    return list(session.exec(stmt).all())
+
+
+@router.post("", response_model=MonitorPublic, status_code=201)
+def create_monitor(payload: MonitorCreate, session: SessionDep) -> Monitor:
+    monitor = Monitor(**payload.model_dump(exclude={"channel_ids"}))
+    session.add(monitor)
+    session.flush()
+    assert monitor.id is not None
+    for channel_id in payload.channel_ids:
+        session.add(MonitorChannel(monitor_id=monitor.id, channel_id=channel_id))
+    session.commit()
+    session.refresh(monitor)
+    return monitor
+
+
+@router.get("/{monitor_id}", response_model=MonitorPublic)
+def read_monitor(monitor_id: int, session: SessionDep) -> Monitor:
+    monitor = session.get(Monitor, monitor_id)
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="monitor not found")
+    return monitor
+
+
+@router.patch("/{monitor_id}", response_model=MonitorPublic)
+def update_monitor(monitor_id: int, payload: MonitorUpdate, session: SessionDep) -> Monitor:
+    monitor = session.get(Monitor, monitor_id)
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="monitor not found")
+    changes = payload.model_dump(exclude_unset=True)
+    lo = changes.get("price_min_cents", monitor.price_min_cents)
+    hi = changes.get("price_max_cents", monitor.price_max_cents)
+    if lo is not None and hi is not None and lo > hi:
+        raise HTTPException(
+            status_code=422, detail="price_min_cents must not exceed price_max_cents"
+        )
+    for key, value in changes.items():
+        setattr(monitor, key, value)
+    # Re-enabling by hand is an explicit "try again": clear the failure state,
+    # otherwise one more failure immediately re-trips the auto-disable.
+    if changes.get("enabled") is True:
+        monitor.consecutive_failures = 0
+        monitor.last_error = None
+    session.commit()
+    session.refresh(monitor)
+    return monitor
+
+
+@router.delete("/{monitor_id}", status_code=204)
+def delete_monitor(monitor_id: int, session: SessionDep) -> None:
+    monitor = session.get(Monitor, monitor_id)
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="monitor not found")
+    # No ON DELETE CASCADE on SQLite by default, so the dependents go first.
+    for hit in session.exec(select(MonitorHit).where(MonitorHit.monitor_id == monitor_id)).all():
+        session.delete(hit)
+    for link in session.exec(
+        select(MonitorChannel).where(MonitorChannel.monitor_id == monitor_id)
+    ).all():
+        session.delete(link)
+    session.delete(monitor)
+    session.commit()
+
+
+@router.post("/{monitor_id}/run", response_model=CycleResult)
+async def run_monitor_now(monitor_id: int, request: Request, session: SessionDep) -> CycleResult:
+    """Run one cycle immediately.
+
+    Takes the same semaphore as the scheduler: a manual run must not double the
+    request rate against the upstream. Notifications are wired in T4; this
+    returns the counts so a user can tell whether a rule is configured sanely.
+    """
+    monitor = session.get(Monitor, monitor_id)
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="monitor not found")
+    was_baseline = not monitor.baseline_done
+    session.expunge(monitor)
+
+    pipeline = request.app.state.pipeline
+    async with COLLECT_SEMAPHORE:
+        try:
+            outcome = await run_monitor_cycle(pipeline, monitor)
+        except ChallengeError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="upstream requires verification: import a fresh cookie session",
+            ) from exc
+        except CollectorError as exc:
+            raise HTTPException(status_code=502, detail=f"collection failed: {exc}") from exc
+
+    return CycleResult(
+        collected=outcome.collected,
+        passed=outcome.passed,
+        notifiable=len(outcome.hits),
+        collector=outcome.collector,
+        baseline=was_baseline,
+    )

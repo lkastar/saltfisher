@@ -1,11 +1,13 @@
 """FastAPI application entry point."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 
+from app.api import monitors
 from app.auth import require_token
 from app.collector.browser import BrowserCollector
 from app.collector.mtop import MtopClient
@@ -13,6 +15,7 @@ from app.collector.pipeline import Pipeline
 from app.collector.session import UpstreamSession
 from app.config import settings
 from app.db import init_db
+from app.scheduler import search_loop, watch_loop
 
 logging.basicConfig(
     level=settings.log_level,
@@ -39,15 +42,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session = session
     app.state.pipeline = Pipeline(mtop, browser, session)
     log.info("collector ready")
+
+    stop = asyncio.Event()
+    loops = [
+        asyncio.create_task(search_loop(app.state.pipeline, stop), name="search_loop"),
+        asyncio.create_task(watch_loop(app.state.pipeline, stop), name="watch_loop"),
+    ]
     try:
-        # The two polling loops are started here in T3.
         yield
     finally:
+        # Signal, then await. Cancelling would risk interrupting a write.
+        stop.set()
+        await asyncio.gather(*loops, return_exceptions=True)
         await browser.stop()
         await mtop.aclose()
 
 
 app = FastAPI(title="saltfish-digger", lifespan=lifespan)
+app.include_router(monitors.router, dependencies=[Depends(require_token)])
 
 
 @app.get("/api/health")

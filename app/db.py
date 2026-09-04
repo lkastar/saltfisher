@@ -6,7 +6,9 @@ callers wrap DB work in asyncio.to_thread.
 """
 
 from collections.abc import Iterator
+from typing import Annotated
 
+from fastapi import Depends
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.config import settings
@@ -34,3 +36,9 @@ def init_db() -> None:
 def get_session() -> Iterator[Session]:
     with Session(engine) as session:
         yield session
+
+
+# The Annotated form is FastAPI's current idiom and keeps `Depends()` out of
+# argument defaults, which is both a lint rule and a real footgun (a default is
+# evaluated once at import).
+SessionDep = Annotated[Session, Depends(get_session)]

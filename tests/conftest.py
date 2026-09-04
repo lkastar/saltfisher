@@ -14,17 +14,32 @@ os.environ.setdefault("SFD_DATA_DIR", "data/test")
 from collections.abc import Iterator  # noqa: E402
 
 import pytest  # noqa: E402
+from sqlalchemy import Engine  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
 from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
+
+
+def memory_engine() -> Engine:
+    """One in-memory database shared by every connection.
+
+    Without StaticPool each new connection gets its OWN empty database, so a
+    request served on a different thread than the fixture sees "no such table".
+    """
+    import app.models  # noqa: F401  (register tables before create_all)
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    return engine
 
 
 @pytest.fixture
 def session() -> Iterator[Session]:
-    """In-memory DB. Real SQLite, not a mock — faster than the mock and it
-    actually exercises the schema, constraints included.
+    """Real SQLite, not a mock — faster than the mock and it actually
+    exercises the schema, constraints included.
     """
-    import app.models  # noqa: F401  (register tables)
-
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
-    SQLModel.metadata.create_all(engine)
-    with Session(engine) as s:
+    with Session(memory_engine()) as s:
         yield s

@@ -36,10 +36,14 @@ def _now_ms() -> str:
 
 @dataclass(frozen=True, slots=True)
 class Candidate:
-    """An item that passed local filtering, with its waived checks attached."""
+    """One item with its filter verdict and any waived checks attached."""
 
     item: RawItem
     outcome: FilterOutcome
+
+    @property
+    def passed(self) -> bool:
+        return self.outcome.passed
 
 
 class Pipeline:
@@ -134,8 +138,15 @@ class Pipeline:
     async def screen(
         self, items: list[RawItem], rule: RuleFilters, *, fetch_seller: bool = True
     ) -> list[Candidate]:
-        """Apply local filters first, then fetch seller profiles only for the
-        survivors — the ordering that keeps one cycle at one request.
+        """Verdict for EVERY item, not only the survivors.
+
+        The rejected ones matter: an item that was in budget and has since
+        risen out of it must have that recorded, otherwise the next time it
+        drops back the ledger still says "already in range" and the user is
+        never told. Callers filter with `[c for c in candidates if c.passed]`.
+
+        Seller profiles are still fetched only for items that passed the local
+        checks — that ordering is what keeps a cycle at one request.
         """
         candidates: list[Candidate] = []
         for item in items:
@@ -145,6 +156,7 @@ class Pipeline:
                     "filtered out",
                     extra={"item_id": item.item_id, "by": outcome.rejected_by},
                 )
+                candidates.append(Candidate(item=item, outcome=outcome))
                 continue
             if outcome.needs_seller_profile:
                 if fetch_seller and item.seller_id:
@@ -154,11 +166,9 @@ class Pipeline:
                     # Still honour whatever the row itself revealed rather than
                     # waving everything through as compliant.
                     outcome = filters.apply_seller_from_item(item, rule, outcome)
-                if not outcome.passed:
-                    continue
             candidates.append(Candidate(item=item, outcome=outcome))
         log.info(
             "screened",
-            extra={"in": len(items), "out": len(candidates)},
+            extra={"in": len(items), "passed": sum(1 for c in candidates if c.passed)},
         )
         return candidates
