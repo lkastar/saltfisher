@@ -119,9 +119,7 @@ def list_items(
 
     if monitor_id is not None:
         stmt = stmt.where(
-            col(Item.id).in_(
-                select(MonitorHit.item_id).where(MonitorHit.monitor_id == monitor_id)
-            )
+            col(Item.id).in_(select(MonitorHit.item_id).where(MonitorHit.monitor_id == monitor_id))
         )
     if status is not None:
         stmt = stmt.where(Item.status == status)
@@ -175,9 +173,7 @@ def get_item(
         .order_by(*NEWEST_FIRST)
         .limit(1)
     ).first()
-    hit = (
-        session.get(MonitorHit, (monitor_id, item_id)) if monitor_id is not None else None
-    )
+    hit = session.get(MonitorHit, (monitor_id, item_id)) if monitor_id is not None else None
     return _public(item, snapshot, session.get(Seller, item.seller_id), hit)
 
 

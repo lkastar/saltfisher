@@ -255,9 +255,7 @@ def channel(engine, label: str = "邮件") -> int:
 
 
 def make_monitor(c, channel_ids: list[int]) -> dict:
-    return c.post(
-        "/api/monitors", json={**VALID, "channel_ids": channel_ids}, headers=AUTH
-    ).json()
+    return c.post("/api/monitors", json={**VALID, "channel_ids": channel_ids}, headers=AUTH).json()
 
 
 def test_a_rule_reports_which_channels_it_notifies(client):
@@ -297,9 +295,7 @@ def test_omitting_channel_ids_leaves_them_alone(client):
     first = channel(engine)
     monitor_id = make_monitor(c, [first])["id"]
 
-    patched = c.patch(
-        f"/api/monitors/{monitor_id}", json={"name": "改个名"}, headers=AUTH
-    ).json()
+    patched = c.patch(f"/api/monitors/{monitor_id}", json={"name": "改个名"}, headers=AUTH).json()
     assert patched["channel_ids"] == [first]
 
 
@@ -309,9 +305,7 @@ def test_an_empty_list_detaches_every_channel(client):
     first = channel(engine)
     monitor_id = make_monitor(c, [first])["id"]
 
-    patched = c.patch(
-        f"/api/monitors/{monitor_id}", json={"channel_ids": []}, headers=AUTH
-    ).json()
+    patched = c.patch(f"/api/monitors/{monitor_id}", json={"channel_ids": []}, headers=AUTH).json()
     assert patched["channel_ids"] == []
 
 

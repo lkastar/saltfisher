@@ -196,9 +196,7 @@ def test_paging_is_stable_when_the_sort_key_ties(client):
                 )
             )
             s.add(
-                PriceSnapshot(
-                    item_id=f"tie{i}", price_cents=50000, status="on_sale", source="mtop"
-                )
+                PriceSnapshot(item_id=f"tie{i}", price_cents=50000, status="on_sale", source="mtop")
             )
         s.commit()
 

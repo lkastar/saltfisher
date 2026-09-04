@@ -66,9 +66,7 @@ def add_missing_columns(target: Engine = engine) -> list[str]:
                 ddl = f'ALTER TABLE "{name}" ADD COLUMN "{column.name}" {sql_type}'
                 conn.exec_driver_sql(ddl)
                 applied.append(ddl)
-                log.warning(
-                    "added missing column", extra={"table": name, "column": column.name}
-                )
+                log.warning("added missing column", extra={"table": name, "column": column.name})
     return applied
 
 
