@@ -277,9 +277,25 @@ class BrowserCollector:
         return items
 
     async def fetch_item(self, item_id: str) -> RawItem:
-        """Item only. The browser path scrapes the rendered page, which does
-        not expose the `sellerDO` block the API gives, so the seller profile
-        simply is not available on this route."""
+        """Item only, read from the page's own detail XHR.
+
+        This is NOT a fallback for a challenged detail endpoint, unlike
+        `search` below. It intercepts `mtop.taobao.idle.pc.detail` -- the same
+        API the cheap path calls -- so when that endpoint is challenged, this
+        route is challenged too. Measured in T8: mtop and this both returned
+        FAIL_SYS_USER_VALIDATE for the same item.
+
+        And it deliberately does not fall back to scraping the DOM. Also
+        measured: a challenged item page renders the "为你推荐" recommendation
+        feed instead of the listing, with the risk-control widget present, so
+        `[class*=title]` and `[class*=price]` match RECOMMENDED items. Scraping
+        would return a different listing's title and price under the requested
+        id -- a confidently wrong answer, which for a price monitor is worse
+        than an error.
+
+        The seller profile is not available on this route either: the rendered
+        page has no `sellerDO` block.
+        """
         page, captured = await self._open(ITEM_URL.format(item_id=item_id), ITEM_XHR)
         xhr_marker = ITEM_XHR
         try:
