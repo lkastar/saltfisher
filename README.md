@@ -1,16 +1,44 @@
 # saltfish-digger
 
-闲鱼（goofish）关键词/商品持续监控：定时采集、行情分析、管理页面，命中后通过邮件订阅或 Telegram Bot 推送。
+闲鱼（goofish）关键词/商品持续监控：持续采集、命中预算时实时推送、收藏商品降价追踪，
+外加一个操作台页面。单用户自托管，一个 Docker Compose 服务跑完全部功能。
 
-单用户自托管，一个 Docker Compose 服务跑完全部功能。
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [架构](docs/architecture.md) | 进程模型、三条采集路径与降级、11 张表、命中判定语义、通知去重、前端结构 |
+| [运维手册](docs/operations.md) | 部署、配置项、凭证导入、备份恢复、数据增长、**故障 → 该做什么** |
+| `/docs`（运行后） | 接口契约以 OpenAPI 为准，前端类型由它生成 |
+
+## 三分钟跑起来
+
+```bash
+echo "SFD_API_TOKEN=$(openssl rand -hex 16)" >> .env
+docker compose up -d
+```
+
+面板在 http://localhost:8000（只绑本机），用 `.env` 里的 token 登录。
+
+然后**两件必做的事**，缺一件就等于没有监控：
+
+1. 「设置」页导入采集凭证——没有它采集必被风控。取法见
+   [运维手册的「唯一的人工前置」一节](docs/operations.md)，
+   **不要按 cookie 名字找**
+2. 「通知渠道」建一个渠道，并**在规则里勾上它**——空关联的规则不通知任何人
+
+只想先看看界面：`uv run python scripts/seed_demo.py --reset`，从真实抓取的 fixture
+生成演示数据，演示规则是停用状态，不碰上游。
 
 ## 技术栈
 
 - 后端：Python 3.12 + FastAPI + SQLModel + SQLite(WAL)，由 **uv** 管理依赖
-- 采集：mtop h5 接口优先，签名失效时降级 Playwright
-- 调度：进程内 asyncio 轮询循环（60s 下限 + 抖动）
-- 分析：pandas 跑价格快照历史
-- 前端：Vite + React + TypeScript + TanStack Query
+- 采集：mtop h5 接口优先，被风控或解析失败时降级 Playwright（**只有搜索有 DOM 兜底**，
+  详情没有，原因见[架构文档的「采集」一节](docs/architecture.md)）
+- 调度：进程内两条 asyncio 循环共用一个信号量（60s 下限 + 抖动）
+- 前端：Vite + React 19 + TypeScript + TanStack Query + React Router，plain CSS 设计令牌
+  （无组件库、无图表库、无 webfont）
+- 分析：M2，尚未实现
 
 ## 开发环境
 
@@ -35,68 +63,22 @@ uv add <pkg>                # 加依赖（会同时更新 uv.lock）
 ## 通知渠道配置
 
 渠道配置**不放 `.env`**，它是数据库里的一条记录，密钥存库、API 响应里脱敏。
-建好后用 `POST /api/channels/{id}/test` 走真实发送路径验证。
+面板「通知渠道」页可以直接建；要脚本化配置、以及邮件那两个必踩的 `535` 坑，见
+[运维手册的「通知渠道的两条路」](docs/operations.md)。
 
-### 邮件（以 Brevo 为例，域名发信）
-
-```bash
-curl -X POST localhost:8000/api/channels \
-  -H "Authorization: Bearer $SFD_API_TOKEN" -H 'content-type: application/json' \
-  -d '{"kind":"email","label":"域名发信","config":{
-        "smtp_host":"smtp-relay.brevo.com","smtp_port":587,
-        "username":"<后台 SMTP & API 页的 SMTP login>",
-        "password":"<同一页生成的 SMTP key，xsmtpsib-…>",
-        "from_addr":"notify@你的域名",
-        "to_addrs":["收件人@example.com"],
-        "use_ssl":false,"use_starttls":true}}'
-```
-
-要点：
-
-- **`password` 填 SMTP key，不是 API key**——两者在后台同一页面但不通用
-- **`username` 不要填 `smtp-relay.brevo.com`**——那是主机名，填进去会得到 `535 Authentication failed`
-- 端口 587 走 STARTTLS（`use_ssl:false` + `use_starttls:true`）；465 则 `use_ssl:true`
-- **发信域名必须在服务商那边认证过**（SPF/DKIM/DMARC DNS 记录）。实测未认证的
-  `from_addr` 服务商仍会接收，但收件方会按 DMARC 拒收或判垃圾——所以「SMTP 返回 250」
-  不等于「对方收到了」，配完务必真收一封确认
-- 局域网内无认证中继：`password` 留空、`use_ssl:false`、`use_starttls:false`
-
-### Telegram
-
-```bash
-curl -X POST localhost:8000/api/channels \
-  -H "Authorization: Bearer $SFD_API_TOKEN" -H 'content-type: application/json' \
-  -d '{"kind":"telegram","label":"bot","config":{"bot_token":"123456:ABC…","chat_id":"…"}}'
-```
-
-自托管告警一般比邮件省事：没有域名认证和投递率问题。
+**建好之后要在规则里勾上它**，否则命中不会推送给任何人。
 
 ## 备份与恢复
 
-**不要用 `cp data/app.db` 备份运行中的实例。** 数据库跑在 WAL 模式，近期写入停留在
-`app.db-wal` 直到 checkpoint，而 SQLite 只在 WAL 超过约 4MB 时自动 checkpoint。实测过：
-主库 114KB 旁边挂着 3.3MB 的 WAL，拷出来的 `app.db` 每张表都是 0 行——连表结构都还在 WAL 里。
-那样的备份恢复回去，会得到一个「恢复成功」的空库。
+**不要用 `cp data/app.db` 备份运行中的实例**——WAL 模式下拷不到近期写入，会恢复出空库
+（实测过：主库 114KB 旁边挂着 3.3MB 的 WAL，拷出来每张表 0 行）。
 
 ```bash
-# 运行中备份（走 SQLite online backup API，无需停机，会核对行数）
-uv run python scripts/backup.py                     # → data/backups/app-<时间戳>.db
-uv run python scripts/backup.py --out /mnt/nas/app.db
-
-# 检查一份备份到底有没有数据
-uv run python scripts/backup.py --verify-only /path/to/app.db
-
-# 恢复
-docker compose down                                 # 或停掉 uvicorn
-rm -f data/app.db data/app.db-wal data/app.db-shm   # -wal/-shm 必须一起删
-cp /path/to/backup.db data/app.db
-docker compose up -d
+uv run python scripts/backup.py                    # 运行中也能用，会核对行数
+uv run python scripts/backup.py --verify-only 路径  # 检查一份备份有没有数据
 ```
 
-干净停机之后 `cp data/app.db` 是安全的：进程退出时会
-`PRAGMA wal_checkpoint(TRUNCATE)` 并释放连接，留下一个自包含的文件。
-
----
+完整步骤与 `data/` 里哪些文件是敏感文件，见 [运维手册的「备份与恢复」](docs/operations.md)。
 
 ## Commit 规范
 
