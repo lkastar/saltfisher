@@ -89,6 +89,14 @@ function AddByLink() {
   );
 }
 
+/** Real merchant titles run past 250 characters. Putting one in an aria-label
+ *  makes a screen reader read the entire listing before it says which control
+ *  this is, so the label identifies the row with a short prefix instead.
+ */
+function shortTitle(title: string): string {
+  return title.length > 18 ? `${title.slice(0, 18)}…` : title;
+}
+
 function NoteEditor({ entry }: { entry: WatchEntry }) {
   const queryClient = useQueryClient();
   const [note, setNote] = useState(entry.note ?? "");
@@ -106,7 +114,7 @@ function NoteEditor({ entry }: { entry: WatchEntry }) {
         maxLength={500}
         placeholder="备注"
         style={{ width: 160 }}
-        aria-label={`${entry.title} 的备注`}
+        aria-label={`${shortTitle(entry.title)} 的备注`}
       />
       {dirty ? (
         <button type="button" onClick={() => save.mutate(note)} disabled={save.isPending}>
@@ -254,7 +262,7 @@ export default function WatchlistPage() {
                           }
                         }}
                         style={{ width: 82 }}
-                        aria-label={`${entry.title} 的检查间隔（秒，下限 ${MIN_INTERVAL}）`}
+                        aria-label={`${shortTitle(entry.title)} 的检查间隔（秒，下限 ${MIN_INTERVAL}）`}
                       />
                     </label>
                   </td>
