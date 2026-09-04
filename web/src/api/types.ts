@@ -285,6 +285,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analytics/price-distribution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Price Distribution
+         * @description Where this keyword's asking prices sit, one sample per listing.
+         *
+         *     `days` bounds which listings count: those seen at least once in the
+         *     window. The default is a week rather than "only what is on sale right
+         *     now" because a cycle reads the first 30 search results, so the live set is
+         *     about 30 listings per keyword — enough to draw, not enough to trust.
+         *     `fresh_size` is what says how much of the window is still live.
+         */
+        get: operations["price_distribution_api_analytics_price_distribution_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/price-drops": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Price Drops
+         * @description Listings that have come down over the window, deepest first.
+         *
+         *     Here `days` sets what "before" means: the price at the start of the
+         *     window, compared with the current one. A listing that first appeared
+         *     inside the window has no earlier price and is excluded.
+         */
+        get: operations["price_drops_api_analytics_price_drops_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analytics/supply-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Supply Trend
+         * @description New listings per day, with days we did not collect marked as such.
+         *
+         *     Here `days` is simply the width of the chart. Every day in the window is
+         *     present, including ones with no records at all — a gap in the series would
+         *     let the frontend close it up and invent a trend.
+         */
+        get: operations["supply_trend_api_analytics_supply_trend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -659,6 +733,74 @@ export interface components {
             sent_at: string;
         };
         /**
+         * PriceBucket
+         * @description One histogram column. Edges are whole yuan in cents.
+         */
+        PriceBucket: {
+            /** Lo Cents */
+            lo_cents: number;
+            /** Hi Cents */
+            hi_cents: number;
+            /** Count */
+            count: number;
+        };
+        /**
+         * PriceDistribution
+         * @description `fresh_size` is separate from `sample_size` on purpose: the first says
+         *     how much the distribution covers, the second how much of it is still on
+         *     sale right now. With only the first, four-day-old asking prices read as
+         *     the current market.
+         */
+        PriceDistribution: {
+            /** Sample Size */
+            sample_size: number;
+            /** Data Days */
+            data_days: number;
+            /** Window Days */
+            window_days: number;
+            quantiles: components["schemas"]["PriceQuantiles"];
+            /** Histogram */
+            histogram: components["schemas"]["PriceBucket"][];
+            /** Fresh Size */
+            fresh_size: number;
+        };
+        /**
+         * PriceDrop
+         * @description `drop_bps` is integer basis points -- 2500 is 25.00%.
+         *
+         *     `is_fresh` false means the listing has left our observation window or was
+         *     seen gone; the UI must say so rather than link to a dead page.
+         */
+        PriceDrop: {
+            /** Item Id */
+            item_id: string;
+            /** Title */
+            title: string;
+            /** Cover Url */
+            cover_url: string | null;
+            /** Then Cents */
+            then_cents: number;
+            /** Now Cents */
+            now_cents: number;
+            /** Drop Bps */
+            drop_bps: number;
+            /** Last Seen At */
+            last_seen_at: string | null;
+            /** Is Fresh */
+            is_fresh: boolean;
+        };
+        /** PriceDrops */
+        PriceDrops: {
+            /** Sample Size */
+            sample_size: number;
+            /** Data Days */
+            data_days: number;
+            /** Window Days */
+            window_days: number;
+            /** Rows */
+            rows: components["schemas"]["PriceDrop"][];
+        };
+        /**
          * PricePoint
          * @description One observation. The series is ascending by time so a step chart can
          *     draw it directly: the price held until the next point, which is why the
@@ -680,6 +822,23 @@ export interface components {
             want_count: number | null;
             /** View Count */
             view_count: number | null;
+        };
+        /**
+         * PriceQuantiles
+         * @description Empty below two samples: statistics.quantiles needs two data points,
+         *     and a one-listing keyword is an ordinary day-one state here.
+         */
+        PriceQuantiles: {
+            /** P10 */
+            p10?: number | null;
+            /** P25 */
+            p25?: number | null;
+            /** P50 */
+            p50?: number | null;
+            /** P75 */
+            p75?: number | null;
+            /** P90 */
+            p90?: number | null;
         };
         /**
          * SessionState
@@ -704,6 +863,35 @@ export interface components {
             proven: boolean;
             /** Last Success At */
             last_success_at: string | null;
+        };
+        /**
+         * SupplyDay
+         * @description `collected` false means we have no record of a successful cycle that
+         *     day, which is a different fact from `new_count == 0`. Rendering both as an
+         *     empty bar is how a chart reports a dead market during downtime.
+         */
+        SupplyDay: {
+            /** Date */
+            date: string;
+            /** New Count */
+            new_count: number;
+            /** Collected */
+            collected: boolean;
+            /** Runs Ok */
+            runs_ok: number;
+            /** Runs Failed */
+            runs_failed: number;
+        };
+        /** SupplyTrend */
+        SupplyTrend: {
+            /** Sample Size */
+            sample_size: number;
+            /** Data Days */
+            data_days: number;
+            /** Window Days */
+            window_days: number;
+            /** Days */
+            days: components["schemas"]["SupplyDay"][];
         };
         /** TestSendResult */
         TestSendResult: {
@@ -1551,6 +1739,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    price_distribution_api_analytics_price_distribution_get: {
+        parameters: {
+            query: {
+                keyword: string;
+                days?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceDistribution"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    price_drops_api_analytics_price_drops_get: {
+        parameters: {
+            query: {
+                keyword: string;
+                days?: number;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceDrops"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    supply_trend_api_analytics_supply_trend_get: {
+        parameters: {
+            query: {
+                keyword: string;
+                days?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplyTrend"];
                 };
             };
             /** @description Validation Error */

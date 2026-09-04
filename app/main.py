@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api import analytics as analytics_api
 from app.api import channels, items, monitors, watchlist
 from app.api import session as session_api
 from app.auth import require_token
@@ -87,6 +88,7 @@ app.include_router(channels.router, dependencies=[Depends(require_token)])
 app.include_router(watchlist.router, dependencies=[Depends(require_token)])
 app.include_router(items.router, dependencies=[Depends(require_token)])
 app.include_router(session_api.router, dependencies=[Depends(require_token)])
+app.include_router(analytics_api.router, dependencies=[Depends(require_token)])
 
 
 @app.get("/api/health")

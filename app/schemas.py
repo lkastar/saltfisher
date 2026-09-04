@@ -299,3 +299,89 @@ class SessionState(SQLModel):
     # next request fails.
     proven: bool
     last_success_at: datetime | None
+
+
+# --------------------------------------------------------------------------- #
+# Market analytics (M2)
+# --------------------------------------------------------------------------- #
+
+
+class Sample(SQLModel):
+    """How much data is behind a chart, on every analytics response.
+
+    Not optional metadata: this tool starts with an empty database and grows
+    its history one poll at a time, so a chart has to be able to say "33
+    listings over 4 days" instead of drawing a confident line over nothing.
+    `data_days` is what the panel's "collecting for N days" reads.
+    """
+
+    sample_size: int
+    data_days: int
+    window_days: int
+
+
+class PriceBucket(SQLModel):
+    """One histogram column. Edges are whole yuan in cents."""
+
+    lo_cents: int
+    hi_cents: int
+    count: int
+
+
+class PriceQuantiles(SQLModel):
+    """Empty below two samples: statistics.quantiles needs two data points,
+    and a one-listing keyword is an ordinary day-one state here."""
+
+    p10: int | None = None
+    p25: int | None = None
+    p50: int | None = None
+    p75: int | None = None
+    p90: int | None = None
+
+
+class PriceDistribution(Sample):
+    """`fresh_size` is separate from `sample_size` on purpose: the first says
+    how much the distribution covers, the second how much of it is still on
+    sale right now. With only the first, four-day-old asking prices read as
+    the current market."""
+
+    quantiles: PriceQuantiles
+    histogram: list[PriceBucket]
+    fresh_size: int
+
+
+class PriceDrop(SQLModel):
+    """`drop_bps` is integer basis points -- 2500 is 25.00%.
+
+    `is_fresh` false means the listing has left our observation window or was
+    seen gone; the UI must say so rather than link to a dead page.
+    """
+
+    item_id: str
+    title: str
+    cover_url: str | None
+    then_cents: int
+    now_cents: int
+    drop_bps: int
+    last_seen_at: datetime | None
+    is_fresh: bool
+
+
+class PriceDrops(Sample):
+    rows: list[PriceDrop]
+
+
+class SupplyDay(SQLModel):
+    """`collected` false means we have no record of a successful cycle that
+    day, which is a different fact from `new_count == 0`. Rendering both as an
+    empty bar is how a chart reports a dead market during downtime."""
+
+    date: str
+    new_count: int
+    collected: bool
+    runs_ok: int
+    runs_failed: int
+
+
+class SupplyTrend(Sample):
+    days: list[SupplyDay]
