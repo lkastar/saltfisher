@@ -5,13 +5,17 @@ this is a single-user SQLite app, and async drivers buy nothing here. Async
 callers wrap DB work in asyncio.to_thread.
 """
 
+import logging
 from collections.abc import Iterator
 from typing import Annotated
 
 from fastapi import Depends
+from sqlalchemy import Engine
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.config import settings
+
+log = logging.getLogger(__name__)
 
 settings.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -19,6 +23,53 @@ engine = create_engine(
     f"sqlite:///{settings.db_path}",
     connect_args={"check_same_thread": False},
 )
+
+
+def add_missing_columns(target: Engine = engine) -> list[str]:
+    """Add nullable columns the models declare but the database lacks.
+
+    `create_all()` creates missing TABLES and nothing else — it never alters a
+    table that already exists. So adding a field to a model left every
+    already-deployed database without that column, and the first endpoint to
+    select it returned a 500. That is not hypothetical: `Seller.review_count`
+    and `Seller.positive_rate` shipped in T2/T5 and broke `/api/watchlist` on
+    any database created before them, invisibly, because tests build their
+    schema fresh from the current models and can never reproduce the drift.
+
+    Returns the DDL it ran, so startup can log it and a test can assert it.
+
+    ponytail: additive nullable columns only. A rename, a drop, a type change,
+    or a NOT NULL column still needs a numbered script under
+    scripts/migrations/ — those cannot be inferred from the models, and
+    guessing at them is how data gets destroyed.
+    """
+    import app.models  # noqa: F401  (register tables before inspecting them)
+
+    applied: list[str] = []
+    with target.begin() as conn:
+        for name, table in SQLModel.metadata.tables.items():
+            rows = conn.exec_driver_sql(f'PRAGMA table_info("{name}")').fetchall()
+            if not rows:
+                continue  # create_all() just made it, or is about to
+            present = {row[1] for row in rows}
+            for column in table.columns:
+                if column.name in present:
+                    continue
+                if not column.nullable and column.default is None and column.server_default is None:
+                    log.error(
+                        "column missing and cannot be added automatically; "
+                        "write a script under scripts/migrations/",
+                        extra={"table": name, "column": column.name},
+                    )
+                    continue
+                sql_type = column.type.compile(dialect=target.dialect)
+                ddl = f'ALTER TABLE "{name}" ADD COLUMN "{column.name}" {sql_type}'
+                conn.exec_driver_sql(ddl)
+                applied.append(ddl)
+                log.warning(
+                    "added missing column", extra={"table": name, "column": column.name}
+                )
+    return applied
 
 
 def init_db() -> None:
@@ -31,6 +82,7 @@ def init_db() -> None:
     import app.models  # noqa: F401  (register tables before create_all)
 
     SQLModel.metadata.create_all(engine)
+    add_missing_columns(engine)
 
 
 def get_session() -> Iterator[Session]:
