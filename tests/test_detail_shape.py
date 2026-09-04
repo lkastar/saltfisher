@@ -194,3 +194,31 @@ def test_a_missing_seller_block_is_not_an_error():
 def test_flatten_detail_survives_a_truncated_payload():
     with pytest.raises(base.ParseError):
         base.normalize_item(flatten_detail({}, {}, "i1"), source="detail")
+
+
+def test_a_deleted_listing_is_gone_not_a_generic_failure():
+    """Measured 2026-09-05 against two genuinely deleted listings. The marker
+    list had three GUESSED names and the real one matched none of them --
+    note it is ITEM_DEL_NOT_FOUND, so "ITEM_NOT_FOUND" is not a substring.
+
+    Classifying it as a plain CollectorError meant the watchlist recorded a
+    failure instead of marking the entry gone, so the `gone` notification
+    could never fire for a deleted item, and a pasted link to one answered
+    502 "could not fetch" rather than 404 "no longer exists".
+    """
+    from app.collector.base import ItemGoneError
+    from app.collector.mtop import classify_ret
+
+    with pytest.raises(ItemGoneError):
+        classify_ret(["FAIL_BIZ_ITEM_DEL_NOT_FOUND::您要看的宝贝不存在或已被删除啦!"])
+
+
+def test_the_observed_online_status_still_maps_to_on_sale():
+    """Guards the values that ARE measured, so a marker change cannot quietly
+    reclassify a live listing.
+    """
+    from app.collector.mtop import detail_status
+
+    assert detail_status({"itemStatus": 0, "itemStatusStr": "在线"}) == "on_sale"
+    # Measured 2026-09-05 on a real listing that had been taken down.
+    assert detail_status({"itemStatus": -2, "itemStatusStr": "已下架"}) == "removed"

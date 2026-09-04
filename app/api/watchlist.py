@@ -6,6 +6,7 @@ changing its keyword must not stop tracking something the user is waiting for.
 
 import logging
 import re
+from dataclasses import replace
 from typing import Annotated
 
 import httpx
@@ -178,6 +179,18 @@ async def add_to_watchlist(
             ) from exc
 
         if seller is not None:
+            # Write the profile under the id the ITEM points at, which is not
+            # always the id the detail response gave. A search row carries an
+            # opaque seller id and `upsert_item` never rewrites `seller_id` on
+            # an existing row, so a detail-derived numeric id would land on a
+            # row nothing references -- and a link-added item whose seller no
+            # rule ever searches would show 卖家信用未知 forever despite the
+            # profile having been fetched. Measured in T8: 199 seller rows,
+            # 2 of them numeric orphans.
+            existing = session.get(Item, item_id)
+            target_id = existing.seller_id if existing is not None else raw.seller_id
+            if target_id != seller.seller_id:
+                seller = replace(seller, seller_id=target_id)
             upsert_seller_profile(session, seller)
         elif not session.get(Seller, raw.seller_id):
             session.add(Seller(id=raw.seller_id, nick=raw.seller_nick))

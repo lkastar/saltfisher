@@ -56,7 +56,22 @@ _CHALLENGE_PREFIXES = (
 # spelling is not ours to rely on.
 _TOKEN_PREFIXES = ("FAIL_SYS_TOKEN_EMPTY", "FAIL_SYS_TOKEN_EXOIRED", "FAIL_SYS_TOKEN_EXPIRED")
 _TRANSIENT_PREFIXES = ("FAIL_SYS_TRAFFIC_LIMIT", "FAIL_SYS_SERVICE_FACADE_TIMEOUT", "ANDROID_SYS_")
-_GONE_MARKERS = ("ITEM_NOT_FOUND", "ITEM_DELETED", "FAIL_BIZ_ITEM_NOT_EXIST")
+# Only the first of these has been OBSERVED. Measured 2026-09-05 against two
+# genuinely deleted listings:
+#   FAIL_BIZ_ITEM_DEL_NOT_FOUND::您要看的宝贝不存在或已被删除啦!
+# The rest were guessed before real data existed and are kept as cheap
+# insurance. Note the observed name does NOT contain "ITEM_NOT_FOUND" as a
+# substring -- it is ITEM_DEL_NOT_FOUND -- so the guesses never matched and a
+# deleted item raised a plain CollectorError. That made the watchlist record a
+# failure instead of marking the entry gone, so the `gone` notification could
+# never fire for a deleted listing, and a pasted link to one answered 502
+# "could not fetch" instead of 404 "no longer exists".
+_GONE_MARKERS = (
+    "FAIL_BIZ_ITEM_DEL_NOT_FOUND",
+    "ITEM_NOT_FOUND",
+    "ITEM_DELETED",
+    "FAIL_BIZ_ITEM_NOT_EXIST",
+)
 
 
 def _sign(token: str, t: str, data: str) -> str:
@@ -418,22 +433,31 @@ def _cpv(item_do: dict[str, Any], property_name: str) -> str | None:
 def detail_status(item_do: dict[str, Any]) -> str:
     """Upstream status -> on_sale | sold | removed.
 
-    Only the online value has been observed (`itemStatus` "0",
-    `itemStatusStr` "在线"). Anything else is treated as no longer on sale
-    rather than guessed at, and the raw text is kept on the item for a human
-    to check. Erring toward "gone" is the safe direction: a watched item
-    wrongly reported as sold is noticed immediately, while one wrongly
-    reported as on sale is silently never followed up.
+    Observed values, measured 2026-09-05 across ten real listings:
+
+    | `itemStatus` | `itemStatusStr` | mapped to |
+    |---|---|---|
+    | `0` | 在线 | `on_sale` |
+    | `-2` | 已下架 | `removed` |
+
+    A **deleted** listing never reaches here: the envelope answers
+    `FAIL_BIZ_ITEM_DEL_NOT_FOUND` and `classify_ret` raises `ItemGoneError`.
+
+    **`sold` is still unobserved.** No listing happened to sell during the
+    observation window, so the 售/成交/成功 markers below remain a guess. The
+    default is `removed`, and that direction is the safe one: an item wrongly
+    reported as gone is noticed immediately, while one wrongly reported as on
+    sale is silently never followed up. The PRD also declines to claim we can
+    tell a sale from a delisting — the analytics metric is "time until it
+    disappeared", not a sell-through rate.
     """
     raw_status = str(item_do.get("itemStatus") or "")
     text = str(item_do.get("itemStatusStr") or "")
     if raw_status == "0" or text == "在线":
         return "on_sale"
-    # These markers are GUESSES: no sold or delisted item was observed live,
-    # only the online state. They are best-effort labelling, and the PRD
-    # already declines to claim we can tell a sale from a delisting — the
-    # analytics metric is "time until it disappeared", not a sell-through rate.
-    # Both outcomes collapse to "no longer on sale" everywhere it matters.
+    # `-2`/已下架 is measured; these markers are still GUESSES because no sale
+    # was observed. Best-effort labelling; both outcomes collapse to "no
+    # longer on sale" everywhere it matters.
     if any(marker in text for marker in ("售", "成交", "成功")):
         return "sold"
     return "removed"

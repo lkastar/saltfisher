@@ -270,3 +270,52 @@ def test_the_note_is_the_llm_intent_input(client):
     )
     with Session(engine) as s:
         assert "预算 2500 内" in s.get(Watchlist, "1081966784098").note
+
+
+def test_the_profile_lands_on_the_row_the_item_points_at(client):
+    """Found in T8. A search row carries an OPAQUE seller id; the detail
+    response gives a NUMERIC one, and `upsert_item` never rewrites `seller_id`
+    on an existing row. So writing the profile under the detail id put it on a
+    row nothing references, and the watchlist showed 卖家信用未知 for a seller
+    whose profile had just been fetched.
+
+    For a link-added item whose seller no rule ever searches, no later cycle
+    would ever fill the referenced row -- it stayed unknown forever.
+    """
+    c, engine = client
+    with Session(engine) as s:
+        s.add(Seller(id="opaque+id==", nick="彡灬念笙"))
+        s.commit()
+        s.add(
+            Item(
+                id="1081966784098",
+                title="iPhone 15",
+                seller_id="opaque+id==",
+                seller_nick="彡灬念笙",
+            )
+        )
+        s.add(
+            PriceSnapshot(
+                item_id="1081966784098", price_cents=265000, status="on_sale", source="mtop"
+            )
+        )
+        s.commit()
+
+    # The stub returns a RawSeller keyed by the numeric detail id.
+    r = c.post(
+        "/api/watchlist",
+        json={"url": "https://www.goofish.com/item?id=1081966784098"},
+        headers=AUTH,
+    )
+    assert r.status_code == 201
+
+    body = r.json()
+    assert body["seller_credit_level"] == 5, "the POST response must already show the profile"
+    assert body["seller_positive_rate"] == 97.0
+
+    with Session(engine) as s:
+        referenced = s.get(Seller, "opaque+id==")
+        assert referenced is not None
+        assert referenced.credit_level == 5, "profile landed on the referenced row"
+        # And no orphan appeared under the id the detail response used.
+        assert s.get(Seller, "2218219939144") is None
