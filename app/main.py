@@ -27,7 +27,13 @@ logging.basicConfig(
     level=settings.log_level,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
-logging.getLogger("httpx").setLevel(logging.WARNING)
+# Transport libraries log full request and response HEADERS at DEBUG, which
+# for this app means dumping live session cookies into the log file. Found in
+# T8: at SFD_LOG_LEVEL=DEBUG, httpcore printed
+# `Set-Cookie: _m_h5_tk=<live token>` verbatim. Silencing httpx alone is not
+# enough -- it is httpcore underneath that logs the headers.
+for _noisy in ("httpx", "httpcore", "hpack", "h11"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 log = logging.getLogger(__name__)

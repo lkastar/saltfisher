@@ -204,3 +204,21 @@ async def test_a_first_run_with_no_stored_cookies_adopts_nothing():
     assert await collector.restore_session() == 0
     assert session.usable is False
     assert session.origin == "none"
+
+
+def test_transport_libraries_cannot_log_headers():
+    """Found in T8: at DEBUG level httpcore printed whole response headers,
+    including `Set-Cookie: _m_h5_tk=<live token>`, into the log file.
+
+    Silencing httpx alone was not enough -- httpcore underneath is what logs
+    the headers. Asserted rather than trusted, because the failure is invisible
+    until someone reads a log with a real session in it.
+    """
+    import logging
+
+    import app.main  # noqa: F401  (import applies the logging configuration)
+
+    for name in ("httpx", "httpcore", "hpack", "h11"):
+        logger = logging.getLogger(name)
+        assert logger.level >= logging.WARNING, f"{name} may log headers at {logger.level}"
+        assert not logger.isEnabledFor(logging.DEBUG), f"{name} is still DEBUG-enabled"
