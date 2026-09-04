@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlmodel import Session, SQLModel, select
 
 from app.db import add_missing_columns
-from app.models import CollectRun, Seller
+from app.models import CollectRun, MonitorHit, Seller
 
 
 @pytest.fixture
@@ -114,3 +114,37 @@ def test_a_pre_paging_run_log_gains_its_pages_column():
         assert row.item_count == 30
         # Unknown aperture, not zero pages: the row predates the question.
         assert row.pages is None
+
+
+def test_a_pre_paging_ledger_gains_its_last_hit_at_column():
+    """The other column P3 added, and the one that actually bit: reading the
+    real database before startup had run gave `no such column:
+    monitorhit.last_hit_at`.
+
+    NULL is load-bearing here rather than merely tolerated -- it is what
+    `analytics.listing_duration` detects to fall back to the global
+    `Item.last_seen_at` clock and to report `legacy_clock_rows`. A default of
+    utcnow() would have claimed every historical listing was last seen at
+    upgrade time, i.e. that nothing had ever left the observation range.
+    """
+    from tests.conftest import memory_engine
+
+    engine = memory_engine()
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE monitorhit DROP COLUMN last_hit_at"))
+        conn.execute(
+            text(
+                "INSERT INTO monitorhit (monitor_id, item_id, first_hit_at, in_range) "
+                "VALUES (1, 'i1', '2026-09-04 00:00:00.000000', 1)"
+            )
+        )
+
+    applied = add_missing_columns(engine)
+
+    assert any("monitorhit" in ddl and "last_hit_at" in ddl for ddl in applied)
+    with Session(engine) as s:
+        (row,) = s.exec(select(MonitorHit)).all()
+        assert row.item_id == "i1"
+        # NULL, not 0 and not "now": the fallback depends on telling
+        # "never stamped" apart from "stamped a long time ago".
+        assert row.last_hit_at is None

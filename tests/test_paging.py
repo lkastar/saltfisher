@@ -124,7 +124,37 @@ async def test_an_empty_page_stops_the_walk(usable_session, no_pauses):
     )
     assert mtop.requested == [1, 2]
     assert len(result.items) == 30
-    assert result.pages == 2
+    # One page widened the aperture, so that is what gets reported -- the
+    # frontend turns this into "we watched pages x rows listings", and page 2
+    # showed us nothing to watch.
+    assert result.pages == 1
+
+
+@pytest.mark.asyncio
+async def test_a_page_of_only_duplicates_stops_the_walk(usable_session, no_pauses):
+    """The failure this guards is silent, permanent and expensive.
+
+    If upstream ignores `pageNumber` -- every page is page one -- dedup makes
+    pages 2..N contribute nothing, and without this check the walk burns a
+    request per page forever against this phase's stated top risk. Worse,
+    `pages` would report 5, so the panel would tell the user it watched
+    5 x 30 = 150 listings when it watched 30. The aperture field exists to be
+    honest about exactly that number.
+
+    Measured upstream, three consecutive real pages shared ZERO items, so a
+    whole page of duplicates is not ordinary re-ranking: it is an exhausted
+    result set or a broken page parameter, and both mean stop.
+    """
+    first = page_of(1, 30)
+    mtop = PagedMtop(first, list(first), list(first), list(first), list(first))
+    result = await Pipeline(mtop, StubBrowser(), usable_session).collect_search(
+        "iPhone 15", rows=30, pages=5
+    )
+
+    assert mtop.requested == [1, 2], "kept asking for pages that repeat page one"
+    assert len(result.items) == 30
+    assert result.pages == 1, "would have claimed a 5x wider aperture than it had"
+    assert result.partial_error is None
 
 
 @pytest.mark.asyncio

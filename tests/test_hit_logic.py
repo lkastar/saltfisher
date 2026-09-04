@@ -331,7 +331,9 @@ def test_snapshot_is_appended_only_when_the_price_moves(session):
 
 
 def test_last_seen_at_advances_every_cycle_even_without_a_snapshot(session):
-    """This is what makes listing duration exact while snapshots stay sparse."""
+    """Liveness is a timestamp, not a snapshot row -- which is what keeps the
+    price history sparse. Note it is GLOBAL: per-keyword liveness is
+    MonitorHit.last_hit_at, pinned by the test below."""
     persist_cycle(session, MONITOR, [cand(300000)], baseline_done=True, now=NOW)
     session.commit()
     later = NOW + timedelta(hours=6)
@@ -343,6 +345,45 @@ def test_last_seen_at_advances_every_cycle_even_without_a_snapshot(session):
     assert item.first_seen_at == NOW
     assert item.last_seen_at == later
     assert len(session.exec(select(PriceSnapshot)).all()) == 1
+
+
+def test_last_hit_at_is_stamped_on_every_path_a_rule_sees_a_listing(session):
+    """Seeing a listing is a different fact from "it qualifies",
+    and `analytics.listing_duration` is timed by the first one.
+
+    So the stamp has to land before any in-range reasoning: on the baseline
+    cycle, on an out-of-budget candidate, and on both the new-row and the
+    existing-row branch of evaluate_hit. Any path that returns early without
+    stamping makes that listing look like it left the market on the last cycle
+    that happened to like its price.
+
+    And it must NOT advance for a listing this cycle did not return, because
+    that is the entire signal: reverse-verify by deleting either stamp from
+    `store.evaluate_hit` and the "not returned" case starts advancing too.
+    """
+    both = [cand(300000, item_id="cheap"), cand(900000, item_id="dear", passed=False)]
+
+    # Baseline cycle: nothing is announced, everything is still SEEN.
+    persist_cycle(session, MONITOR, both, baseline_done=False, now=NOW)
+    session.commit()
+    for item_id in ("cheap", "dear"):
+        hit = session.get(MonitorHit, (MONITOR, item_id))
+        assert hit is not None and hit.last_hit_at == NOW, item_id
+
+    # Ordinary cycle: the existing-row branch, in range and out of it.
+    later = NOW + timedelta(minutes=10)
+    persist_cycle(session, MONITOR, both, baseline_done=True, now=later)
+    session.commit()
+    for item_id in ("cheap", "dear"):
+        hit = session.get(MonitorHit, (MONITOR, item_id))
+        assert hit is not None and hit.last_hit_at == later, item_id
+
+    # A cycle that did not return "dear": its clock stops where it was.
+    last = later + timedelta(minutes=10)
+    persist_cycle(session, MONITOR, [both[0]], baseline_done=True, now=last)
+    session.commit()
+    assert session.get(MonitorHit, (MONITOR, "cheap")).last_hit_at == last
+    assert session.get(MonitorHit, (MONITOR, "dear")).last_hit_at == later
 
 
 def test_seller_reputation_from_the_search_row_is_stored(session):

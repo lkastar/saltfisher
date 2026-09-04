@@ -331,8 +331,11 @@ def test_the_duration_response_carries_the_aperture_it_was_measured_through(clie
     assert body["quantiles"]["p50"] >= 60, "an hour is the shortest seeded duration"
     assert sum(bucket["count"] for bucket in body["histogram"]) == 3
     for bucket in body["histogram"]:
-        assert bucket["lo_minutes"] % 60 == 0
-        assert bucket["hi_minutes"] % 60 == 0
+        # A readable step chosen from the spread, not a fixed hour: hour-wide
+        # edges collapsed the real 264-sample distribution into two bars.
+        step = bucket["hi_minutes"] - bucket["lo_minutes"]
+        assert step % 5 == 0, f"unreadable step {step}"
+        assert bucket["lo_minutes"] % step == 0
 
 
 def test_a_still_listed_keyword_has_no_durations_yet(client):

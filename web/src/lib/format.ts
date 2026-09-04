@@ -36,26 +36,20 @@ export function formatDuration(minutes: number | null | undefined): string {
   if (minutes < 60) return `${Math.round(minutes)} 分钟`;
   // Whole hours first, so the day split cannot round its way to "1 天 24 小时".
   const hours = Math.floor(minutes / 60);
-  if (hours < 48) {
+  // Compare on the value that will actually be PRINTED, not on the floor of
+  // it: 2879 minutes floors to 47 hours but prints as (2879/60).toFixed(1) =
+  // "48.0 小时", which is the same boundary this branch exists to stay below
+  // and reads as more than the "2 天" that 2880 gets.
+  const tenths = Math.round(minutes / 6) / 10;
+  if (tenths < 48) {
     const exact = minutes % 60 === 0;
-    return `${exact ? hours : (minutes / 60).toFixed(1)} 小时`;
+    return `${exact ? hours : tenths.toFixed(1)} 小时`;
   }
   const rest = hours % 24;
   const days = (hours - rest) / 24;
   return rest === 0 ? `${days} 天` : `${days} 天 ${rest} 小时`;
 }
 
-/** The observation aperture behind a duration distribution, in words.
- *
- *  Lives here, with a test, rather than as a ternary inside the page: getting
- *  the condition backwards would hide exactly the caveat the field exists to
- *  surface, and it would hide it silently.
- *
- *  `caveat` is non-null when the distribution is not safe to read as a market
- *  measurement — the aperture changed inside the window, or we cannot say
- *  what it was. A wider aperture makes a listing "disappear" later, so those
- *  numbers are partly a measurement of how many pages we happened to read.
- */
 /** How many samples are still timed by the old global clock.
  *
  *  `MonitorHit.last_hit_at` cannot be backfilled, so listings recorded before
@@ -72,6 +66,17 @@ export function legacyClockNote(legacy: number, total: number): string | null {
   return `${total} 个样本里有 ${legacy} 个还在旧的全局时钟上（早于按关键词记录最后观测时刻的那次改动），它们偏短。剩下 ${total - legacy} 个是按本关键词计的。`;
 }
 
+/** The observation aperture behind a duration distribution, in words.
+ *
+ *  Lives here, with a test, rather than as a ternary inside the page: getting
+ *  the condition backwards would hide exactly the caveat the field exists to
+ *  surface, and it would hide it silently.
+ *
+ *  `caveat` is non-null when the distribution is not safe to read as a market
+ *  measurement — the aperture changed inside the window, or we cannot say
+ *  what it was. A wider aperture makes a listing "disappear" later, so those
+ *  numbers are partly a measurement of how many pages we happened to read.
+ */
 export function apertureNote(
   pagesMin: number | null | undefined,
   pagesMax: number | null | undefined,

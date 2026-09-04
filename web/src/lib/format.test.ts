@@ -6,6 +6,7 @@ import {
   formatDuration,
   formatPrice,
   formatRelativeTime,
+  legacyClockNote,
   parseUtc,
   parseYuanToCents,
 } from "./format";
@@ -119,6 +120,14 @@ describe("formatDuration", () => {
     expect(formatDuration(2940)).toBe("2 天 1 小时");
   });
 
+  it("never prints 48 hours as hours", () => {
+    // 2879 minutes floors to 47 hours but rounds to 48.0 when printed, so
+    // comparing the floor against the threshold let the hours branch print
+    // "48.0 小时" one minute before 2880 prints "2 天".
+    expect(formatDuration(2879)).toBe("1 天 23 小时");
+    expect(formatDuration(2878)).toBe("1 天 23 小时");
+  });
+
   it("never rounds its way to 24 hours", () => {
     // 4319 minutes is 71.98 hours. Rounding the leftover hours instead of
     // flooring them first prints "2 天 24 小时", which is not a duration.
@@ -130,6 +139,32 @@ describe("formatDuration", () => {
     expect(formatDuration(null)).toBe("—");
     expect(formatDuration(undefined)).toBe("—");
     expect(formatDuration(Number.NaN)).toBe("—");
+  });
+});
+
+describe("legacyClockNote", () => {
+  it("says nothing once no sample is on the old clock", () => {
+    expect(legacyClockNote(0, 12)).toBe(null);
+    // No samples at all: there is nothing to caveat.
+    expect(legacyClockNote(0, 0)).toBe(null);
+  });
+
+  it("phrases a mixed sample as a fraction of it", () => {
+    const note = legacyClockNote(4, 10);
+    expect(note).toContain("10 个样本里有 4 个");
+    expect(note).toContain("剩下 6 个");
+  });
+
+  it("says so plainly when every sample is on the old clock", () => {
+    // The current real state: no ledger row predates the column, so all
+    // three keywords report legacy === total.
+    expect(legacyClockNote(264, 264)).toContain("264 个样本全部");
+  });
+
+  it("never claims more legacy samples than there are samples", () => {
+    // The count is per SAMPLE, not per ledger row -- two rules on one
+    // keyword holding the same listing used to make it exceed the total.
+    expect(legacyClockNote(2, 1)).toContain("这 1 个样本全部");
   });
 });
 

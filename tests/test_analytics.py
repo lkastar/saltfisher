@@ -676,6 +676,12 @@ def test_two_rules_on_one_keyword_do_not_count_a_listing_twice(session):
     result = analytics.listing_duration(session, KW, now=NOW)
     assert result["sample_size"] == 1
     assert result["histogram"][-1]["hi_minutes"] > 2 * 60, "the earlier sighting starts the clock"
+    # And the legacy flag counts SAMPLES, not ledger rows. Both rows here
+    # predate last_hit_at, so a sum over the group reported 2 legacy rows for
+    # 1 sample -- a number larger than sample_size, which the page phrases as
+    # "N of M samples".
+    assert result["legacy_clock_rows"] == 1
+    assert result["legacy_clock_rows"] <= result["sample_size"]
 
 
 def test_a_listing_first_seen_before_the_window_is_not_in_it(session):
@@ -726,6 +732,58 @@ def test_histogram_buckets_are_whole_hours_and_cover_every_sample(session):
         assert bucket["hi_minutes"] % 60 == 0, bucket
     assert histogram[0]["lo_minutes"] <= 60
     assert histogram[-1]["hi_minutes"] > 71 * 60
+
+
+def test_the_duration_histogram_shows_a_shape_at_real_scale(session):
+    """Hour-aligned buckets are wider than the whole distribution.
+
+    Measured on the real database: the median listing stays in range for 1 to
+    9 minutes, so a 60-minute bucket swallowed everything and 264 samples drew
+    as ONE bar with a second holding nine. `_histogram`'s own comment says too
+    few buckets hide the shape a distribution is drawn for, and that is
+    exactly what happened.
+
+    Reverse verification: pin `align=MINUTES_PER_HOUR` and this goes red at
+    two buckets.
+    """
+    monitor_id = seed_monitor(session)
+    # Sixty listings across two hours, front-loaded -- the real shape in
+    # miniature. Sixty rather than twenty because the bucket COUNT is governed
+    # by sqrt(n) (`_histogram`: too many buckets turn a small sample into a
+    # comb of ones), so twenty samples legitimately get about four and could
+    # not tell a healthy histogram from the collapsed one.
+    spread = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 40, 50, 70, 95, 118]
+    for i, gone_after in enumerate(spread * 3):
+        seed_item(
+            session,
+            f"d{i}",
+            monitor_id,
+            prices=[300000],
+            first_hit_at=NOW - timedelta(hours=3),
+            last_seen_at=STALE,
+        )
+        row = session.get(MonitorHit, (monitor_id, f"d{i}"))
+        assert row is not None
+        row.last_hit_at = row.first_hit_at + timedelta(minutes=gone_after)
+        session.add(row)
+    session.commit()
+
+    result = analytics.listing_duration(session, KW, now=NOW)
+    histogram = result["histogram"]
+
+    assert result["sample_size"] == 60
+    assert len(histogram) >= 5, f"collapsed into {len(histogram)} buckets"
+    assert sum(b["count"] for b in histogram) == 60
+    step = histogram[0]["hi_minutes"] - histogram[0]["lo_minutes"]
+    assert step < 60, "an hour-wide bucket is wider than the whole spread"
+    # A multiple of the aligned unit, which is itself off a 5/10/15/30/60
+    # ladder -- so "a whole number of 5 minutes" is the invariant, not "one of
+    # the ladder values". `_histogram` widens by whole align steps to reach
+    # its bucket count.
+    assert step % 5 == 0, f"unreadable step {step}"
+    # More than one bucket is actually occupied -- that is what "shows a
+    # shape" means, and a single 116-in-bucket-one histogram would not.
+    assert sum(1 for b in histogram if b["count"] > 0) >= 4
 
 
 def test_no_duration_quantile_lands_outside_the_sample(session):

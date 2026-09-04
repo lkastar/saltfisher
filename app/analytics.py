@@ -62,6 +62,25 @@ CENTS_PER_YUAN = 100
 # as integer cents, and their histogram buckets align to whole hours.
 MINUTES_PER_HOUR = 60
 
+# Readable bucket steps for a duration axis, smallest first. Alignment cannot
+# be a constant 60: measured on the real database, the median time a listing
+# stayed in range is 1 to 9 minutes, so an hour-aligned bucket is wider than
+# the entire distribution and 264 samples collapse into one bar. Two bars is
+# not a histogram, it is decoration -- and `_histogram`'s own comment says too
+# few buckets hide the shape a distribution is drawn for.
+#
+# A ladder rather than span/MAX_BUCKETS arithmetic because the edges are read
+# by a person: "0-10 分钟" is a bucket, "0-7 分钟" is noise.
+_DURATION_STEPS = (5, 10, 15, 30, 60, 120, 360, 720, 1440)
+
+
+def duration_align(span_minutes: int) -> int:
+    """The coarsest readable step that still yields enough buckets to see."""
+    for step in _DURATION_STEPS:
+        if span_minutes <= step * MAX_BUCKETS:
+            return step
+    return _DURATION_STEPS[-1]
+
 
 @dataclass(frozen=True, slots=True)
 class Scope:
@@ -180,7 +199,7 @@ def _histogram(values: list[int], *, align: int = CENTS_PER_YUAN) -> list[dict[s
     reason prices are integer cents everywhere else.
 
     `align` is that readability rule, parameterised rather than copied: the
-    duration histogram passes minutes with `align=MINUTES_PER_HOUR`, so its
+    duration histogram passes minutes with an align from `duration_align`, so its
     edges land on whole hours for exactly the reason price edges land on whole
     yuan. The edge keys keep their `_cents` names because the price caller is
     the one whose schema uses them; the duration caller renames them.
@@ -521,9 +540,15 @@ def listing_duration(
     # Per-keyword end of clock, with the global timestamp as the fallback for
     # rows predating the column. max() because two rules can share a keyword.
     last_hit = func.max(func.coalesce(col(MonitorHit.last_hit_at), col(Item.last_seen_at)))
-    # How many samples are still on the old global clock, so the page can say
-    # so rather than presenting a mixed measurement as a clean one.
-    legacy = func.sum(func.iif(col(MonitorHit.last_hit_at).is_(None), 1, 0))
+    # Whether THIS SAMPLE is still on the old global clock, so the page can
+    # say so rather than presenting a mixed measurement as a clean one.
+    # max(), not sum(): the group is one listing and the answer is 0 or 1. A
+    # sum counts ledger ROWS, so two rules on one keyword both predating the
+    # column reported 2 legacy rows for 1 sample -- a number that exceeds
+    # `sample_size` and cannot be phrased as "N of M samples". One NULL row is
+    # enough to make the sample legacy, because `last_hit` above is a max over
+    # the coalesce and the global fallback always wins it.
+    legacy = func.max(func.iif(col(MonitorHit.last_hit_at).is_(None), 1, 0))
     rows = session.exec(
         select(first_hit, last_hit, legacy)
         .join(Item, col(Item.id) == col(MonitorHit.item_id))
@@ -559,10 +584,12 @@ def listing_duration(
     # can, and a negative duration would plot as a bucket left of zero.
     minutes = [max(0, int((row[1] - row[0]).total_seconds() // 60)) for row in rows]
     result["sample_size"] = len(minutes)
+    # Each row contributes 0 or 1, so this is bounded by sample_size and the
+    # page can say "N of M samples" without the two numbers contradicting.
     result["legacy_clock_rows"] = sum(int(row[2] or 0) for row in rows)
     result["quantiles"] = _quantiles(minutes)
     result["histogram"] = [
         {"lo_minutes": b["lo_cents"], "hi_minutes": b["hi_cents"], "count": b["count"]}
-        for b in _histogram(minutes, align=MINUTES_PER_HOUR)
+        for b in _histogram(minutes, align=duration_align(max(minutes) - min(minutes)))
     ]
     return result

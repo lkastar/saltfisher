@@ -106,6 +106,11 @@ class Pipeline:
             return SearchResult(items=tuple(items), pages=1)
 
         merged: dict[str, RawItem] = {}
+        # Counts pages that WIDENED the aperture, not pages requested. The
+        # frontend renders `pages x rows` as "how many listings we watched",
+        # so a page that returned nothing, or returned only duplicates,
+        # must not inflate it -- overstating the aperture defeats the only
+        # reason the field is reported at all.
         fetched = 0
         for page in range(1, pages + 1):
             if page > 1:
@@ -129,15 +134,35 @@ class Pipeline:
                 )
                 items = await self._browser.search(keyword, rows=rows)
                 return SearchResult(items=tuple(items), pages=1)
-            fetched = page
             if not items:
                 break
             # First page wins a duplicate: the earlier observation is the one
             # whose rank we actually saw. Zero overlap was measured, but that
             # is an observation, not a guarantee — the pause between two pages
             # is long enough for upstream to re-rank.
+            before = len(merged)
             for item in items:
                 merged.setdefault(item.item_id, item)
+            if len(merged) == before:
+                # A whole page that contributed nothing new. Measured upstream,
+                # three consecutive pages shared zero items, so this is not
+                # ordinary churn: either the result set is exhausted, or
+                # `pageNumber` is being ignored and every page is page one.
+                # Both mean stop.
+                #
+                # Without this the second case is silent and expensive: five
+                # requests an hour, every hour, for thirty listings — against
+                # this phase's stated top risk, more requests tripping risk
+                # control — and `pages` would report 5, so `aperture_pages_max`
+                # would tell the user we watched 150 listings when we watched
+                # 30. Overstating the aperture defeats the only reason that
+                # field exists.
+                log.info(
+                    "search page added nothing, stopping early",
+                    extra={"keyword": keyword, "page": page, "have": len(merged)},
+                )
+                break
+            fetched = page
         return SearchResult(items=tuple(merged.values()), pages=fetched)
 
     async def collect_item(self, item_id: str) -> tuple[RawItem, RawSeller | None]:
