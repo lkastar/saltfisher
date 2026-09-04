@@ -238,6 +238,10 @@ def _sync_record_outcome(
     it at each call site instead would mean six edits and a permanent invite
     to forget the next branch, and a run log missing its failures is exactly
     the log that cannot answer "did we collect that day".
+
+    One exception, and it is the correct one: a rule deleted mid-cycle returns
+    below without logging. The row's foreign key would have nowhere to point,
+    and a cycle for a rule that no longer exists is not coverage of anything.
     """
     with Session(engine) as session:
         monitor = session.get(Monitor, monitor_id)
@@ -267,7 +271,13 @@ def _sync_record_outcome(
     )
 
 
-def record_manual_run(monitor_id: int, *, collector: str | None, item_count: int = 0) -> None:
+def record_manual_run(
+    monitor_id: int,
+    *,
+    collector: str | None,
+    item_count: int = 0,
+    started_at: datetime | None = None,
+) -> None:
     """Stamp a successful manual run so the management page reflects it.
 
     Shares `_sync_record_outcome` with the scheduler rather than writing the
@@ -280,7 +290,13 @@ def record_manual_run(monitor_id: int, *, collector: str | None, item_count: int
     number on. A defaulted count is indistinguishable in the table from a
     cycle that genuinely saw an empty market.
     """
-    _sync_record_outcome(monitor_id, collector=collector, error=None, item_count=item_count)
+    _sync_record_outcome(
+        monitor_id,
+        collector=collector,
+        error=None,
+        item_count=item_count,
+        started_at=started_at,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,12 +353,23 @@ async def _run_and_record(
     monitor = await asyncio.to_thread(_sync_load_monitor, monitor_id)
     if monitor is None or not monitor.enabled:
         return CycleOutcome()
+    # Captured BEFORE the cycle, not after it. The column is called
+    # started_at, and until this existed nothing passed it, so every row was
+    # stamped at completion instead -- a cycle beginning 23:59:50 UTC landed
+    # on the next day and answered "did we collect that day" for the wrong
+    # day. The window is milliseconds wide in practice, but a column whose
+    # name disagrees with its contents misleads every later reader.
+    started_at = utcnow()
     try:
         outcome = await run_monitor_cycle(pipeline, monitor)
     except TransientCollectorError as exc:
         _bump_backoff(monitor_id)
         await asyncio.to_thread(
-            _sync_record_outcome, monitor_id, collector=None, error=f"transient: {exc}"
+            _sync_record_outcome,
+            monitor_id,
+            collector=None,
+            error=f"transient: {exc}",
+            started_at=started_at,
         )
         return CycleOutcome()
     except ChallengeError as exc:
@@ -354,11 +381,18 @@ async def _run_and_record(
             collector=None,
             error=f"needs verification: {exc}",
             disable=True,
+            started_at=started_at,
         )
         return CycleOutcome()
     except CollectorError as exc:
         _bump_backoff(monitor_id)
-        await asyncio.to_thread(_sync_record_outcome, monitor_id, collector=None, error=str(exc))
+        await asyncio.to_thread(
+            _sync_record_outcome,
+            monitor_id,
+            collector=None,
+            error=str(exc),
+            started_at=started_at,
+        )
         return CycleOutcome()
     except Exception as exc:  # noqa: BLE001 - the loop must outlive any bug
         log.exception("cycle failed", extra={"monitor_id": monitor_id})
@@ -367,6 +401,7 @@ async def _run_and_record(
             monitor_id,
             collector=None,
             error=f"{type(exc).__name__}: {exc}",
+            started_at=started_at,
         )
         return CycleOutcome()
     _backoff.pop(monitor_id, None)
@@ -376,6 +411,7 @@ async def _run_and_record(
         collector=outcome.collector,
         error=None,
         item_count=outcome.collected,
+        started_at=started_at,
     )
     if registry is not None and outcome.hits:
         # Deliberately outside the try above: a channel outage must not be
@@ -429,7 +465,12 @@ def _sync_due_watch_ids(now: datetime | None = None) -> list[str]:
 
 
 def _sync_persist_watch(
-    item_id: str, raw: RawItem | None, seller: RawSeller | None, *, gone: bool
+    item_id: str,
+    raw: RawItem | None,
+    seller: RawSeller | None,
+    *,
+    gone: bool,
+    started_at: datetime | None = None,
 ) -> NotifiableHit | None:
     """Persist one watch observation, then log the cycle.
 
@@ -445,6 +486,7 @@ def _sync_persist_watch(
         ok=True,
         item_count=0 if raw is None else 1,
         collector=raw.source if raw is not None else None,
+        started_at=started_at,
     )
     return hit
 
@@ -494,27 +536,36 @@ async def run_watch_cycle(
     Uses the detail route, which is the only one that reports the item status —
     the signal that the thing the user was waiting for is gone.
     """
+    started_at = utcnow()
     try:
         raw, seller = await pipeline.collect_item(item_id)
     except ItemGoneError:
         # Not a failure: the disappearance IS the observation, and it is what
         # the user most needs to hear.
-        hit = await asyncio.to_thread(_sync_persist_watch, item_id, None, None, gone=True)
+        hit = await asyncio.to_thread(
+            _sync_persist_watch, item_id, None, None, gone=True, started_at=started_at
+        )
     except TransientCollectorError as exc:
-        await asyncio.to_thread(record_watch_failure_sync, item_id, f"transient: {exc}")
+        await asyncio.to_thread(record_watch_failure_sync, item_id, f"transient: {exc}", started_at)
         return None
     except ChallengeError as exc:
-        await asyncio.to_thread(record_watch_failure_sync, item_id, f"needs verification: {exc}")
+        await asyncio.to_thread(
+            record_watch_failure_sync, item_id, f"needs verification: {exc}", started_at
+        )
         return None
     except CollectorError as exc:
-        await asyncio.to_thread(record_watch_failure_sync, item_id, str(exc))
+        await asyncio.to_thread(record_watch_failure_sync, item_id, str(exc), started_at)
         return None
     except Exception as exc:  # noqa: BLE001 - the loop must outlive any bug
         log.exception("watch cycle failed", extra={"item_id": item_id})
-        await asyncio.to_thread(record_watch_failure_sync, item_id, f"{type(exc).__name__}: {exc}")
+        await asyncio.to_thread(
+            record_watch_failure_sync, item_id, f"{type(exc).__name__}: {exc}", started_at
+        )
         return None
     else:
-        hit = await asyncio.to_thread(_sync_persist_watch, item_id, raw, seller, gone=False)
+        hit = await asyncio.to_thread(
+            _sync_persist_watch, item_id, raw, seller, gone=False, started_at=started_at
+        )
 
     if hit is not None:
         log.info("watch alert", extra={"item_id": item_id, "reason": hit.reason})
@@ -523,7 +574,7 @@ async def run_watch_cycle(
     return hit
 
 
-def record_watch_failure_sync(item_id: str, error: str) -> None:
+def record_watch_failure_sync(item_id: str, error: str, started_at: datetime | None = None) -> None:
     """The single funnel for every watch-cycle failure branch.
 
     All four `except` arms of run_watch_cycle route through here, which is why
@@ -534,7 +585,7 @@ def record_watch_failure_sync(item_id: str, error: str) -> None:
     with Session(engine) as session:
         record_watch_failure(session, item_id, error)
         session.commit()
-    _sync_record_run(item_id=item_id, ok=False, error=error)
+    _sync_record_run(item_id=item_id, ok=False, error=error, started_at=started_at)
 
 
 async def watch_loop(

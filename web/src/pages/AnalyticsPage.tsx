@@ -273,8 +273,10 @@ export default function AnalyticsPage() {
   }
 
   const keywords = [...new Set(monitors.data.map((m) => m.keyword))];
-  const fromUrl = params.get("keyword");
-  const keyword = fromUrl ?? keywords[0];
+  // `||`, not `??`: a hand-edited or truncated `?keyword=` gives the empty
+  // string, which the API rejects with a 422 (keyword is min_length=1) and the
+  // page would answer with three error banners instead of a chart.
+  const keyword = params.get("keyword") || keywords[0];
 
   if (keyword === undefined) {
     return (

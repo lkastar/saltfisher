@@ -192,10 +192,27 @@ def test_a_listing_observed_as_gone_is_not_an_asking_price(session):
     """Item.status is uninformative for keyword rules -- it is `on_sale` for
     all of them. But when a detail fetch DID observe a removal, that is real,
     and a removed listing's last price is not an offer any more.
+
+    The two rows are stamped SEPARATELY on purpose. `seed_item` writes the
+    same status to both `Item` and every `PriceSnapshot`, so a test that used
+    it would pass whichever column the query filtered on and prove nothing
+    about which one the code reads. Forcing them apart -- `Item` still says
+    on sale, the last observation says removed -- makes this test fail if the
+    filter is ever moved to `Item.status`.
     """
     monitor_id = seed_monitor(session)
     seed_item(session, "live", monitor_id, prices=[300000])
     seed_item(session, "gone", monitor_id, prices=[250000], status="removed")
+
+    assert analytics.price_distribution(session, KW, now=NOW)["sample_size"] == 1
+
+    # Now the disagreeing case: Item says on_sale, the newest snapshot says
+    # removed. The snapshot is the observation, so the listing is excluded.
+    stale = session.get(Item, "gone")
+    assert stale is not None
+    stale.status = "on_sale"
+    session.add(stale)
+    session.commit()
 
     assert analytics.price_distribution(session, KW, now=NOW)["sample_size"] == 1
 
@@ -221,6 +238,36 @@ def test_the_quantiles_are_the_percentiles_they_claim_to_be(session):
     q = analytics.price_distribution(session, KW, now=NOW)["quantiles"]
     assert q["p50"] == pytest.approx(5050, abs=100)
     assert q["p10"] < q["p25"] < q["p50"] < q["p75"] < q["p90"]
+
+
+def test_no_quantile_lands_outside_the_prices_that_produced_it(session):
+    """The trap in `statistics.quantiles`: its DEFAULT method extrapolates.
+
+    `method="exclusive"` treats the sample as drawn from a wider population,
+    so with fewer than 19 data points it projects past the observed range --
+    two listings at 1000 and 9000 yuan give a p10 of minus 4600 yuan and a p90
+    of 14600. A negative asking price is not a plausible-but-wrong chart, it is
+    an impossible one, and small samples are the normal case for this tool.
+
+    Two samples and a wide spread is the worst case, so it is the one asserted;
+    the loop covers every size where the clamp inside `quantiles` can fire.
+    """
+    monitor_id = seed_monitor(session)
+    seed_item(session, "cheap", monitor_id, prices=[100000])
+    seed_item(session, "dear", monitor_id, prices=[900000])
+
+    q = analytics.price_distribution(session, KW, now=NOW)["quantiles"]
+    assert min(q.values()) >= 100000, q
+    assert max(q.values()) <= 900000, q
+
+    # Every sample size below 19 clamps inside statistics.quantiles; walk them
+    # all rather than trusting that two is the only broken one.
+    for size in range(2, 20):
+        prices = [100000] + [500000] * (size - 2) + [900000]
+        assert len(prices) == size
+        cuts = analytics._quantiles(prices)
+        assert min(cuts.values()) >= 100000, (size, cuts)
+        assert max(cuts.values()) <= 900000, (size, cuts)
 
 
 def test_histogram_buckets_are_whole_yuan_and_cover_every_sample(session):

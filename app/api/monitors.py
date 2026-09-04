@@ -9,7 +9,7 @@ from sqlmodel import select
 
 from app.collector.base import ChallengeError, CollectorError
 from app.db import SessionDep
-from app.models import Monitor, MonitorChannel, MonitorHit, NotifyChannel
+from app.models import Monitor, MonitorChannel, MonitorHit, NotifyChannel, utcnow
 from app.scheduler import COLLECT_SEMAPHORE, record_manual_run, run_monitor_cycle
 from app.schemas import CycleResult, MonitorCreate, MonitorPublic, MonitorUpdate
 
@@ -137,6 +137,7 @@ async def run_monitor_now(monitor_id: int, request: Request, session: SessionDep
     session.expunge(monitor)
 
     pipeline = request.app.state.pipeline
+    started_at = utcnow()
     async with COLLECT_SEMAPHORE:
         try:
             outcome = await run_monitor_cycle(pipeline, monitor)
@@ -159,7 +160,11 @@ async def run_monitor_now(monitor_id: int, request: Request, session: SessionDep
     # auto-disable streak would let someone switch off their own rule by
     # testing it.
     await asyncio.to_thread(
-        record_manual_run, monitor_id, collector=outcome.collector, item_count=outcome.collected
+        record_manual_run,
+        monitor_id,
+        collector=outcome.collector,
+        item_count=outcome.collected,
+        started_at=started_at,
     )
 
     return CycleResult(

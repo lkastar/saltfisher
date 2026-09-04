@@ -116,8 +116,9 @@ def test_the_window_bounds_are_rejected_as_422_not_500(client, endpoint, days):
     FastAPI rejects it before the handler runs and the bound also reaches
     OpenAPI for the generated frontend types.
     """
-    c, engine = client
-    seed(engine)
+    c, _ = client
+    # No seeding: FastAPI rejects the value before the handler runs, which is
+    # the whole point of expressing the bound as Query(ge=1, le=365).
     result = c.get(f"/api/analytics/{endpoint}?keyword={KW}&days={days}", headers=AUTH)
     assert result.status_code == 422
 
@@ -155,11 +156,18 @@ def test_an_unknown_keyword_is_an_empty_result_not_a_404(client, endpoint):
 def test_every_response_reports_how_much_data_is_behind_it(client, endpoint):
     c, engine = client
     seed(engine)
-    body = c.get(f"/api/analytics/{endpoint}?keyword={KW}", headers=AUTH).json()
+    # 25 is the one window that satisfies all three endpoints at once, and
+    # working that out is the second time `days` meaning three things has
+    # tripped this file up: supply-trend needs >= 21 to reach a first sighting
+    # 20 days back (its window starts at now - days + 1), while price-drops
+    # needs <= 30 so the 30-day-old snapshot still counts as "before".
+    body = c.get(f"/api/analytics/{endpoint}?keyword={KW}&days=25", headers=AUTH).json()
 
     assert body["sample_size"] > 0
     assert body["data_days"] == FIRST_HIT_DAYS_AGO + 1
-    assert body["window_days"] >= 1
+    # `window_days` echoes the request, so asserting it is >= 1 only restates
+    # Query(ge=1). Assert it round-trips the value actually sent instead.
+    assert body["window_days"] == 25
 
 
 def test_the_distribution_separates_window_size_from_live_size(client):
@@ -192,10 +200,17 @@ def test_the_drop_ranking_carries_what_a_row_needs_to_render(client):
 
     assert body["sample_size"] == 3
     assert len(body["rows"]) == 2
+    # Values, not presence. `response_model=PriceDrops` already guarantees
+    # every field exists, so `assert field in row` would pass with all of them
+    # wrong -- it tests Pydantic, not this endpoint.
     row = body["rows"][0]
-    for field in ("item_id", "title", "then_cents", "now_cents", "drop_bps", "is_fresh"):
-        assert field in row
+    assert row["then_cents"] > row["now_cents"], "a drop must have fallen"
+    assert row["drop_bps"] == (row["then_cents"] - row["now_cents"]) * 10000 // row["then_cents"]
     assert isinstance(row["drop_bps"], int)
+    assert row["title"] and row["title"] != row["item_id"], "the row needs a real title"
+    assert row["item_id"]
+    # Deepest first, and the cap did not reorder them.
+    assert body["rows"][0]["drop_bps"] >= body["rows"][1]["drop_bps"]
 
 
 def test_the_supply_series_covers_every_day_in_the_window(client):

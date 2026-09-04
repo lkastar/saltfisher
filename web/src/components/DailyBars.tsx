@@ -113,7 +113,11 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
             <text
               key={count}
               x={PLOT.left - 8}
-              y={scale(count, 0, peak, PLOT.bottom, PLOT.top) + 4}
+              // Math.max(peak, 1) for the same reason bucketRects guards its
+              // height: a window where nothing was ever new has peak 0, and
+              // scale() centres a zero-width domain -- so the sole "0" label
+              // would float halfway up the axis instead of sitting on it.
+              y={scale(count, 0, Math.max(peak, 1), PLOT.bottom, PLOT.top) + 4}
               textAnchor="end"
               fontSize="11"
               fill="var(--text-muted)"

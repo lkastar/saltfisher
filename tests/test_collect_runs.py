@@ -13,6 +13,7 @@ question, so most of this file is failures.
 """
 
 import asyncio
+from datetime import datetime
 
 import pytest
 from sqlmodel import Session, select
@@ -25,7 +26,7 @@ from app.collector.base import (
     RawItem,
     TransientCollectorError,
 )
-from app.models import CollectRun, Item, Monitor, PriceSnapshot, Seller, Watchlist
+from app.models import CollectRun, Item, Monitor, PriceSnapshot, Seller, Watchlist, utcnow
 from app.scheduler import CycleOutcome
 
 pytestmark = pytest.mark.asyncio
@@ -155,6 +156,33 @@ async def test_a_bug_in_our_own_code_is_logged_and_the_loop_survives(wired, monk
     (row,) = runs(engine)
     assert row.ok is False
     assert "ZeroDivisionError" in (row.error or "")
+
+
+async def test_the_run_row_is_stamped_when_the_cycle_started(wired, monkeypatch):
+    """`started_at` must mean what it says.
+
+    The parameter existed from the beginning and no caller passed it, so every
+    row was stamped at completion instead. Milliseconds usually, but a cycle
+    beginning 23:59:50 UTC then answered "did we collect that day" for the
+    following day -- and a column whose name disagrees with its contents
+    misleads every later reader regardless.
+
+    The fake cycle sleeps so start and finish are distinguishable at all;
+    without the fix the row lands after `inside`, not before it.
+    """
+    engine, monitor_id = wired
+    inside: list[datetime] = []
+
+    async def cycle(pipeline, monitor):
+        await asyncio.sleep(0.05)
+        inside.append(utcnow())
+        return CycleOutcome(hits=[], collector="mtop", collected=3, passed=3)
+
+    monkeypatch.setattr(scheduler, "run_monitor_cycle", cycle)
+    await scheduler._run_and_record(object(), monitor_id)
+
+    (row,) = runs(engine)
+    assert row.started_at < inside[0], "stamped at completion, not at the start"
 
 
 async def test_a_successful_manual_run_is_logged(wired):

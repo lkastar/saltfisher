@@ -11,16 +11,17 @@ measured on the real database rather than assumed:
 **"On sale" cannot be read from `Item.status`.** Only a watched item's detail
 fetch ever sets it to anything but `on_sale` (`store.persist_watch_observation`);
 a keyword-monitored listing that drops out of the search results is never
-touched. On the development database, 0 of 316 items had a status other than
-`on_sale`. So freshness of `last_seen_at` is the test, and `status` is used
-only in the direction where it does carry information: a listing we actually
-observed as `sold`/`removed` is excluded outright.
+touched. On the development database as of 2026-09-05, **0 of 328** items had a
+status other than `on_sale`. So freshness of `last_seen_at` is the test, and
+`status` is used only in the direction where it does carry information: a
+listing we actually observed as `sold`/`removed` is excluded outright.
 
 **A keyword is not a product category.** Scope is resolved through
-`MonitorHit`, since `Item` has no keyword. Measured overlap: `iPhone 15` saw
-264 listings, `iPhone 15 128G` saw 35, and only 15 were shared — the narrow
-keyword found 20 the broad one never did. Every figure here is therefore "what
-the searches for this keyword saw", which the UI must say out loud instead of
+`MonitorHit`, since `Item` has no keyword. Measured overlap on 2026-09-05:
+`iPhone 15` saw 264 listings, `iPhone 15 128G` saw 59, and only 29 were shared
+— the narrow keyword found 30 the broad one never did. The counts grow with
+every cycle; the point is the ratio. Every figure here is therefore "what the
+searches for this keyword saw", which the UI must say out loud instead of
 implying it is the market.
 
 No pandas: these are three `GROUP BY`s and one call to `statistics.quantiles`
@@ -136,10 +137,22 @@ def _quantiles(prices: list[int]) -> dict[str, int]:
     percentiles wanted here are indexes 1, 4, 9, 14 and 17. It raises below two
     data points, and a one-listing keyword is a completely ordinary state for
     this tool — so that case returns nothing to plot rather than a 500.
+
+    `method="inclusive"` is load-bearing, not a default worth leaving alone.
+    The default `"exclusive"` treats the sample as drawn from a wider
+    population and EXTRAPOLATES past the observed range whenever there are
+    fewer than 19 data points — two listings at ¥1000 and ¥9000 come back with
+    a p10 of MINUS ¥4600 and a p90 of ¥14600, neither of which any listing has
+    and one of which is not a price at all. Small samples are the normal case
+    here, so that is a chart the tool would draw most days of its first week.
+    The inclusive method interpolates between the observed order statistics and
+    can never leave [min, max], which is also the honest claim for this data:
+    these are the listings our searches saw, not a sample of the market (see
+    the module docstring).
     """
     if len(prices) < 2:
         return {}
-    cuts = statistics.quantiles(prices, n=20)
+    cuts = statistics.quantiles(prices, n=20, method="inclusive")
     return {
         "p10": round(cuts[1]),
         "p25": round(cuts[4]),
@@ -169,6 +182,11 @@ def _histogram(prices: list[int]) -> list[dict[str, int]]:
 
     counts = [0] * count
     for price in prices:
+        # ponytail: the min() is provably unreachable, kept as a guard. With
+        # span = hi - start + 1 and count = ceil(span / width), the largest
+        # index any price can produce is (span - 1) // width, which equals
+        # count - 1 in both the exact-multiple and the remainder case. Drop it
+        # only alongside a test that pins the edge arithmetic.
         counts[min((price - start) // width, count - 1)] += 1
     return [
         {"lo_cents": start + i * width, "hi_cents": start + (i + 1) * width, "count": c}
@@ -206,10 +224,14 @@ def price_distribution(
         .join(Item, col(Item.id) == col(PriceSnapshot.item_id))
         .where(col(PriceSnapshot.item_id).in_(_ledger_item_ids(scope)))
         .where(col(Item.last_seen_at) >= now - timedelta(days=days))
-        # The only direction Item.status carries information: a listing we
-        # actually observed as sold or removed is not an asking price any more.
-        # Its `on_sale` value proves nothing (see the module docstring), which
-        # is why freshness above does the real work.
+        # The SNAPSHOT's status, deliberately, not Item.status -- the two are
+        # written from the same `raw.status` but only this one is per
+        # observation, so it says "what the listing was when we last priced
+        # it" rather than "what it is now". Either way it is used in one
+        # direction only: a listing actually observed as sold or removed is
+        # not an asking price any more. Its `on_sale` value proves nothing
+        # (see the module docstring), which is why freshness does the real
+        # work above.
         .where(col(PriceSnapshot.status) == "on_sale")
     ).all()
     if not rows:
@@ -388,7 +410,10 @@ def supply_trend(
 
     series: list[dict] = []
     total_new = 0
-    for offset in range(max(days, 1)):
+    # `days >= 1` is enforced by the route's Query(ge=1), and `start` above
+    # already handles the non-positive case, so this range needs no second
+    # guard of its own.
+    for offset in range(days):
         day = (start + timedelta(days=offset)).isoformat()
         ok_count, fail_count = runs_by_day.get(day, (0, 0))
         new_count = int(new_by_day.get(day, 0))
