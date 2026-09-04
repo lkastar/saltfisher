@@ -75,10 +75,19 @@ class LlmRequest:
     system: str
     user_text: str
     images: tuple[LlmImage, ...] = ()
-    # Far above any answer we ask for, deliberately. Measured on this
-    # endpoint: even "reply ok" spent 11 reasoning tokens, so a tight budget
-    # buys an empty string rather than a shorter answer.
-    max_tokens: int = 4096
+    # Far above any answer we ask for, deliberately, and 4096 was NOT far
+    # enough. Measured end to end against the real endpoint on the market
+    # prompt (~1100 chars in, a small JSON object out):
+    #
+    #   max_tokens=4096   -> starved, empty answer, 37s
+    #   max_tokens=16384  -> ok, a five-field JSON object, 59s
+    #
+    # These are reasoning models: even "reply ok" spent 11 of its 13
+    # completion tokens thinking. A tight budget does not buy a shorter
+    # answer, it buys an empty string with finish_reason "stop" and no error
+    # anywhere -- which is why `starved` exists and why the default has to sit
+    # well clear of it rather than at the smallest value that ever worked.
+    max_tokens: int = 16384
 
 
 @dataclass(frozen=True, slots=True)
