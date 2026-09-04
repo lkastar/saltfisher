@@ -222,3 +222,54 @@ def test_transport_libraries_cannot_log_headers():
         logger = logging.getLogger(name)
         assert logger.level >= logging.WARNING, f"{name} may log headers at {logger.level}"
         assert not logger.isEnabledFor(logging.DEBUG), f"{name} is still DEBUG-enabled"
+
+
+def test_a_fresh_import_is_not_reported_as_working(client):
+    """Found in T8: the settings page showed a green "session usable" right
+    after importing a cookie whose detail endpoint was still challenged.
+
+    `adopt()` clears the challenge map unconditionally, so "no challenge"
+    immediately after an import only means nothing has failed YET. That is not
+    the same as working, and reporting it as healthy sent a user looking for a
+    problem that the panel was hiding.
+    """
+    c, session, _ = client
+    r = c.post("/api/session/cookies", json={"cookie_header": REAL_PASTE}, headers=AUTH)
+    body = r.json()
+
+    assert body["usable"] is True, "a token is present"
+    assert body["proven"] is False, "but nothing has succeeded yet"
+    assert body["last_success_at"] is None
+
+
+def test_one_real_success_makes_the_session_proven(client):
+    c, session, _ = client
+    c.post("/api/session/cookies", json={"cookie_header": REAL_PASTE}, headers=AUTH)
+
+    session.mark_success()
+
+    body = c.get("/api/session", headers=AUTH).json()
+    assert body["proven"] is True
+    assert body["last_success_at"] is not None
+
+
+def test_a_new_import_withdraws_the_old_proof(client):
+    """A previous credential working says nothing about the one just pasted.
+
+    The mechanism is the timestamp comparison in `proven`, not a reset:
+    `adopt()` moves `established_at` forward, so an earlier success no longer
+    satisfies `last_success_at >= established_at`. Verified by removing the
+    explicit reset that used to sit in `adopt()` -- this test kept passing,
+    which is how the reset was found to be redundant.
+    """
+    c, session, _ = client
+    c.post("/api/session/cookies", json={"cookie_header": REAL_PASTE}, headers=AUTH)
+    session.mark_success()
+    assert c.get("/api/session", headers=AUTH).json()["proven"] is True
+
+    body = c.post(
+        "/api/session/cookies",
+        json={"cookie_header": "cookie2=different; unb=888; _m_h5_tk=abc_1"},
+        headers=AUTH,
+    ).json()
+    assert body["proven"] is False

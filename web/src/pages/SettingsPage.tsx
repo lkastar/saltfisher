@@ -91,16 +91,35 @@ export default function SettingsPage() {
                 <strong style={{ color: "var(--warn)" }}>需要人工验证。</strong>{" "}
                 上游对这些接口出了风控挑战：
                 <span className="mono"> {state.challenged_apis.join("、")}</span>
-                。自动重试不会好转，请在自己的浏览器里打开闲鱼、通过验证，然后重新导入 cookie。
+                。自动重试不会好转，请按下面的步骤在自己的浏览器里过一次验证，再重新导入 cookie。
               </div>
-            ) : state.usable ? (
-              <p style={{ margin: 0, fontSize: 13, color: "var(--success)" }}>
-                会话可用。
-              </p>
-            ) : (
+            ) : !state.usable ? (
               <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
                 没有可用会话，采集只能走浏览器兜底或直接失败。
               </p>
+            ) : state.proven ? (
+              <p style={{ margin: 0, fontSize: 13, color: "var(--success)" }}>
+                会话可用，最近一次采集成功于 {formatRelativeTime(state.last_success_at)}。
+              </p>
+            ) : (
+              /* The distinction that matters: importing a cookie clears the
+                 challenge map unconditionally, so "no challenge" right after
+                 an import only means nothing has failed YET. Reporting that as
+                 a healthy session sent a user chasing a working panel while
+                 the detail endpoint was still blocked. */
+              <div
+                style={{
+                  background: "var(--surface-2)",
+                  border: "1px solid var(--border-strong)",
+                  borderRadius: "var(--radius-sm)",
+                  padding: "var(--space-3)",
+                  fontSize: 13,
+                }}
+              >
+                <strong>凭证已导入，但还没有被验证过。</strong>{" "}
+                导入只是收下了 cookie；要等一次真实采集成功，这里才会变成「会话可用」。
+                去「监控任务」页对任一规则点「立即运行」，或等下一轮调度。
+              </div>
             )}
 
             <dl
@@ -149,11 +168,26 @@ export default function SettingsPage() {
             style={{ fontFamily: "var(--font-mono)", fontSize: 12, resize: "vertical" }}
             aria-describedby="cookie-help"
           />
-          <p id="cookie-help" className="muted" style={{ margin: 0, fontSize: 11.5 }}>
-            在自己的浏览器里登录闲鱼，开发者工具 → Network → 任一请求 → 复制整个
-            <span className="mono"> Cookie </span>
-            请求头，粘贴到这里。值只存在后端，页面上永远只显示 cookie 名字。
-          </p>
+          <div id="cookie-help" className="muted" style={{ fontSize: 11.5 }}>
+            <p style={{ margin: 0 }}>
+              在自己的浏览器里登录闲鱼，开发者工具 → Network → 任一请求 → 复制整个
+              <span className="mono"> Cookie </span>
+              请求头，粘贴到这里。值只存在后端，页面上永远只显示 cookie 名字。
+            </p>
+            {/* Logging in is not enough. The proof-of-verification cookie only
+                appears after a challenge is actually passed, and the challenge
+                fires on the item detail flow rather than on login. */}
+            <p style={{ margin: "var(--space-2) 0 0" }}>
+              <strong>只登录往往不够。</strong>
+              风控挑战出现在<strong>商品详情</strong>那条路上，通过挑战后浏览器才会拿到
+              <span className="mono"> x5sec </span>
+              这个凭据。所以复制之前，先在浏览器里打开一个商品详情页（
+              <span className="mono">goofish.com/item?id=…</span>
+              ），若出现滑块就完成它；然后确认 cookie 里有
+              <span className="mono"> x5sec </span>
+              再复制。导入后名单里没有它，基本可以断定详情端点还会被挡。
+            </p>
+          </div>
           <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
             <button
               type="submit"

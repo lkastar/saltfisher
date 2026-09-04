@@ -37,6 +37,29 @@ class UpstreamSession:
     # One global flag therefore auto-disabled healthy keyword rules because a
     # watchlist lookup got challenged.
     challenged_apis: dict[str, str] = field(default_factory=dict)
+    # When an upstream call last SUCCEEDED. `usable` only means "there is a
+    # token"; `adopt()` clears the challenge map unconditionally, so right
+    # after an import the session looks perfectly healthy while the very next
+    # call may fail. Found in T8: the panel showed a green "session usable"
+    # for a freshly imported cookie whose detail endpoint was still
+    # challenged. Nothing had failed *yet*, which is not the same as working.
+    last_success_at: datetime | None = None
+
+    @property
+    def proven(self) -> bool:
+        """Whether an upstream call has actually succeeded since the import.
+
+        The UI must distinguish "credentials accepted and working" from
+        "credentials present, never exercised".
+        """
+        return (
+            self.last_success_at is not None
+            and self.established_at is not None
+            and self.last_success_at >= self.established_at
+        )
+
+    def mark_success(self, now: datetime | None = None) -> None:
+        self.last_success_at = now or datetime.now(UTC)
 
     @property
     def token(self) -> str | None:
@@ -66,6 +89,12 @@ class UpstreamSession:
         self.origin = origin
         self.established_at = datetime.now(UTC)
         self.challenged_apis.clear()
+        # `established_at` moving forward is what withdraws the previous
+        # credential's proof: `proven` requires last_success_at >=
+        # established_at, so an older success stops counting on its own. An
+        # explicit reset here was written first and then removed -- it was a
+        # second mechanism for the same job, and a test could not tell whether
+        # either one worked.
         self.last_error = None if self.token else "no _m_h5_tk in adopted cookies"
         log.info(
             "session adopted",

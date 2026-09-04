@@ -293,3 +293,9 @@ class SessionState(SQLModel):
     last_error: str | None
     challenged_apis: list[str]
     cookie_names: list[str]
+    # `usable` only means a token is present. `proven` means a call has
+    # actually succeeded since the credentials were imported -- without the
+    # distinction the page reports a green session for cookies whose very
+    # next request fails.
+    proven: bool
+    last_success_at: datetime | None

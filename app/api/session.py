@@ -51,6 +51,8 @@ def _state(session: UpstreamSession) -> SessionState:
         established_at=session.established_at,
         last_error=session.last_error,
         challenged_apis=sorted(session.challenged_apis),
+        proven=session.proven,
+        last_success_at=session.last_success_at,
         # Names only. A count and a name list are enough to answer "did the
         # paste work"; the values must never leave the process.
         cookie_names=sorted(session.cookies),

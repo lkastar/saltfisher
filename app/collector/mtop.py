@@ -204,6 +204,9 @@ class MtopClient:
                 sess.mark_challenged(api, str(exc))
                 raise
             sess.clear_challenge(api)
+            # One real success is what turns "credentials present" into
+            # "credentials working" for the settings page.
+            sess.mark_success()
             return body.get("data") or {}
 
         raise CollectorError(f"{api}: token retry exhausted")

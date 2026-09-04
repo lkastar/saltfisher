@@ -700,6 +700,10 @@ export interface components {
             challenged_apis: string[];
             /** Cookie Names */
             cookie_names: string[];
+            /** Proven */
+            proven: boolean;
+            /** Last Success At */
+            last_success_at: string | null;
         };
         /** TestSendResult */
         TestSendResult: {
