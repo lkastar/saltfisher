@@ -187,6 +187,7 @@ def _sync_record_run(
     item_id: str | None = None,
     ok: bool,
     item_count: int = 0,
+    pages: int | None = None,
     collector: str | None = None,
     error: str | None = None,
     started_at: datetime | None = None,
@@ -208,6 +209,7 @@ def _sync_record_run(
                     started_at=started_at or utcnow(),
                     ok=ok,
                     item_count=item_count,
+                    pages=pages,
                     collector=collector,
                     error=error,
                 )
@@ -228,6 +230,8 @@ def _sync_record_outcome(
     error: str | None,
     disable: bool = False,
     item_count: int = 0,
+    pages: int | None = None,
+    partial_error: str | None = None,
     started_at: datetime | None = None,
 ) -> None:
     """Stamp the rule's current state, then append the cycle to the run log.
@@ -242,6 +246,13 @@ def _sync_record_outcome(
     One exception, and it is the correct one: a rule deleted mid-cycle returns
     below without logging. The row's foreign key would have nowhere to point,
     and a cycle for a rule that no longer exists is not coverage of anything.
+
+    `partial_error` is a page failure inside an otherwise working cycle, and it
+    is deliberately kept out of the rule's state: the run row says ok=False so
+    the supply chart hatches that cycle, while last_error and the failure
+    streak stay clean. A rule that reliably gets page 1 and loses page 2 must
+    not be auto-disabled after five cycles — that would trade a narrower
+    aperture for no collection at all.
     """
     with Session(engine) as session:
         monitor = session.get(Monitor, monitor_id)
@@ -263,10 +274,11 @@ def _sync_record_outcome(
         session.commit()
     _sync_record_run(
         monitor_id=monitor_id,
-        ok=error is None,
+        ok=error is None and partial_error is None,
         item_count=item_count,
+        pages=pages,
         collector=collector,
-        error=error,
+        error=error or partial_error,
         started_at=started_at,
     )
 
@@ -276,6 +288,8 @@ def record_manual_run(
     *,
     collector: str | None,
     item_count: int = 0,
+    pages: int | None = None,
+    partial_error: str | None = None,
     started_at: datetime | None = None,
 ) -> None:
     """Stamp a successful manual run so the management page reflects it.
@@ -295,6 +309,8 @@ def record_manual_run(
         collector=collector,
         error=None,
         item_count=item_count,
+        pages=pages,
+        partial_error=partial_error,
         started_at=started_at,
     )
 
@@ -309,6 +325,11 @@ class CycleOutcome:
     collector: str | None = None
     collected: int = 0
     passed: int = 0
+    # The aperture this cycle actually observed, and any page that failed
+    # inside it. `collected` is deduped across all of `pages`, so the two only
+    # make sense read together.
+    pages: int | None = None
+    partial_error: str | None = None
 
 
 async def run_monitor_cycle(pipeline: Pipeline, monitor: Monitor) -> CycleOutcome:
@@ -320,7 +341,11 @@ async def run_monitor_cycle(pipeline: Pipeline, monitor: Monitor) -> CycleOutcom
     re-announces everything after a restart.
     """
     assert monitor.id is not None
-    items = await pipeline.collect_search(monitor.keyword, rows=30)
+    # settings.search_pages is read here, not inside the pipeline: this is the
+    # one place that owns how many upstream requests a cycle is worth, and the
+    # manual-run endpoint reaches the upstream through this same function.
+    result = await pipeline.collect_search(monitor.keyword, rows=30, pages=settings.search_pages)
+    items = list(result.items)
     candidates = await pipeline.screen(items, rule_filters(monitor))
     hits = await asyncio.to_thread(
         _sync_persist_cycle, monitor.id, candidates, baseline_done=monitor.baseline_done
@@ -332,12 +357,21 @@ async def run_monitor_cycle(pipeline: Pipeline, monitor: Monitor) -> CycleOutcom
         extra={
             "monitor_id": monitor.id,
             "collector": source,
+            "pages": result.pages,
             "found": len(items),
             "passed": passed,
             "notifiable": len(hits),
+            "partial": result.partial_error,
         },
     )
-    return CycleOutcome(hits=hits, collector=source, collected=len(items), passed=passed)
+    return CycleOutcome(
+        hits=hits,
+        collector=source,
+        collected=len(items),
+        passed=passed,
+        pages=result.pages,
+        partial_error=result.partial_error,
+    )
 
 
 async def _run_and_record(
@@ -411,6 +445,8 @@ async def _run_and_record(
         collector=outcome.collector,
         error=None,
         item_count=outcome.collected,
+        pages=outcome.pages,
+        partial_error=outcome.partial_error,
         started_at=started_at,
     )
     if registry is not None and outcome.hits:

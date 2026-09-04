@@ -9,7 +9,9 @@ preferred but not primary — it is tried first only when the session is valid.
                    └──no───▶ browser (which also adopts a fresh session)
 """
 
+import asyncio
 import logging
+import random
 import time
 from dataclasses import dataclass
 
@@ -20,6 +22,7 @@ from app.collector.base import (
     ItemGoneError,
     RawItem,
     RawSeller,
+    SearchResult,
     TransientCollectorError,
 )
 from app.collector.browser import BrowserCollector
@@ -28,6 +31,11 @@ from app.collector.mtop import MtopClient
 from app.collector.session import UpstreamSession
 
 log = logging.getLogger(__name__)
+
+# Spacing between two pages of one search, jittered for the same reason
+# scheduler.INTER_MONITOR_PAUSE is: a fixed cadence is the easiest bot
+# signature there is, and paging turns one request per cycle into N.
+INTER_PAGE_PAUSE = (3.0, 8.0)
 
 
 def _now_ms() -> str:
@@ -60,26 +68,77 @@ class Pipeline:
     # Acquisition with degradation
     # ------------------------------------------------------------------ #
 
-    async def collect_search(self, keyword: str, rows: int = 30) -> list[RawItem]:
-        """Search listings.
+    async def collect_search(self, keyword: str, rows: int = 30, pages: int = 1) -> SearchResult:
+        """Search listings across `pages` pages, deduped by item_id.
+
+        `pages` is passed in rather than read from Settings here: the scheduler
+        owns the request budget, and this stays a plain argument so a test can
+        ask for one page without touching global config.
+
+        Termination is an EMPTY page or the page count — never "returned fewer
+        rows than asked for". Measured 2026-09-05: page 1 of `iPhone 15`
+        returned 28 listings for rows=30 while pages 2 and 3 returned 30 each,
+        with zero overlap between any two pages. A count-based stop would have
+        read page 1 as the last page and thrown away two thirds of the
+        reachable inventory.
 
         Catches CollectorError, never Exception: a bug in the normaliser must
         crash loudly instead of silently sending every cycle through a
         200 MB browser launch. TransientCollectorError and ChallengeError
         propagate — backing off and asking for verification are the scheduler's
-        decisions, not this function's.
+        decisions, not this function's, and neither means "fetch one page
+        fewer".
+
+        A later page failing returns the earlier pages plus `partial_error`
+        instead of raising. Collapsing the cycle to zero would make the supply
+        trend draw "page 3 timed out" as "no stock that day".
         """
-        if self._session.usable:
+        # ponytail: the browser is a fallback for page 1 only, and deliberately
+        # so. browser.search() drives the mobile search URL, which has no page
+        # parameter we have verified — paging it means either synthesising a
+        # query string or clicking through infinite scroll, both untested
+        # against the live DOM. A degraded path that fetches the narrower
+        # aperture is honest; `pages` reports 1 and analytics reads the real
+        # aperture from it. Widen only after a probe records how page 2 is
+        # actually addressed in the DOM.
+        if not self._session.usable:
+            items = await self._browser.search(keyword, rows=rows)
+            return SearchResult(items=tuple(items), pages=1)
+
+        merged: dict[str, RawItem] = {}
+        fetched = 0
+        for page in range(1, pages + 1):
+            if page > 1:
+                await asyncio.sleep(random.uniform(*INTER_PAGE_PAUSE))
             try:
-                return await self._mtop.search(keyword, page=1, rows=rows, now_ms=_now_ms())
+                items = await self._mtop.search(keyword, page=page, rows=rows, now_ms=_now_ms())
             except (TransientCollectorError, ChallengeError):
                 raise
             except CollectorError as exc:
+                if page > 1:
+                    log.warning(
+                        "search page failed, keeping the pages already fetched",
+                        extra={"keyword": keyword, "page": page, "err": str(exc)},
+                    )
+                    return SearchResult(
+                        items=tuple(merged.values()), pages=fetched, partial_error=str(exc)
+                    )
                 log.warning(
                     "mtop search failed, falling back to browser",
                     extra={"keyword": keyword, "err": str(exc)},
                 )
-        return await self._browser.search(keyword, rows=rows)
+                items = await self._browser.search(keyword, rows=rows)
+                return SearchResult(items=tuple(items), pages=1)
+            fetched = page
+            if not items:
+                break
+            # First page wins a duplicate: the earlier observation is the one
+            # whose rank we actually saw. Zero overlap was measured, but that
+            # is an observation, not a guarantee — the pause between two pages
+            # is long enough for upstream to re-rank.
+            for item in items:
+                merged.setdefault(item.item_id, item)
+        return SearchResult(items=tuple(merged.values()), pages=fetched)
 
     async def collect_item(self, item_id: str) -> tuple[RawItem, RawSeller | None]:
         """Item detail and its seller profile — one request, both answers.

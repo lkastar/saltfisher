@@ -110,25 +110,27 @@ pytestmark = pytest.mark.asyncio
 async def test_without_a_session_the_browser_is_used_directly(no_session):
     """mtop cannot mint a token, so trying it first would only waste a call."""
     mtop, browser = StubMtop(), StubBrowser()
-    items = await Pipeline(mtop, browser, no_session).collect_search("iPhone")
+    result = await Pipeline(mtop, browser, no_session).collect_search("iPhone")
     assert mtop.search_calls == 0
     assert browser.search_calls == 1
-    assert items[0].source == "browser"
+    assert result.items[0].source == "browser"
+    # The browser covers page 1 only, and the aperture says so.
+    assert result.pages == 1
 
 
 async def test_with_a_session_the_cheap_path_is_preferred(usable_session):
     mtop, browser = StubMtop(), StubBrowser()
-    items = await Pipeline(mtop, browser, usable_session).collect_search("iPhone")
+    result = await Pipeline(mtop, browser, usable_session).collect_search("iPhone")
     assert (mtop.search_calls, browser.search_calls) == (1, 0)
-    assert items[0].source == "mtop"
+    assert result.items[0].source == "mtop"
 
 
 async def test_collector_error_degrades_to_the_browser(usable_session):
     mtop = StubMtop(raises=CollectorError("shape changed"))
     browser = StubBrowser()
-    items = await Pipeline(mtop, browser, usable_session).collect_search("iPhone")
+    result = await Pipeline(mtop, browser, usable_session).collect_search("iPhone")
     assert (mtop.search_calls, browser.search_calls) == (1, 1)
-    assert items[0].source == "browser"
+    assert result.items[0].source == "browser"
 
 
 async def test_parse_error_degrades_too(usable_session):
@@ -136,8 +138,8 @@ async def test_parse_error_degrades_too(usable_session):
     collector is worth a try."""
     mtop = StubMtop(raises=ParseError("no result list"))
     browser = StubBrowser()
-    items = await Pipeline(mtop, browser, usable_session).collect_search("iPhone")
-    assert browser.search_calls == 1 and items[0].source == "browser"
+    result = await Pipeline(mtop, browser, usable_session).collect_search("iPhone")
+    assert browser.search_calls == 1 and result.items[0].source == "browser"
 
 
 # --------------------------------------------------------------------------- #

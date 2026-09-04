@@ -21,6 +21,13 @@ class Settings(BaseSettings):
 
     # Collector
     browser_timeout_s: int = 30
+    # How many search pages one cycle reads. Every page is one more upstream
+    # request, so this is a safety setting, not a throughput knob
+    # (spec/backend/collector-guidelines.md). Default 2 rather than the 3 the
+    # live probe covered: the smallest increment that widens the aperture is
+    # also the smallest probe of how risk control reacts. The ceiling is hard
+    # on purpose — 5 pages is 5x the request rate of M2.
+    search_pages: int = Field(default=2, ge=1, le=5)
     seller_profile_ttl_days: int = 7
     max_image_urls: int = 5
 

@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlmodel import Session, SQLModel, select
 
 from app.db import add_missing_columns
-from app.models import Seller
+from app.models import CollectRun, Seller
 
 
 @pytest.fixture
@@ -84,3 +84,33 @@ def test_an_up_to_date_database_is_left_alone():
     from tests.conftest import memory_engine
 
     assert add_missing_columns(memory_engine()) == []
+
+
+def test_a_pre_paging_run_log_gains_its_pages_column():
+    """P3 added CollectRun.pages to a table that already has rows on every
+    running instance. Additive and nullable, so startup handles it — and NULL
+    is the honest value for a cycle collected before paging existed, which is
+    why the column is not `int = 0`.
+    """
+    from tests.conftest import memory_engine
+
+    engine = memory_engine()
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE collectrun DROP COLUMN pages"))
+        conn.execute(
+            text(
+                "INSERT INTO collectrun (started_at, ok, item_count) "
+                "VALUES ('2026-09-04 00:00:00.000000', 1, 30)"
+            )
+        )
+
+    applied = add_missing_columns(engine)
+
+    assert any("collectrun" in ddl and "pages" in ddl for ddl in applied)
+    assert "pages" in columns(engine, "collectrun")
+
+    with Session(engine) as s:
+        (row,) = s.exec(select(CollectRun)).all()
+        assert row.item_count == 30
+        # Unknown aperture, not zero pages: the row predates the question.
+        assert row.pages is None

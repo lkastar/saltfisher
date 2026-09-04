@@ -83,6 +83,22 @@ class RawItem:
 
 
 @dataclass(frozen=True, slots=True)
+class SearchResult:
+    """What one search cycle actually managed to observe.
+
+    A bare list cannot say "I asked for three pages and got two", and that
+    difference is exactly what the supply chart must not read as a quiet
+    market. `pages` is the observation aperture at the moment of collection;
+    `partial_error` is non-None when a later page failed after an earlier one
+    succeeded.
+    """
+
+    items: tuple[RawItem, ...]
+    pages: int
+    partial_error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RawSeller:
     """A normalised seller profile. Every field is optional: None means
     "not available", which is a different thing from 0.

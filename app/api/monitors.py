@@ -164,6 +164,8 @@ async def run_monitor_now(monitor_id: int, request: Request, session: SessionDep
         monitor_id,
         collector=outcome.collector,
         item_count=outcome.collected,
+        pages=outcome.pages,
+        partial_error=outcome.partial_error,
         started_at=started_at,
     )
 
@@ -172,5 +174,8 @@ async def run_monitor_now(monitor_id: int, request: Request, session: SessionDep
         passed=outcome.passed,
         notifiable=len(outcome.hits),
         collector=outcome.collector,
+        # A page that failed inside an otherwise working cycle: the user asked
+        # for this run, so they get to see that the aperture was short.
+        error=outcome.partial_error,
         baseline=was_baseline,
     )

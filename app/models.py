@@ -275,7 +275,16 @@ class CollectRun(SQLModel, table=True):
     item_id: str | None = Field(default=None, foreign_key="item.id", index=True)
     started_at: datetime = Field(default_factory=utcnow, index=True, sa_type=UtcDateTime)
     ok: bool
+    # Listings the cycle saw, DEDUPED ACROSS EVERY PAGE IT GOT — not the size
+    # of one page. Rows written before `pages` existed were all single-page,
+    # which is the key to reading them: the same number means a different
+    # aperture before and after P3.
     item_count: int = 0
+    # Pages actually fetched, which is not always the configured count: a
+    # failed later page keeps the earlier ones (ok=False, error set), an empty
+    # page stops early, and the browser fallback covers page 1 only. NULL on
+    # rows written before P3 and on watch cycles, which do not search.
+    pages: int | None = None
     collector: str | None = None  # mtop | browser | detail
     error: str | None = None
 
