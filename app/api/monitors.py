@@ -9,7 +9,7 @@ from sqlmodel import select
 
 from app.collector.base import ChallengeError, CollectorError
 from app.db import SessionDep
-from app.models import Monitor, MonitorChannel, MonitorHit
+from app.models import Monitor, MonitorChannel, MonitorHit, NotifyChannel
 from app.scheduler import COLLECT_SEMAPHORE, record_manual_run, run_monitor_cycle
 from app.schemas import CycleResult, MonitorCreate, MonitorPublic, MonitorUpdate
 
@@ -17,43 +17,79 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/monitors", tags=["monitors"])
 
 
+def _channel_ids(session: SessionDep, monitor_id: int) -> list[int]:
+    return sorted(
+        link.channel_id
+        for link in session.exec(
+            select(MonitorChannel).where(MonitorChannel.monitor_id == monitor_id)
+        ).all()
+    )
+
+
+def _public(session: SessionDep, monitor: Monitor) -> MonitorPublic:
+    """Monitor row plus its channel links.
+
+    Built explicitly because `channel_ids` is not a column: returning the ORM
+    row would serialise it as an empty list and quietly report that every rule
+    notifies nobody.
+    """
+    assert monitor.id is not None
+    return MonitorPublic(
+        **monitor.model_dump(), channel_ids=_channel_ids(session, monitor.id)
+    )
+
+
+def _set_channels(session: SessionDep, monitor_id: int, channel_ids: list[int]) -> None:
+    """Replace the link set. An empty list detaches everything, on purpose."""
+    for link in session.exec(
+        select(MonitorChannel).where(MonitorChannel.monitor_id == monitor_id)
+    ).all():
+        session.delete(link)
+    for channel_id in dict.fromkeys(channel_ids):
+        if session.get(NotifyChannel, channel_id) is None:
+            raise HTTPException(status_code=422, detail=f"channel {channel_id} does not exist")
+        session.add(MonitorChannel(monitor_id=monitor_id, channel_id=channel_id))
+
+
 @router.get("", response_model=list[MonitorPublic])
 def list_monitors(
     session: SessionDep,
     limit: Annotated[int, Query(le=200)] = 100,
     offset: int = 0,
-) -> list[Monitor]:
+) -> list[MonitorPublic]:
     stmt = select(Monitor).order_by(Monitor.id).offset(offset).limit(limit)  # type: ignore[arg-type]
-    return list(session.exec(stmt).all())
+    return [_public(session, monitor) for monitor in session.exec(stmt).all()]
 
 
 @router.post("", response_model=MonitorPublic, status_code=201)
-def create_monitor(payload: MonitorCreate, session: SessionDep) -> Monitor:
+def create_monitor(payload: MonitorCreate, session: SessionDep) -> MonitorPublic:
     monitor = Monitor(**payload.model_dump(exclude={"channel_ids"}))
     session.add(monitor)
     session.flush()
     assert monitor.id is not None
-    for channel_id in payload.channel_ids:
-        session.add(MonitorChannel(monitor_id=monitor.id, channel_id=channel_id))
+    _set_channels(session, monitor.id, payload.channel_ids)
     session.commit()
     session.refresh(monitor)
-    return monitor
+    return _public(session, monitor)
 
 
 @router.get("/{monitor_id}", response_model=MonitorPublic)
-def read_monitor(monitor_id: int, session: SessionDep) -> Monitor:
+def read_monitor(monitor_id: int, session: SessionDep) -> MonitorPublic:
     monitor = session.get(Monitor, monitor_id)
     if monitor is None:
         raise HTTPException(status_code=404, detail="monitor not found")
-    return monitor
+    return _public(session, monitor)
 
 
 @router.patch("/{monitor_id}", response_model=MonitorPublic)
-def update_monitor(monitor_id: int, payload: MonitorUpdate, session: SessionDep) -> Monitor:
+def update_monitor(
+    monitor_id: int, payload: MonitorUpdate, session: SessionDep
+) -> MonitorPublic:
     monitor = session.get(Monitor, monitor_id)
     if monitor is None:
         raise HTTPException(status_code=404, detail="monitor not found")
     changes = payload.model_dump(exclude_unset=True)
+    channel_ids = changes.pop("channel_ids", None)
     lo = changes.get("price_min_cents", monitor.price_min_cents)
     hi = changes.get("price_max_cents", monitor.price_max_cents)
     if lo is not None and hi is not None and lo > hi:
@@ -67,9 +103,11 @@ def update_monitor(monitor_id: int, payload: MonitorUpdate, session: SessionDep)
     if changes.get("enabled") is True:
         monitor.consecutive_failures = 0
         monitor.last_error = None
+    if channel_ids is not None:
+        _set_channels(session, monitor_id, channel_ids)
     session.commit()
     session.refresh(monitor)
-    return monitor
+    return _public(session, monitor)
 
 
 @router.delete("/{monitor_id}", status_code=204)

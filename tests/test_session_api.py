@@ -158,3 +158,49 @@ def test_clearing_also_reports_the_challenge_state_is_gone(client):
     body = c.delete("/api/session/cookies", headers=AUTH).json()
     assert body["needs_verification"] is False
     assert body["challenged_apis"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_restart_keeps_the_session_it_persisted():
+    """Found in T8: cookies survived a restart inside the browser context but
+    not in UpstreamSession, so the cheap mtop path came up unusable and the
+    panel asked the user to import credentials they had already imported.
+
+    Drives the real `restore_session` rather than re-implementing it, so
+    deleting the fix fails this test.
+    """
+    from app.collector.browser import BrowserCollector
+
+    stored = {"cookie2": "abc", "unb": "999", "_m_h5_tk": "deadbeefcafe_1757000000000"}
+
+    class FakeContext:
+        async def cookies(self):
+            return [{"name": k, "value": v} for k, v in stored.items()]
+
+    session = UpstreamSession()
+    collector = BrowserCollector(session)
+    collector._ctx = FakeContext()  # type: ignore[assignment]
+
+    assert session.usable is False
+    assert await collector.restore_session() == 3
+    assert session.usable is True
+    assert session.token == "deadbeefcafe"
+    assert sorted(session.cookies) == ["_m_h5_tk", "cookie2", "unb"]
+
+
+@pytest.mark.asyncio
+async def test_a_first_run_with_no_stored_cookies_adopts_nothing():
+    """An empty context must not produce a session that claims to be set up."""
+    from app.collector.browser import BrowserCollector
+
+    class EmptyContext:
+        async def cookies(self):
+            return []
+
+    session = UpstreamSession()
+    collector = BrowserCollector(session)
+    collector._ctx = EmptyContext()  # type: ignore[assignment]
+
+    assert await collector.restore_session() == 0
+    assert session.usable is False
+    assert session.origin == "none"

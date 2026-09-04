@@ -4,6 +4,7 @@ import { Link } from "react-router";
 
 import { ApiError } from "../api/client";
 import {
+  channelsOptions,
   createMonitor,
   deleteMonitor,
   keys,
@@ -11,6 +12,7 @@ import {
   runMonitor,
   sessionOptions,
   updateMonitor,
+  type Channel,
   type Monitor,
   type MonitorCreate,
 } from "../api/queries";
@@ -87,9 +89,11 @@ const FIELD: React.CSSProperties = {
 function MonitorForm({
   onDone,
   sessionUsable,
+  channels,
 }: {
   onDone: () => void;
   sessionUsable: boolean;
+  channels: Channel[];
 }) {
   const queryClient = useQueryClient();
   const create = useMutation({
@@ -135,7 +139,10 @@ function MonitorForm({
       min_seller_credit: int("min_seller_credit"),
       exclude_shop: text("exclude_shop") === "on",
       interval_seconds: int("interval_seconds") ?? 300,
-      channel_ids: [],
+      // Without at least one channel a hit goes nowhere: the panel becomes the
+      // only place it exists, and real-time push -- the entire point -- never
+      // happens. Found in T8, where every rule the panel created had none.
+      channel_ids: form.getAll("channel_ids").map((value) => Number(value)),
     };
     create.mutate(payload);
   }
@@ -277,6 +284,37 @@ function MonitorForm({
         排除鱼小铺（商家）
       </label>
 
+      <fieldset style={{ gridColumn: "1 / -1" }}>
+        <legend>推送到哪些渠道</legend>
+        {channels.length === 0 ? (
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            还没有通知渠道。命中只会留在这个页面里，不会推送给你——先去
+            <Link to="/channels">通知渠道</Link>建一个。
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-3)" }}>
+            {channels.map((ch) => (
+              <label
+                key={ch.id}
+                style={{ display: "flex", gap: "var(--space-1)", alignItems: "center" }}
+              >
+                <input
+                  type="checkbox"
+                  name="channel_ids"
+                  value={ch.id}
+                  defaultChecked={ch.enabled}
+                />
+                {ch.label}
+                <span className="muted" style={{ fontSize: 11 }}>
+                  （{ch.kind === "email" ? "邮件" : "Telegram"}
+                  {ch.enabled ? "" : " · 已停用"}）
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+      </fieldset>
+
       <div
         style={{
           gridColumn: "1 / -1",
@@ -306,6 +344,7 @@ export default function MonitorsPage() {
   const queryClient = useQueryClient();
   const query = useQuery(monitorsOptions());
   const session = useQuery(sessionOptions());
+  const channels = useQuery(channelsOptions());
   const [creating, setCreating] = useState(false);
   const [confirming, setConfirming] = useState<number | null>(null);
 
@@ -350,6 +389,7 @@ export default function MonitorsPage() {
         <MonitorForm
           onDone={() => setCreating(false)}
           sessionUsable={session.data?.usable ?? false}
+          channels={channels.data ?? []}
         />
       ) : null}
 
@@ -387,6 +427,7 @@ export default function MonitorsPage() {
                 <th>上次运行</th>
                 <th>路径</th>
                 <th>状态</th>
+                <th>推送</th>
                 <th />
               </tr>
             </thead>
@@ -406,6 +447,21 @@ export default function MonitorsPage() {
                   <td className="muted">{m.last_collector ?? "—"}</td>
                   <td>
                     <Health m={m} />
+                  </td>
+                  <td>
+                    {/* A rule with no channel collects and then tells nobody.
+                        That is worth a warning, not a blank cell. */}
+                    {m.channel_ids.length === 0 ? (
+                      <span
+                        className="pill"
+                        data-tone="warn"
+                        title="命中不会推送给任何人，只会留在命中列表里"
+                      >
+                        无渠道
+                      </span>
+                    ) : (
+                      <span className="muted">{m.channel_ids.length} 个</span>
+                    )}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: "var(--space-1)" }}>

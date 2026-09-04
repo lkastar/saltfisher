@@ -75,7 +75,11 @@ class BrowserCollector:
             storage_state=str(state_path) if state_path.exists() else None,
         )
         await self._ctx.route("**/*", self._block_heavy_resources)
-        log.info("browser started", extra={"reused_state": state_path.exists()})
+        restored = await self.restore_session()
+        log.info(
+            "browser started",
+            extra={"reused_state": state_path.exists(), "restored_cookies": restored},
+        )
 
     async def stop(self) -> None:
         if self._ctx is not None:
@@ -121,6 +125,24 @@ class BrowserCollector:
     # ponytail: if a cookie ever needs to differ per domain, that is when to
     # build the table -- not before.
     COOKIE_DOMAINS = (".goofish.com", ".taobao.com")
+
+    async def restore_session(self) -> int:
+        """Hand the browser's restored cookies to the in-memory session.
+
+        Playwright reloads `state.json` into the browser context on launch, but
+        `UpstreamSession` lives in memory, so without this the cheap mtop path
+        came up empty after every restart and the panel asked the user to
+        import credentials they had already imported -- the same failure the
+        token-rotation code exists to prevent, one layer up.
+
+        Returns how many cookies were adopted, so startup can log it and a test
+        can exercise this without launching chromium.
+        """
+        restored = {c["name"]: c["value"] for c in await self._context().cookies()}
+        if not restored:
+            return 0
+        self._session.adopt(restored, "https://www.goofish.com")
+        return len(restored)
 
     async def import_cookies(self, cookies: dict[str, str]) -> None:
         """Install cookies into the live context and persist them.

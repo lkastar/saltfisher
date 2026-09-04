@@ -234,3 +234,105 @@ def test_a_failed_manual_run_does_not_count_toward_auto_disable(client, monkeypa
     row = c.get(f"/api/monitors/{monitor_id}", headers=AUTH).json()
     assert row["consecutive_failures"] == 0
     assert row["enabled"] is True
+
+
+def channel(engine, label: str = "邮件") -> int:
+    """A channel row, inserted directly.
+
+    Going through /api/channels would need app.state.notify_registry, which
+    belongs to the channel tests. These tests are about the monitor-to-channel
+    link, so the row is all that is needed.
+    """
+    from app.models import NotifyChannel
+
+    with Session(engine) as s:
+        row = NotifyChannel(kind="email", label=label, config="{}", enabled=True)
+        s.add(row)
+        s.commit()
+        s.refresh(row)
+        assert row.id is not None
+        return row.id
+
+
+def make_monitor(c, channel_ids: list[int]) -> dict:
+    return c.post(
+        "/api/monitors", json={**VALID, "channel_ids": channel_ids}, headers=AUTH
+    ).json()
+
+
+def test_a_rule_reports_which_channels_it_notifies(client):
+    """Found in T8: channel_ids was write-once at creation and absent from
+    every response, and the panel created every rule with none -- so a monitor
+    rule could never notify anyone, which is the entire product.
+    """
+    c, engine = client
+    first, second = channel(engine, "邮件"), channel(engine, "备用")
+
+    created = make_monitor(c, [first, second])
+    assert created["channel_ids"] == sorted([first, second])
+
+    read = c.get(f"/api/monitors/{created['id']}", headers=AUTH).json()
+    assert read["channel_ids"] == sorted([first, second])
+    listed = c.get("/api/monitors", headers=AUTH).json()
+    assert listed[0]["channel_ids"] == sorted([first, second])
+
+
+def test_channels_can_be_changed_after_creation(client):
+    c, engine = client
+    first, second = channel(engine, "邮件"), channel(engine, "备用")
+    monitor_id = make_monitor(c, [first])["id"]
+
+    patched = c.patch(
+        f"/api/monitors/{monitor_id}", json={"channel_ids": [second]}, headers=AUTH
+    ).json()
+    assert patched["channel_ids"] == [second]
+
+
+def test_omitting_channel_ids_leaves_them_alone(client):
+    """PATCH semantics: absent means "do not touch". Otherwise every unrelated
+    edit -- renaming a rule, changing its interval -- would silently detach the
+    channels and stop the notifications.
+    """
+    c, engine = client
+    first = channel(engine)
+    monitor_id = make_monitor(c, [first])["id"]
+
+    patched = c.patch(
+        f"/api/monitors/{monitor_id}", json={"name": "改个名"}, headers=AUTH
+    ).json()
+    assert patched["channel_ids"] == [first]
+
+
+def test_an_empty_list_detaches_every_channel(client):
+    """Distinct from omission: [] is a real instruction to notify nobody."""
+    c, engine = client
+    first = channel(engine)
+    monitor_id = make_monitor(c, [first])["id"]
+
+    patched = c.patch(
+        f"/api/monitors/{monitor_id}", json={"channel_ids": []}, headers=AUTH
+    ).json()
+    assert patched["channel_ids"] == []
+
+
+def test_attaching_a_channel_that_does_not_exist_is_422(client):
+    c, _ = client
+    monitor_id = c.post("/api/monitors", json=VALID, headers=AUTH).json()["id"]
+    r = c.patch(f"/api/monitors/{monitor_id}", json={"channel_ids": [999]}, headers=AUTH)
+    assert r.status_code == 422
+    assert "999" in r.json()["detail"]
+
+
+def test_the_scheduler_sees_the_channels_the_api_wrote(client):
+    """The two sides must agree: the API writes MonitorChannel rows and
+    channels_for_monitor reads them. A mismatch is invisible until a hit is
+    silently not delivered.
+    """
+    from app.notify import channels_for_monitor
+
+    c, engine = client
+    first = channel(engine)
+    monitor_id = make_monitor(c, [first])["id"]
+
+    with Session(engine) as s:
+        assert [ch.id for ch in channels_for_monitor(s, monitor_id)] == [first]

@@ -595,6 +595,11 @@ export interface components {
             consecutive_failures: number;
             /** Hit Count */
             hit_count: number;
+            /**
+             * Channel Ids
+             * @default []
+             */
+            channel_ids: number[];
         };
         /**
          * MonitorUpdate
@@ -628,6 +633,8 @@ export interface components {
             interval_seconds?: number | null;
             /** Enabled */
             enabled?: boolean | null;
+            /** Channel Ids */
+            channel_ids?: number[] | null;
         };
         /** NotifyLogPublic */
         NotifyLogPublic: {

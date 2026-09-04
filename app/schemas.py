@@ -62,6 +62,11 @@ class MonitorUpdate(SQLModel):
     exclude_shop: bool | None = None
     interval_seconds: int | None = Field(default=None, ge=settings.min_interval_seconds)
     enabled: bool | None = None
+    # Omitted means "leave the channels alone"; a list REPLACES the set, and
+    # an empty list is a real instruction to detach everything. Without this
+    # field a rule's channels were frozen at creation, and since the panel
+    # created every rule with none, no rule could ever notify anyone.
+    channel_ids: list[int] | None = None
 
 
 class MonitorPublic(MonitorBase):
@@ -79,6 +84,9 @@ class MonitorPublic(MonitorBase):
     last_collector: str | None
     consecutive_failures: int
     hit_count: int
+    # So the edit form can show what is currently attached rather than
+    # guessing, and so "this rule notifies nobody" is visible in the list.
+    channel_ids: list[int] = []
 
 
 class CycleResult(SQLModel):
