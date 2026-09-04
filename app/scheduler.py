@@ -25,8 +25,10 @@ from app.collector.filters import RuleFilters
 from app.collector.pipeline import Pipeline
 from app.config import settings
 from app.db import engine
-from app.models import Monitor, utcnow
-from app.store import NotifiableHit, persist_cycle
+from app.models import Monitor, NotifyChannel, utcnow
+from app.notify import channels_for_monitor, deliver, group_by_reason, log_delivery
+from app.notify.base import Notification, Notifier
+from app.store import NotifiableHit, mark_notified, persist_cycle
 
 log = logging.getLogger(__name__)
 
@@ -99,6 +101,66 @@ def _sync_persist_cycle(
         return hits
 
 
+def _sync_channels(monitor_id: int) -> list[NotifyChannel]:
+    with Session(engine) as session:
+        channels = channels_for_monitor(session, monitor_id)
+        for channel in channels:
+            session.expunge(channel)
+        return channels
+
+
+def _sync_commit_delivery(
+    monitor_id: int,
+    channel_id: int,
+    notification: Notification,
+    hits: list[NotifiableHit],
+    error: str | None,
+) -> None:
+    """Record the attempt, and the dedup stamp only if it succeeded.
+
+    Both writes happen in one transaction: a NotifyLog saying "sent" with no
+    corresponding stamp would re-announce the same items next cycle.
+    """
+    with Session(engine) as session:
+        log_delivery(session, channel_id, notification, monitor_id, error)
+        if error is None:
+            mark_notified(session, monitor_id, hits)
+        session.commit()
+
+
+async def dispatch_hits(
+    registry: dict[str, Notifier],
+    monitor_id: int,
+    monitor_name: str,
+    hits: list[NotifiableHit],
+) -> None:
+    """Send one cycle's hits, batched per reason, to every bound channel.
+
+    No retry here: the next cycle IS the retry. A retry loop plus an
+    unreachable SMTP host would stall the scheduler.
+    """
+    if not hits:
+        return
+    channels = await asyncio.to_thread(_sync_channels, monitor_id)
+    if not channels:
+        log.info("no channels bound", extra={"monitor_id": monitor_id, "hits": len(hits)})
+        return
+
+    for reason, group in group_by_reason(hits).items():
+        notification = Notification(kind=reason, hits=group, monitor_name=monitor_name)
+        for channel in channels:
+            assert channel.id is not None
+            error = await deliver(registry, channel, notification)
+            if error is not None:
+                log.error(
+                    "notification failed",
+                    extra={"channel_id": channel.id, "kind": channel.kind, "err": error},
+                )
+            await asyncio.to_thread(
+                _sync_commit_delivery, monitor_id, channel.id, notification, group, error
+            )
+
+
 def _sync_record_outcome(
     monitor_id: int, *, collector: str | None, error: str | None, disable: bool = False
 ) -> None:
@@ -163,7 +225,9 @@ async def run_monitor_cycle(pipeline: Pipeline, monitor: Monitor) -> CycleOutcom
     return CycleOutcome(hits=hits, collector=source, collected=len(items), passed=passed)
 
 
-async def _run_and_record(pipeline: Pipeline, monitor_id: int) -> CycleOutcome:
+async def _run_and_record(
+    pipeline: Pipeline, monitor_id: int, registry: dict[str, Notifier] | None = None
+) -> CycleOutcome:
     """Wrap one cycle so that no failure can escape into the loop.
 
     The bare `except Exception` here is the one the project allows (see
@@ -210,6 +274,11 @@ async def _run_and_record(pipeline: Pipeline, monitor_id: int) -> CycleOutcome:
     await asyncio.to_thread(
         _sync_record_outcome, monitor_id, collector=outcome.collector, error=None
     )
+    if registry is not None and outcome.hits:
+        # Deliberately outside the try above: a channel outage must not be
+        # recorded as a collection failure, or a dead SMTP server would
+        # auto-disable a perfectly healthy rule.
+        await dispatch_hits(registry, monitor_id, monitor.name, outcome.hits)
     return outcome
 
 
@@ -218,7 +287,9 @@ def _bump_backoff(monitor_id: int) -> None:
     _backoff[monitor_id] = min(max(current * 2, 60.0), BACKOFF_CAP_SECONDS)
 
 
-async def search_loop(pipeline: Pipeline, stop: asyncio.Event) -> None:
+async def search_loop(
+    pipeline: Pipeline, stop: asyncio.Event, registry: dict[str, Notifier] | None = None
+) -> None:
     """Poll keyword rules until told to stop.
 
     Serial by design. With a handful of rules the worst-case delay is roughly
@@ -233,7 +304,7 @@ async def search_loop(pipeline: Pipeline, stop: asyncio.Event) -> None:
                 if stop.is_set():
                     break
                 async with COLLECT_SEMAPHORE:
-                    await _run_and_record(pipeline, monitor_id)
+                    await _run_and_record(pipeline, monitor_id, registry)
                 await asyncio.sleep(random.uniform(*INTER_MONITOR_PAUSE))
         except Exception:  # noqa: BLE001 - the loop itself must never die
             log.exception("search loop iteration failed")
@@ -242,7 +313,9 @@ async def search_loop(pipeline: Pipeline, stop: asyncio.Event) -> None:
     log.info("search loop stopped")
 
 
-async def watch_loop(pipeline: Pipeline, stop: asyncio.Event) -> None:
+async def watch_loop(
+    pipeline: Pipeline, stop: asyncio.Event, registry: dict[str, Notifier] | None = None
+) -> None:
     """Poll watched items. Wired up in T5; the loop exists here so both
     cadences share one semaphore from the start.
     """

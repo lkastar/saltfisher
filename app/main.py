@@ -5,9 +5,10 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import Depends, FastAPI
 
-from app.api import monitors
+from app.api import channels, monitors
 from app.auth import require_token
 from app.collector.browser import BrowserCollector
 from app.collector.mtop import MtopClient
@@ -15,6 +16,7 @@ from app.collector.pipeline import Pipeline
 from app.collector.session import UpstreamSession
 from app.config import settings
 from app.db import init_db
+from app.notify import build_registry
 from app.scheduler import search_loop, watch_loop
 
 logging.basicConfig(
@@ -36,6 +38,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # owned here rather than as module-level globals. The browser is what
     # establishes the upstream session; the cheap mtop path reuses its cookies.
     session = UpstreamSession()
+    # A separate client from the collector's: different host, different
+    # headers, and a goofish-shaped user-agent has no business on api.telegram.
+    notify_client = httpx.AsyncClient(timeout=20.0)
+    app.state.notify_registry = build_registry(notify_client)
     mtop = MtopClient(session)
     browser = BrowserCollector(session)
     await browser.start()
@@ -44,9 +50,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info("collector ready")
 
     stop = asyncio.Event()
+    registry = app.state.notify_registry
     loops = [
-        asyncio.create_task(search_loop(app.state.pipeline, stop), name="search_loop"),
-        asyncio.create_task(watch_loop(app.state.pipeline, stop), name="watch_loop"),
+        asyncio.create_task(search_loop(app.state.pipeline, stop, registry), name="search_loop"),
+        asyncio.create_task(watch_loop(app.state.pipeline, stop, registry), name="watch_loop"),
     ]
     try:
         yield
@@ -56,10 +63,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await asyncio.gather(*loops, return_exceptions=True)
         await browser.stop()
         await mtop.aclose()
+        await notify_client.aclose()
 
 
 app = FastAPI(title="saltfish-digger", lifespan=lifespan)
 app.include_router(monitors.router, dependencies=[Depends(require_token)])
+app.include_router(channels.router, dependencies=[Depends(require_token)])
 
 
 @app.get("/api/health")

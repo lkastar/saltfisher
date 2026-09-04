@@ -8,6 +8,7 @@ belongs here.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import model_validator
 from sqlmodel import Field, SQLModel
@@ -89,3 +90,54 @@ class CycleResult(SQLModel):
     collector: str | None = None
     error: str | None = None
     baseline: bool = False
+
+
+# --------------------------------------------------------------------------- #
+# Notification channels
+# --------------------------------------------------------------------------- #
+
+
+class ChannelCreate(SQLModel):
+    # Literal rather than a validated string: it surfaces in the OpenAPI
+    # schema as an enum, so the generated frontend types give a union and the
+    # form can render a select without a second source of truth.
+    kind: Literal["email", "telegram"]
+    label: str = Field(min_length=1, max_length=60)
+    config: dict = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class ChannelUpdate(SQLModel):
+    label: str | None = Field(default=None, min_length=1, max_length=60)
+    config: dict | None = None
+    enabled: bool | None = None
+
+
+class ChannelPublic(SQLModel):
+    """Secrets are replaced with a presence marker before this leaves the app.
+
+    The page needs to know WHETHER a token is set, never what it is.
+    """
+
+    id: int
+    kind: str
+    label: str
+    config: dict
+    enabled: bool
+    created_at: datetime
+
+
+class NotifyLogPublic(SQLModel):
+    id: int
+    channel_id: int
+    kind: str
+    monitor_id: int | None
+    item_count: int
+    ok: bool
+    error: str | None
+    sent_at: datetime
+
+
+class TestSendResult(SQLModel):
+    ok: bool
+    error: str | None = None

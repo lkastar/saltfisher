@@ -43,3 +43,6 @@ testpaths = ["tests"]
 addopts = "-q"
 pythonpath = ["."]
 asyncio_mode = "strict"
+markers = [
+    "localsocket: talks to a loopback server the test itself starts (no external network)",
+]
