@@ -8,9 +8,17 @@ RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-# Playwright's image ships the browsers and their system libraries, which is
-# the whole reason to use it — installing those by hand is a long apt list
-# that breaks on every base-image bump.
+# Playwright's image is used for its SYSTEM LIBRARIES, not for the browsers it
+# ships. The browsers are installed below from the locked playwright package
+# instead.
+#
+# Why: the image tag and the version in uv.lock are two independent sources of
+# the same number, and they drifted. Found in T8 -- the container had never
+# started: the image carried browsers for 1.56 while the lock resolved
+# playwright 1.62, and launch died on
+# "Executable doesn't exist at /ms-playwright/chromium_headless_shell-...".
+# Installing the browser from the installed package makes a mismatch
+# impossible rather than something to remember.
 FROM mcr.microsoft.com/playwright/python:v1.56.0-noble
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -24,6 +32,11 @@ RUN uv sync --locked --no-dev --no-install-project
 
 COPY app ./app
 RUN uv sync --locked --no-dev
+
+# The system dependencies already come from the base image, so only the
+# browser binary is downloaded here -- and it is the one this exact playwright
+# build expects.
+RUN uv run playwright install chromium
 
 # app/main.py looks for web/dist next to the app package.
 COPY --from=web /web/dist ./web/dist
