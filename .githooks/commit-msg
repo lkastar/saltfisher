@@ -13,7 +13,7 @@ case "$header" in
 esac
 
 TYPES='feat|fix|docs|style|refactor|test|chore'
-SCOPES='collector|notify|watchlist|api|db|scheduler|analytics|web|spec|docker|deps'
+SCOPES='collector|notify|watchlist|api|db|scheduler|analytics|llm|web|spec|docker|deps'
 
 fail() {
 	printf '\n✗ commit message rejected: %s\n\n' "$1" >&2

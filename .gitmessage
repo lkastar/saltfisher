@@ -29,7 +29,7 @@
 #   chore     构建过程或辅助工具的变动
 #
 # scope 取值（本项目）：
-#   collector notify watchlist api db scheduler analytics web spec docker deps
+#   collector notify watchlist api db scheduler analytics llm web spec docker deps
 #
 # 撤销 commit：
 #   revert: feat(collector): add browser fallback
