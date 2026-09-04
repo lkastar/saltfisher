@@ -1,0 +1,87 @@
+/* Design tokens. Source of truth for every color, space, and font in the app.
+ *
+ * Components read tokens; a bare hex in a component is a bug. Dark mode swaps
+ * token VALUES only, so no component knows which theme it is in.
+ *
+ * Contrast was computed, not eyeballed: every text/semantic color clears
+ * 4.5:1 against --bg and --surface in both themes (lowest is --success light
+ * at 4.79), --border-strong clears 3:1 (WCAG 1.4.11), rings clear 6.4:1.
+ */
+
+:root {
+  /* Neutral base. Slate, not the green ops palette: green is a SEMANTIC color
+   * here ("price dropped", "in range"). Spending it on the background would
+   * leave hit rows with no color to use. */
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #eaeff3;
+  --text: #1e293b;
+  --text-muted: #475569;
+
+  /* Two border tokens on purpose. --border draws decorative rules and is
+   * deliberately weak (1.4:1); --border-strong outlines CONTROLS and must
+   * clear 3:1. Using --border on an input silently fails 1.4.11. */
+  --border: #e2e8f0;
+  --border-strong: #64748b;
+  --ring: #1d4ed8;
+
+  --primary: #1d4ed8;
+  --primary-on: #ffffff;
+  --success: #15803d;
+  --success-bg: #dcfce7;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+  --danger: #b91c1c;
+  --danger-bg: #fee2e2;
+
+  /* Dense-dashboard scale, not the 16-64px marketing default. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius: 6px;
+  --radius-sm: 4px;
+
+  /* No webfont download. Fira Sans (the pairing this came from) has zero CJK
+   * coverage, so in a Chinese UI every character would fall through to an
+   * unspecified system font anyway -- and this tool is self-hosted, possibly
+   * with no outbound internet. The INTENT is kept: mono for data, sans for
+   * labels. --font-mono ends with a CJK face so mixed strings do not drop
+   * characters to a fallback with different metrics. */
+  --font-ui: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei",
+    "Noto Sans SC", "Hiragino Sans GB", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC",
+    monospace;
+
+  --z-header: 10;
+}
+
+/* System preference only -- no toggle, no localStorage, no [data-theme].
+ * ponytail: if a manual switch is ever wanted, change this selector to
+ * :root:not([data-theme="light"]) and add a :root[data-theme="dark"] block
+ * with the same values. Not one token name has to move. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f172a;
+    --surface: #1b2336;
+    --surface-2: #272f42;
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+
+    --border: #272f42;
+    --border-strong: #64748b;
+    --ring: #60a5fa;
+
+    --primary: #60a5fa;
+    --primary-on: #0f172a;
+    --success: #4ade80;
+    --success-bg: #14352a;
+    --warn: #fbbf24;
+    --warn-bg: #3a2a0b;
+    --danger: #f87171;
+    --danger-bg: #3b1618;
+  }
+}
