@@ -256,3 +256,32 @@ class PricePoint(SQLModel):
     source: str
     want_count: int | None
     view_count: int | None
+
+
+# --------------------------------------------------------------------------- #
+# Upstream session
+# --------------------------------------------------------------------------- #
+
+
+class CookieImport(SQLModel):
+    """A paste from the browser's devtools.
+
+    A raw Cookie header rather than a structured list: that is the one form a
+    user can actually produce without tooling, and asking for JSON would mean
+    they hand-edit it and get it wrong.
+    """
+
+    cookie_header: str = Field(min_length=1)
+    origin: str = "https://www.goofish.com"
+
+
+class SessionState(SQLModel):
+    """Session health. Carries cookie NAMES and never values."""
+
+    origin: str | None
+    usable: bool
+    needs_verification: bool
+    established_at: datetime | None
+    last_error: str | None
+    challenged_apis: list[str]
+    cookie_names: list[str]

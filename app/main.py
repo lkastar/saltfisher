@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import channels, items, monitors, watchlist
+from app.api import session as session_api
 from app.auth import require_token
 from app.collector.browser import BrowserCollector
 from app.collector.mtop import MtopClient
@@ -50,6 +51,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     browser = BrowserCollector(session)
     await browser.start()
     app.state.session = session
+    app.state.browser = browser
     app.state.pipeline = Pipeline(mtop, browser, session)
     log.info("collector ready")
 
@@ -75,6 +77,7 @@ app.include_router(monitors.router, dependencies=[Depends(require_token)])
 app.include_router(channels.router, dependencies=[Depends(require_token)])
 app.include_router(watchlist.router, dependencies=[Depends(require_token)])
 app.include_router(items.router, dependencies=[Depends(require_token)])
+app.include_router(session_api.router, dependencies=[Depends(require_token)])
 
 
 @app.get("/api/health")
@@ -88,23 +91,6 @@ def whoami() -> dict[str, bool]:
     """Cheapest possible way for the frontend to validate a stored token."""
     return {"authenticated": True}
 
-
-@app.get("/api/session", dependencies=[Depends(require_token)])
-def session_state() -> dict[str, object]:
-    """Upstream session health.
-
-    `needs_verification` is the difference between "wait" and "a human must
-    act" — the UI has to be able to say which, or a challenged session looks
-    identical to a quiet market.
-    """
-    session: UpstreamSession = app.state.session
-    return {
-        "origin": session.origin,
-        "usable": session.usable,
-        "needs_verification": session.needs_verification,
-        "established_at": session.established_at.isoformat() if session.established_at else None,
-        "last_error": session.last_error,
-    }
 
 
 # --------------------------------------------------------------------------- #

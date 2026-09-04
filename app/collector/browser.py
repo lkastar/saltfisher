@@ -115,6 +115,42 @@ class BrowserCollector:
             raise RuntimeError("BrowserCollector.start() was never awaited")
         return self._ctx
 
+    # Long-lived login cookies live on the taobao domain; the site's own live
+    # on goofish. Writing every cookie to both saves maintaining a per-cookie
+    # domain table, and a cookie the wrong domain never sends is invisible.
+    # ponytail: if a cookie ever needs to differ per domain, that is when to
+    # build the table -- not before.
+    COOKIE_DOMAINS = (".goofish.com", ".taobao.com")
+
+    async def import_cookies(self, cookies: dict[str, str]) -> None:
+        """Install cookies into the live context and persist them.
+
+        Persisting goes through Playwright's own `storage_state` serializer
+        rather than hand-writing its JSON: the format is Playwright's to
+        define, and a hand-rolled file that it silently declines to load looks
+        exactly like a session that was never imported.
+        """
+        await self._context().add_cookies(
+            [
+                {"name": name, "value": value, "domain": domain, "path": "/"}
+                for name, value in cookies.items()
+                for domain in self.COOKIE_DOMAINS
+            ]
+        )
+        await self._context().storage_state(path=str(settings.data_dir / "state.json"))
+        log.info("cookies imported", extra={"count": len(cookies)})
+
+    async def clear_cookies(self) -> None:
+        """Forget the session in memory and on disk.
+
+        The file has to go too: leaving it behind means the next restart
+        silently re-adopts the credentials the user just cleared.
+        """
+        await self._context().clear_cookies()
+        state_path = settings.data_dir / "state.json"
+        state_path.unlink(missing_ok=True)
+        log.info("cookies cleared")
+
     async def _open(self, url: str, xhr_marker: str) -> tuple[Page, list[dict[str, Any]]]:
         """Navigate and collect the JSON bodies of matching XHR responses."""
         captured: list[dict[str, Any]] = []
