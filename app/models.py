@@ -239,6 +239,48 @@ class NotifyLog(SQLModel, table=True):
 
 
 # --------------------------------------------------------------------------- #
+# Collection observability (M2)
+# --------------------------------------------------------------------------- #
+
+
+class CollectRun(SQLModel, table=True):
+    """One collection cycle's outcome. Append-only.
+
+    Exists because "that day had no new listings" and "that day we never ran"
+    are indistinguishable from Item and PriceSnapshot alone, and the supply
+    trend chart would draw them identically. Measured on the real database
+    before this table existed: grouping items by first_seen_at showed 4 on
+    2026-08-31 and 312 on 2026-09-04 with three empty days between, and
+    nothing in the schema could say those three days were downtime rather than
+    a dead market.
+
+    Monitor.last_error holds only the CURRENT state. This is the history, and
+    history cannot be backfilled after the fact — the same reason
+    PriceSnapshot exists.
+
+    monitor_id and item_id are mutually exclusive: a search cycle fills the
+    first, a watched-item cycle the second. There is deliberately no `kind`
+    column — two nullable foreign keys already say which it was, and a third
+    column would be a second truth that can disagree with them.
+
+    ponytail: one row per cycle, kept forever (~288 rows/day per rule at the
+    300s default, ~47MB/year for three rules on the 202 bytes/row measured for
+    pricesnapshot). If a many-rule deployment ever makes this the biggest
+    table, roll up to one row per (monitor, day) with ok/fail counts and keep
+    only failures at full resolution — every chart reads day granularity.
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    monitor_id: int | None = Field(default=None, foreign_key="monitor.id", index=True)
+    item_id: str | None = Field(default=None, foreign_key="item.id", index=True)
+    started_at: datetime = Field(default_factory=utcnow, index=True, sa_type=UtcDateTime)
+    ok: bool
+    item_count: int = 0
+    collector: str | None = None  # mtop | browser | detail
+    error: str | None = None
+
+
+# --------------------------------------------------------------------------- #
 # LLM (M4) — table now so the config surface exists from the start
 # --------------------------------------------------------------------------- #
 

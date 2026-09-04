@@ -34,9 +34,7 @@ def _public(session: SessionDep, monitor: Monitor) -> MonitorPublic:
     notifies nobody.
     """
     assert monitor.id is not None
-    return MonitorPublic(
-        **monitor.model_dump(), channel_ids=_channel_ids(session, monitor.id)
-    )
+    return MonitorPublic(**monitor.model_dump(), channel_ids=_channel_ids(session, monitor.id))
 
 
 def _set_channels(session: SessionDep, monitor_id: int, channel_ids: list[int]) -> None:
@@ -82,9 +80,7 @@ def read_monitor(monitor_id: int, session: SessionDep) -> MonitorPublic:
 
 
 @router.patch("/{monitor_id}", response_model=MonitorPublic)
-def update_monitor(
-    monitor_id: int, payload: MonitorUpdate, session: SessionDep
-) -> MonitorPublic:
+def update_monitor(monitor_id: int, payload: MonitorUpdate, session: SessionDep) -> MonitorPublic:
     monitor = session.get(Monitor, monitor_id)
     if monitor is None:
         raise HTTPException(status_code=404, detail="monitor not found")
@@ -163,7 +159,7 @@ async def run_monitor_now(monitor_id: int, request: Request, session: SessionDep
     # auto-disable streak would let someone switch off their own rule by
     # testing it.
     await asyncio.to_thread(
-        record_manual_run, monitor_id, collector=outcome.collector
+        record_manual_run, monitor_id, collector=outcome.collector, item_count=outcome.collected
     )
 
     return CycleResult(

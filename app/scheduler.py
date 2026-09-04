@@ -24,13 +24,15 @@ from app.collector.base import (
     ChallengeError,
     CollectorError,
     ItemGoneError,
+    RawItem,
+    RawSeller,
     TransientCollectorError,
 )
 from app.collector.filters import RuleFilters
 from app.collector.pipeline import Pipeline
 from app.config import settings
 from app.db import engine
-from app.models import Monitor, NotifyChannel, Watchlist, utcnow
+from app.models import CollectRun, Monitor, NotifyChannel, Watchlist, utcnow
 from app.notify import (
     channels_for_monitor,
     deliver,
@@ -179,9 +181,64 @@ async def dispatch_hits(
             )
 
 
-def _sync_record_outcome(
-    monitor_id: int, *, collector: str | None, error: str | None, disable: bool = False
+def _sync_record_run(
+    *,
+    monitor_id: int | None = None,
+    item_id: str | None = None,
+    ok: bool,
+    item_count: int = 0,
+    collector: str | None = None,
+    error: str | None = None,
+    started_at: datetime | None = None,
 ) -> None:
+    """Append one cycle to the run log. Cannot fail its caller.
+
+    Its own session and its own catch, both deliberate. Sharing the caller's
+    transaction would let a broken log write roll back the collection it was
+    only supposed to observe, and an observation mechanism that can destroy
+    what it observes is worse than no record at all. So a failure here is
+    logged and dropped: collection is the business, this is instrumentation.
+    """
+    try:
+        with Session(engine) as session:
+            session.add(
+                CollectRun(
+                    monitor_id=monitor_id,
+                    item_id=item_id,
+                    started_at=started_at or utcnow(),
+                    ok=ok,
+                    item_count=item_count,
+                    collector=collector,
+                    error=error,
+                )
+            )
+            session.commit()
+    except Exception:  # noqa: BLE001 - instrumentation must not break a cycle
+        log.warning(
+            "could not record collect run",
+            exc_info=True,
+            extra={"monitor_id": monitor_id, "item_id": item_id},
+        )
+
+
+def _sync_record_outcome(
+    monitor_id: int,
+    *,
+    collector: str | None,
+    error: str | None,
+    disable: bool = False,
+    item_count: int = 0,
+    started_at: datetime | None = None,
+) -> None:
+    """Stamp the rule's current state, then append the cycle to the run log.
+
+    Every search-cycle exit -- success and all four failure branches in
+    _run_and_record, plus the manual run endpoint -- already funnels through
+    here, so this is the one place the run log has to be written from. Adding
+    it at each call site instead would mean six edits and a permanent invite
+    to forget the next branch, and a run log missing its failures is exactly
+    the log that cannot answer "did we collect that day".
+    """
     with Session(engine) as session:
         monitor = session.get(Monitor, monitor_id)
         if monitor is None:
@@ -200,16 +257,30 @@ def _sync_record_outcome(
                     f"auto-disabled after {monitor.consecutive_failures} failures: {error}"
                 )
         session.commit()
+    _sync_record_run(
+        monitor_id=monitor_id,
+        ok=error is None,
+        item_count=item_count,
+        collector=collector,
+        error=error,
+        started_at=started_at,
+    )
 
 
-def record_manual_run(monitor_id: int, *, collector: str | None) -> None:
+def record_manual_run(monitor_id: int, *, collector: str | None, item_count: int = 0) -> None:
     """Stamp a successful manual run so the management page reflects it.
 
     Shares `_sync_record_outcome` with the scheduler rather than writing the
     same three fields a second way -- two writers for one row is how they start
     disagreeing.
+
+    `item_count` has to be forwarded explicitly, and the first live drill of
+    the run log is what proved it: the endpoint reported 30 listings collected
+    while the run row said 0, because this wrapper simply did not pass the
+    number on. A defaulted count is indistinguishable in the table from a
+    cycle that genuinely saw an empty market.
     """
-    _sync_record_outcome(monitor_id, collector=collector, error=None)
+    _sync_record_outcome(monitor_id, collector=collector, error=None, item_count=item_count)
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,7 +371,11 @@ async def _run_and_record(
         return CycleOutcome()
     _backoff.pop(monitor_id, None)
     await asyncio.to_thread(
-        _sync_record_outcome, monitor_id, collector=outcome.collector, error=None
+        _sync_record_outcome,
+        monitor_id,
+        collector=outcome.collector,
+        error=None,
+        item_count=outcome.collected,
     )
     if registry is not None and outcome.hits:
         # Deliberately outside the try above: a channel outage must not be
@@ -354,12 +429,24 @@ def _sync_due_watch_ids(now: datetime | None = None) -> list[str]:
 
 
 def _sync_persist_watch(
-    item_id: str, raw: object | None, seller: object | None, *, gone: bool
+    item_id: str, raw: RawItem | None, seller: RawSeller | None, *, gone: bool
 ) -> NotifiableHit | None:
+    """Persist one watch observation, then log the cycle.
+
+    A `gone` observation is a SUCCESSFUL cycle with nothing on sale to count,
+    not a failure -- recording it as failed would make the supply chart read
+    the disappearance as downtime.
+    """
     with Session(engine) as session:
-        hit = persist_watch_observation(session, item_id, raw, seller, gone=gone)  # type: ignore[arg-type]
+        hit = persist_watch_observation(session, item_id, raw, seller, gone=gone)
         session.commit()
-        return hit
+    _sync_record_run(
+        item_id=item_id,
+        ok=True,
+        item_count=0 if raw is None else 1,
+        collector=raw.source if raw is not None else None,
+    )
+    return hit
 
 
 def _sync_watch_channels() -> list[NotifyChannel]:
@@ -437,9 +524,17 @@ async def run_watch_cycle(
 
 
 def record_watch_failure_sync(item_id: str, error: str) -> None:
+    """The single funnel for every watch-cycle failure branch.
+
+    All four `except` arms of run_watch_cycle route through here, which is why
+    the run log is written here rather than at each of them: a run log that
+    records only the successful cycles is exactly the log that cannot answer
+    "did we collect that day".
+    """
     with Session(engine) as session:
         record_watch_failure(session, item_id, error)
         session.commit()
+    _sync_record_run(item_id=item_id, ok=False, error=error)
 
 
 async def watch_loop(
