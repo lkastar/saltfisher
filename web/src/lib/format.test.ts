@@ -5,6 +5,7 @@ import {
   formatPrice,
   formatRelativeTime,
   parseUtc,
+  parseYuanToCents,
 } from "./format";
 
 describe("formatPrice", () => {
@@ -68,5 +69,31 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime(ago(90))).toBe("1 分钟前");
     expect(formatRelativeTime(ago(3 * 3600))).toBe("3 小时前");
     expect(formatRelativeTime(ago(50 * 3600))).toBe("2 天前");
+  });
+});
+
+describe("parseYuanToCents", () => {
+  it("converts what a user types into cents", () => {
+    expect(parseYuanToCents("2180")).toBe(218000);
+    expect(parseYuanToCents("410.5")).toBe(41050);
+    expect(parseYuanToCents(" 99 ")).toBe(9900);
+  });
+
+  it("distinguishes blank from zero", () => {
+    // Blank means "no bound"; 0 is a real lower bound.
+    expect(parseYuanToCents("")).toBe(null);
+    expect(parseYuanToCents("   ")).toBe(null);
+    expect(parseYuanToCents("0")).toBe(0);
+  });
+
+  it("rejects what is not a non-negative number", () => {
+    expect(parseYuanToCents("abc")).toBe(null);
+    expect(parseYuanToCents("-5")).toBe(null);
+    expect(parseYuanToCents("1e999")).toBe(null);
+  });
+
+  it("rounds instead of truncating", () => {
+    // 12.345 * 100 is 1234.4999... in binary floating point.
+    expect(parseYuanToCents("12.345")).toBe(1235);
   });
 });

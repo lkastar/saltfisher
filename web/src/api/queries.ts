@@ -51,6 +51,9 @@ export type ItemFilters = {
   status?: "on_sale" | "sold" | "removed";
   sort?: "-first_seen" | "first_seen" | "-last_seen" | "price" | "-price";
   offset?: number;
+  /** Page size. Not in the URL -- it is a paging implementation detail, not
+   *  user intent -- but it is part of the request and therefore of the key. */
+  limit?: number;
 };
 
 function itemQuery(filters: ItemFilters): string {

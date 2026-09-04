@@ -75,3 +75,19 @@ export function formatDateTime(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("zh-CN", { hour12: false });
 }
+
+/** The inverse of formatPrice, for money the user types.
+ *
+ *  Lives here for the same reason formatPrice does: one place converts between
+ *  yuan and cents. Returns null for anything that is not a number, so a caller
+ *  can tell "left blank" from "typed 0".
+ */
+export function parseYuanToCents(input: string): number | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const yuan = Number(trimmed);
+  if (!Number.isFinite(yuan) || yuan < 0) return null;
+  // Round rather than truncate: 12.345 typed by hand should not silently
+  // become 12.34, and floating point makes 1234.5 out of 12.345 * 100.
+  return Math.round(yuan * 100);
+}

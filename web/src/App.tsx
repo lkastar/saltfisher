@@ -2,10 +2,15 @@ import { useState } from "react";
 import { NavLink, Route, Routes } from "react-router";
 
 import { clearToken, getToken } from "./api/client";
+import ItemDetailPage from "./pages/ItemDetailPage";
+import ItemsPage from "./pages/ItemsPage";
 import LoginPage from "./pages/LoginPage";
 import MonitorsPage from "./pages/MonitorsPage";
 
-const NAV = [{ to: "/", label: "监控任务" }];
+const NAV = [
+  { to: "/", label: "监控任务" },
+  { to: "/items", label: "命中商品" },
+];
 
 function AppShell() {
   return (
@@ -62,6 +67,8 @@ function AppShell() {
       >
         <Routes>
           <Route path="/" element={<MonitorsPage />} />
+          <Route path="/items" element={<ItemsPage />} />
+          <Route path="/items/:itemId" element={<ItemDetailPage />} />
           <Route
             path="*"
             element={<p className="muted">没有这个页面。</p>}
