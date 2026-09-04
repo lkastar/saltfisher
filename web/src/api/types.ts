@@ -177,6 +177,114 @@ export interface paths {
         patch: operations["update_watchlist_api_watchlist__item_id__patch"];
         trace?: never;
     };
+    "/api/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Items
+         * @description One row per ITEM, not per hit.
+         *
+         *     An item can match several rules; expanding by hit would list the same
+         *     phone three times when the question being asked is "which items are
+         *     there". Naming a monitor_id narrows the rows to that rule's matches and
+         *     fills in the hit fields.
+         */
+        get: operations["list_items_api_items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/items/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Item */
+        get: operations["get_item_api_items__item_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/items/{item_id}/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Item Prices
+         * @description Ascending by time, because that is the axis a step chart draws against.
+         *
+         *     The newest `limit` points are taken and then reversed: capping an ascending
+         *     query would return the OLDEST points and quietly plot a chart that stops
+         *     before the present. The ordering is by `captured_at` and not by `id` --
+         *     ordering a time series by insertion and trusting the two to agree plots a
+         *     chart that never happened the first time they do not.
+         */
+        get: operations["item_prices_api_items__item_id__prices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Session
+         * @description `needs_verification` is the difference between "wait" and "a human must
+         *     act" — the UI has to be able to say which, or a challenged session looks
+         *     identical to a quiet market.
+         */
+        get: operations["read_session_api_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/session/cookies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Cookies */
+        post: operations["import_cookies_api_session_cookies_post"];
+        /** Clear Cookies */
+        delete: operations["clear_cookies_api_session_cookies_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -209,30 +317,6 @@ export interface paths {
          * @description Cheapest possible way for the frontend to validate a stored token.
          */
         get: operations["whoami_api_whoami_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/session": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Session State
-         * @description Upstream session health.
-         *
-         *     `needs_verification` is the difference between "wait" and "a human must
-         *     act" — the UI has to be able to say which, or a challenged session looks
-         *     identical to a quiet market.
-         */
-        get: operations["session_state_api_session_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -301,6 +385,23 @@ export interface components {
             enabled?: boolean | null;
         };
         /**
+         * CookieImport
+         * @description A paste from the browser's devtools.
+         *
+         *     A raw Cookie header rather than a structured list: that is the one form a
+         *     user can actually produce without tooling, and asking for JSON would mean
+         *     they hand-edit it and get it wrong.
+         */
+        CookieImport: {
+            /** Cookie Header */
+            cookie_header: string;
+            /**
+             * Origin
+             * @default https://www.goofish.com
+             */
+            origin: string;
+        };
+        /**
          * CycleResult
          * @description Returned by run-now so the user sees what a rule actually does.
          */
@@ -325,6 +426,76 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * ItemPublic
+         * @description One collected listing, shared by the list and the detail endpoint.
+         *
+         *     Seller fields are all optional and mean "not fetched", NOT zero. In this
+         *     product 0 reviews is a danger signal and unknown is merely missing data;
+         *     collapsing them would turn "we could not check" into "we checked and it is
+         *     bad".
+         *
+         *     Hit fields are populated only when the request named a monitor_id, because
+         *     `unverified_filters` is a property of one rule's match, not of the item.
+         */
+        ItemPublic: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string | null;
+            /** Cover Url */
+            cover_url: string | null;
+            /** Image Urls */
+            image_urls: string[];
+            /** Region */
+            region: string | null;
+            /** Status */
+            status: string;
+            /** Price Cents */
+            price_cents: number;
+            /** Publish Time */
+            publish_time: string | null;
+            /**
+             * First Seen At
+             * Format: date-time
+             */
+            first_seen_at: string;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Seller Id */
+            seller_id: string;
+            /** Seller Nick */
+            seller_nick: string;
+            /** Seller Avatar Url */
+            seller_avatar_url: string | null;
+            /** Seller Is Shop */
+            seller_is_shop: boolean | null;
+            /** Seller Credit Level */
+            seller_credit_level: number | null;
+            /** Seller Credit Score */
+            seller_credit_score: number | null;
+            /** Seller Review Count */
+            seller_review_count: number | null;
+            /** Seller Positive Rate */
+            seller_positive_rate: number | null;
+            /** Seller Sold Count */
+            seller_sold_count: number | null;
+            /** Seller Verified */
+            seller_verified: boolean | null;
+            /** First Hit At */
+            first_hit_at?: string | null;
+            /** Notified At */
+            notified_at?: string | null;
+            /** In Range */
+            in_range?: boolean | null;
+            /** Unverified Filters */
+            unverified_filters?: string[] | null;
         };
         /** MonitorCreate */
         MonitorCreate: {
@@ -479,6 +650,49 @@ export interface components {
              * Format: date-time
              */
             sent_at: string;
+        };
+        /**
+         * PricePoint
+         * @description One observation. The series is ascending by time so a step chart can
+         *     draw it directly: the price held until the next point, which is why the
+         *     chart is a step line and never a smoothed curve.
+         */
+        PricePoint: {
+            /** Price Cents */
+            price_cents: number;
+            /** Status */
+            status: string;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+            /** Source */
+            source: string;
+            /** Want Count */
+            want_count: number | null;
+            /** View Count */
+            view_count: number | null;
+        };
+        /**
+         * SessionState
+         * @description Session health. Carries cookie NAMES and never values.
+         */
+        SessionState: {
+            /** Origin */
+            origin: string | null;
+            /** Usable */
+            usable: boolean;
+            /** Needs Verification */
+            needs_verification: boolean;
+            /** Established At */
+            established_at: string | null;
+            /** Last Error */
+            last_error: string | null;
+            /** Challenged Apis */
+            challenged_apis: string[];
+            /** Cookie Names */
+            cookie_names: string[];
         };
         /** TestSendResult */
         TestSendResult: {
@@ -1133,6 +1347,212 @@ export interface operations {
             };
         };
     };
+    list_items_api_items_get: {
+        parameters: {
+            query?: {
+                monitor_id?: number | null;
+                min_price_cents?: number | null;
+                max_price_cents?: number | null;
+                status?: ("on_sale" | "sold" | "removed") | null;
+                sort?: "-first_seen" | "first_seen" | "-last_seen" | "price" | "-price";
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemPublic"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_item_api_items__item_id__get: {
+        parameters: {
+            query?: {
+                monitor_id?: number | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemPublic"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    item_prices_api_items__item_id__prices_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PricePoint"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_session_api_session_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_cookies_api_session_cookies_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CookieImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_cookies_api_session_cookies_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_api_health_get: {
         parameters: {
             query?: never;
@@ -1174,39 +1594,6 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: boolean;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    session_state_api_session_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
                     };
                 };
             };

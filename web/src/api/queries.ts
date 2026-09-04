@@ -23,6 +23,10 @@ export type TestSendResult = Schemas["TestSendResult"];
 export type WatchEntry = Schemas["WatchlistPublic"];
 export type WatchlistCreate = Schemas["WatchlistCreate"];
 export type WatchlistUpdate = Schemas["WatchlistUpdate"];
+export type Item = Schemas["ItemPublic"];
+export type PricePoint = Schemas["PricePoint"];
+export type SessionState = Schemas["SessionState"];
+export type CookieImport = Schemas["CookieImport"];
 
 /** Key hierarchy. Invalidating a prefix invalidates everything under it. */
 export const keys = {
@@ -31,7 +35,32 @@ export const keys = {
   channels: ["channels"] as const,
   notifyLogs: ["notify-logs"] as const,
   watchlist: ["watchlist"] as const,
+  items: (filters: ItemFilters) => ["items", filters] as const,
+  item: (id: string) => ["items", id] as const,
+  itemPrices: (id: string) => ["items", id, "prices"] as const,
+  session: ["session"] as const,
 };
+
+/** Exactly the filters that live in the URL. `offset` is here because paging
+ *  belongs in the query key: two pages are two different results.
+ */
+export type ItemFilters = {
+  monitor_id?: number;
+  min_price_cents?: number;
+  max_price_cents?: number;
+  status?: "on_sale" | "sold" | "removed";
+  sort?: "-first_seen" | "first_seen" | "-last_seen" | "price" | "-price";
+  offset?: number;
+};
+
+function itemQuery(filters: ItemFilters): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
 
 export function monitorsOptions() {
   return queryOptions({
@@ -58,6 +87,37 @@ export function notifyLogsOptions() {
   return queryOptions({
     queryKey: keys.notifyLogs,
     queryFn: () => request<NotifyLog[]>("/api/notify-logs"),
+  });
+}
+
+export function itemsOptions(filters: ItemFilters) {
+  return queryOptions({
+    queryKey: keys.items(filters),
+    queryFn: () => request<Item[]>(`/api/items${itemQuery(filters)}`),
+  });
+}
+
+export function itemOptions(id: string, monitorId?: number) {
+  return queryOptions({
+    queryKey: keys.item(id),
+    queryFn: () =>
+      request<Item>(
+        `/api/items/${id}${monitorId === undefined ? "" : `?monitor_id=${monitorId}`}`,
+      ),
+  });
+}
+
+export function itemPricesOptions(id: string) {
+  return queryOptions({
+    queryKey: keys.itemPrices(id),
+    queryFn: () => request<PricePoint[]>(`/api/items/${id}/prices`),
+  });
+}
+
+export function sessionOptions() {
+  return queryOptions({
+    queryKey: keys.session,
+    queryFn: () => request<SessionState>("/api/session"),
   });
 }
 
@@ -123,3 +183,12 @@ export const updateWatch = (itemId: string, body: WatchlistUpdate) =>
 
 export const deleteWatch = (itemId: string) =>
   request<null>(`/api/watchlist/${itemId}`, { method: "DELETE" });
+
+export const importCookies = (body: CookieImport) =>
+  request<SessionState>("/api/session/cookies", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const clearCookies = () =>
+  request<SessionState>("/api/session/cookies", { method: "DELETE" });

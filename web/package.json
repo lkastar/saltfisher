@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
-    "gen:api": "npx --yes openapi-typescript@7 http://localhost:8000/openapi.json -o src/api/types.ts",
+    "gen:api": "cd .. && SFD_API_TOKEN=codegen-only uv run python -c \"import json; from app.main import app; open('web/openapi.json','w').write(json.dumps(app.openapi()))\" && cd web && npx --yes openapi-typescript@7 openapi.json -o src/api/types.ts && rm openapi.json",
     "preview": "vite preview"
   },
   "dependencies": {
