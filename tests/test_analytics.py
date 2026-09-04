@@ -94,6 +94,7 @@ def test_an_unknown_keyword_is_empty_not_an_error(session):
         analytics.price_distribution(session, "nothing here", now=NOW),
         analytics.price_drops(session, "nothing here", now=NOW),
         analytics.supply_trend(session, "nothing here", now=NOW),
+        analytics.listing_duration(session, "nothing here", now=NOW),
     ):
         assert result["sample_size"] == 0
         assert result["data_days"] == 0
@@ -487,6 +488,370 @@ def test_another_rules_runs_do_not_count_toward_this_keyword(session):
 
     today = analytics.supply_trend(session, KW, days=1, now=NOW)["days"][0]
     assert today["collected"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Listing duration
+# --------------------------------------------------------------------------- #
+
+# fresh_cutoff at the 300s default is NOW - 600s, so "stale" has to be further
+# back than that. An hour is comfortably outside it and still lets a duration
+# be read in whole minutes.
+STALE = NOW - timedelta(hours=1)
+
+
+def test_only_listings_that_stopped_coming_back_have_a_duration(session):
+    """A listing still in the search results has an age, not a duration.
+
+    Counting it would report every live listing as "left after N hours" the
+    moment the chart was drawn, which is the shape of a market measurement
+    made out of nothing but how long the tool has been running.
+    """
+    monitor_id = seed_monitor(session)
+    seed_item(session, "live", monitor_id, prices=[300000], first_hit_at=STALE, last_seen_at=NOW)
+    seed_item(
+        session,
+        "gone",
+        monitor_id,
+        prices=[300000],
+        first_hit_at=NOW - timedelta(hours=3),
+        last_seen_at=STALE,
+    )
+
+    result = analytics.listing_duration(session, KW, now=NOW)
+    assert result["sample_size"] == 1
+    # 3h first hit, last seen 1h ago -> two hours inside our range.
+    assert result["quantiles"] == {}, "one sample gives no quantiles"
+    assert sum(b["count"] for b in result["histogram"]) == 1
+    assert result["histogram"][0]["lo_minutes"] <= 120 < result["histogram"][-1]["hi_minutes"]
+
+
+def test_a_listing_we_observed_as_gone_still_counts(session):
+    """No status filter in either direction.
+
+    `status` is uninformative for keyword listings (0 of 328 differ), but on
+    the rare row where it IS set, that listing has the most meaningful end
+    time in the set. Excluding it would bias the distribution short.
+    """
+    monitor_id = seed_monitor(session)
+    seed_item(
+        session,
+        "sold",
+        monitor_id,
+        prices=[300000],
+        first_hit_at=NOW - timedelta(hours=5),
+        last_seen_at=STALE,
+        status="removed",
+    )
+
+    assert analytics.listing_duration(session, KW, now=NOW)["sample_size"] == 1
+
+
+def test_the_duration_is_measured_from_this_keywords_first_sighting(session):
+    """Item.first_seen_at is global; MonitorHit.first_hit_at is per keyword.
+
+    Measured on the real database: the two disagree by four full days. Using
+    the global one would credit a shared listing to whichever keyword searched
+    first and report a duration that keyword never observed.
+
+    Reverse verification: swap first_hit for Item.first_seen_at in
+    listing_duration and this assertion goes red -- the narrow keyword's
+    single sample reports 5 days instead of 2 hours.
+    """
+    broad = seed_monitor(session, keyword="iPhone 15")
+    narrow = seed_monitor(session, keyword=KW)
+    long_ago = NOW - timedelta(days=5)
+
+    # Global first_seen_at is five days back, because the broad rule found it
+    # then. The narrow keyword only saw it three hours ago.
+    seed_item(session, "shared", broad, prices=[300000], first_hit_at=long_ago, last_seen_at=STALE)
+    session.add(
+        MonitorHit(
+            monitor_id=narrow,
+            item_id="shared",
+            first_hit_at=NOW - timedelta(hours=3),
+            in_range=True,
+        )
+    )
+    session.commit()
+
+    narrow_hist = analytics.listing_duration(session, KW, now=NOW)["histogram"]
+    broad_hist = analytics.listing_duration(session, "iPhone 15", now=NOW)["histogram"]
+
+    # Two hours for the keyword that saw it three hours ago and lost it one
+    # hour ago; five days for the one that had it all along.
+    assert narrow_hist[-1]["hi_minutes"] <= 3 * 60
+    assert broad_hist[-1]["hi_minutes"] > 4 * 24 * 60
+
+
+def test_the_clock_stops_at_this_keywords_last_sighting(session):
+    """The mirror of the test above, and the harder half.
+
+    `Item.last_seen_at` is global, so a listing another rule still returns
+    keeps a fresh timestamp long after it dropped out of THIS keyword's pages.
+    Under the global clock such a listing looks alive and vanishes from the
+    sample entirely -- not an inflated duration, an absent one, which is the
+    kind of bias nobody notices.
+
+    Measured on the real database: 29 of the 59 listings in the
+    `iPhone 15 128G` ledger are also in `iPhone 15`, so 49% of that keyword's
+    rows were on a clock a different rule was winding.
+
+    Reverse verification: read `Item.last_seen_at` instead of
+    `MonitorHit.last_hit_at` and the narrow keyword reports no samples at all.
+    """
+    broad = seed_monitor(session, keyword="iPhone 15")
+    narrow = seed_monitor(session, keyword=KW)
+
+    # The broad rule saw it a minute ago, so the GLOBAL timestamp is fresh.
+    seed_item(session, "shared", broad, prices=[300000], first_hit_at=NOW, last_seen_at=NOW)
+    # The narrow rule found it three hours ago and last saw it two hours ago.
+    session.add(
+        MonitorHit(
+            monitor_id=narrow,
+            item_id="shared",
+            first_hit_at=NOW - timedelta(hours=3),
+            last_hit_at=NOW - timedelta(hours=2),
+            in_range=True,
+        )
+    )
+    session.commit()
+
+    narrow = analytics.listing_duration(session, KW, now=NOW)
+    broad_result = analytics.listing_duration(session, "iPhone 15", now=NOW)
+
+    # Left the narrow keyword's pages two hours ago: one sample, ~60 minutes.
+    # Read off the histogram rather than the quantiles -- one sample has no
+    # quantiles by design, and that is asserted elsewhere.
+    assert narrow["sample_size"] == 1, "the global clock hid it"
+    assert sum(b["count"] for b in narrow["histogram"]) == 1
+    assert narrow["histogram"][-1]["hi_minutes"] <= 2 * 60
+    assert narrow["legacy_clock_rows"] == 0
+    # Still live for the broad keyword, so it has nothing to report.
+    assert broad_result["sample_size"] == 0
+
+
+def test_a_ledger_row_predating_the_per_keyword_clock_is_counted_and_flagged(session):
+    """`last_hit_at` cannot be backfilled, so old rows fall back to the global
+    timestamp -- and the response has to admit the sample is a mixture rather
+    than present it as one clean measurement.
+    """
+    monitor_id = seed_monitor(session)
+    seed_item(
+        session,
+        "old",
+        monitor_id,
+        prices=[300000],
+        first_hit_at=NOW - timedelta(hours=3),
+        last_seen_at=STALE,
+    )
+    row = session.get(MonitorHit, (monitor_id, "old"))
+    assert row is not None
+    row.last_hit_at = None  # as written before the column existed
+    session.add(row)
+    session.commit()
+
+    result = analytics.listing_duration(session, KW, now=NOW)
+    assert result["sample_size"] == 1
+    assert result["legacy_clock_rows"] == 1
+
+
+def test_two_rules_on_one_keyword_do_not_count_a_listing_twice(session):
+    """The earlier of the two ledger rows is when the KEYWORD first saw it."""
+    first = seed_monitor(session)
+    second = seed_monitor(session)
+    seed_item(
+        session,
+        "shared",
+        first,
+        prices=[300000],
+        first_hit_at=NOW - timedelta(hours=4),
+        last_seen_at=STALE,
+    )
+    session.add(
+        MonitorHit(monitor_id=second, item_id="shared", first_hit_at=NOW - timedelta(hours=2))
+    )
+    session.commit()
+
+    result = analytics.listing_duration(session, KW, now=NOW)
+    assert result["sample_size"] == 1
+    assert result["histogram"][-1]["hi_minutes"] > 2 * 60, "the earlier sighting starts the clock"
+
+
+def test_a_listing_first_seen_before_the_window_is_not_in_it(session):
+    monitor_id = seed_monitor(session)
+    seed_item(
+        session,
+        "ancient",
+        monitor_id,
+        prices=[300000],
+        first_hit_at=NOW - timedelta(days=40),
+        last_seen_at=NOW - timedelta(days=35),
+    )
+    seed_item(
+        session,
+        "recent",
+        monitor_id,
+        prices=[300000],
+        first_hit_at=NOW - timedelta(days=2),
+        last_seen_at=STALE,
+    )
+
+    assert analytics.listing_duration(session, KW, days=30, now=NOW)["sample_size"] == 1
+    assert analytics.listing_duration(session, KW, days=60, now=NOW)["sample_size"] == 2
+
+
+def test_histogram_buckets_are_whole_hours_and_cover_every_sample(session):
+    """Whole hours for the same reason price edges are whole yuan: a bucket
+    labelled "1小时43分–3小时20分" reads as noise. `_histogram` is the price
+    routine with its alignment unit passed in, not a second copy.
+    """
+    monitor_id = seed_monitor(session)
+    hours = [1, 3, 7, 26, 71]
+    for i, h in enumerate(hours):
+        seed_item(
+            session,
+            f"d{i}",
+            monitor_id,
+            prices=[300000],
+            first_hit_at=STALE - timedelta(hours=h),
+            last_seen_at=STALE,
+        )
+
+    result = analytics.listing_duration(session, KW, now=NOW)
+    histogram = result["histogram"]
+    assert sum(b["count"] for b in histogram) == len(hours)
+    for bucket in histogram:
+        assert bucket["lo_minutes"] % 60 == 0, bucket
+        assert bucket["hi_minutes"] % 60 == 0, bucket
+    assert histogram[0]["lo_minutes"] <= 60
+    assert histogram[-1]["hi_minutes"] > 71 * 60
+
+
+def test_no_duration_quantile_lands_outside_the_sample(session):
+    """The negative-price bug, in the duration unit.
+
+    statistics.quantiles defaults to method="exclusive", which extrapolates
+    past the observed range below 19 samples -- it produced a p10 of MINUS
+    ¥4600 in M2. A negative duration is just as impossible, and small samples
+    are the normal case here, so the boundary is pinned at every size from 2
+    to 19.
+    """
+    for size in range(2, 20):
+        minutes = [60] + [600] * (size - 2) + [6000]
+        assert len(minutes) == size
+        cuts = analytics._quantiles(minutes)
+        assert min(cuts.values()) >= 60, (size, cuts)
+        assert max(cuts.values()) <= 6000, (size, cuts)
+
+
+def test_the_aperture_is_reported_and_pre_paging_rows_count_as_one_page(session):
+    """A NULL `pages` on a SUCCESSFUL run is a fact about that cycle -- it read
+    a single page, because that is all the code could do -- not missing data.
+    """
+    monitor_id = seed_monitor(session)
+    session.add(CollectRun(monitor_id=monitor_id, started_at=NOW, ok=True, item_count=30))
+    session.commit()
+
+    result = analytics.listing_duration(session, KW, now=NOW)
+    assert result["aperture_pages_min"] == 1
+    assert result["aperture_pages_max"] == 1
+    assert result["aperture_rows"] == 30
+
+
+def test_an_aperture_that_changed_mid_window_is_visible(session):
+    """The whole reason the field exists.
+
+    The same keyword measured at 1x30 and at 2x30 gives incomparable
+    distributions: a wider aperture makes a listing "leave" later. A duration
+    distribution without its aperture reads as a market measurement when part
+    of it is a measurement of how many pages we looked at.
+
+    Reverse verification: hard-code aperture_pages_min/max to a constant and
+    this test goes red.
+    """
+    monitor_id = seed_monitor(session)
+    session.add(
+        CollectRun(
+            monitor_id=monitor_id, started_at=NOW - timedelta(days=3), ok=True, item_count=28
+        )
+    )
+    session.add(CollectRun(monitor_id=monitor_id, started_at=NOW, ok=True, item_count=58, pages=2))
+    session.commit()
+
+    result = analytics.listing_duration(session, KW, now=NOW)
+    assert result["aperture_pages_min"] == 1
+    assert result["aperture_pages_max"] == 2
+
+
+def test_a_cycle_that_fetched_nothing_does_not_claim_an_aperture(session):
+    """A hard failure records no pages at all, and reading that as one page
+    would report "the aperture changed" for every keyword that ever timed out.
+    """
+    monitor_id = seed_monitor(session)
+    session.add(
+        CollectRun(monitor_id=monitor_id, started_at=NOW, ok=False, error="transient: timeout")
+    )
+    session.add(CollectRun(monitor_id=monitor_id, started_at=NOW, ok=True, item_count=58, pages=2))
+    session.commit()
+
+    result = analytics.listing_duration(session, KW, now=NOW)
+    assert result["aperture_pages_min"] == 2
+    assert result["aperture_pages_max"] == 2
+
+
+def test_a_partially_failed_cycle_still_reports_the_pages_it_got(session):
+    """ok=False but pages=1: page two failed after page one succeeded, and
+    those items were persisted. That cycle really did observe one page.
+    """
+    monitor_id = seed_monitor(session)
+    session.add(
+        CollectRun(
+            monitor_id=monitor_id,
+            started_at=NOW,
+            ok=False,
+            item_count=28,
+            pages=1,
+            error="page 2: timeout",
+        )
+    )
+    session.commit()
+
+    assert analytics.listing_duration(session, KW, now=NOW)["aperture_pages_max"] == 1
+
+
+def test_no_runs_in_the_window_means_no_aperture_not_one_page(session):
+    """ "We never looked" is not "we looked at one page"."""
+    seed_monitor(session)
+    result = analytics.listing_duration(session, KW, now=NOW)
+    assert result["aperture_pages_min"] is None
+    assert result["aperture_pages_max"] is None
+
+
+def test_another_keywords_aperture_is_not_this_keywords(session):
+    seed_monitor(session, keyword=KW)
+    other = seed_monitor(session, keyword="索尼 a7c2")
+    session.add(CollectRun(monitor_id=other, started_at=NOW, ok=True, item_count=58, pages=2))
+    session.commit()
+
+    assert analytics.listing_duration(session, KW, now=NOW)["aperture_pages_max"] is None
+
+
+def test_the_metric_never_claims_a_listing_was_sold(session):
+    """Acceptance item, asserted rather than left to a grep in a report.
+
+    A disappearance may be a purchase, a delisting, or merely a rank drop past
+    the pages we read -- and the third one is our own doing. Naming it 成交 or
+    售出 would turn our own aperture into a market fact.
+    """
+    import app.api.analytics as api_analytics
+    import app.schemas as schemas
+
+    for module in (analytics, api_analytics, schemas):
+        with open(module.__file__ or "", encoding="utf-8") as handle:
+            text = handle.read()
+        assert "成交" not in text, module.__name__
+        assert "售出" not in text, module.__name__
 
 
 # --------------------------------------------------------------------------- #

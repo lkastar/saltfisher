@@ -1,6 +1,6 @@
 """Market analytics endpoints.
 
-Three read-only views over what collection has accumulated. All of them are
+Four read-only views over what collection has accumulated. All of them are
 scoped to one keyword, because `Item` has no keyword of its own and the scope
 has to be resolved through `MonitorHit` — see `app.analytics` for what that
 implies about how the numbers should be read.
@@ -16,7 +16,7 @@ from fastapi import APIRouter, Query
 
 from app import analytics
 from app.db import SessionDep
-from app.schemas import PriceDistribution, PriceDrops, SupplyTrend
+from app.schemas import ListingDuration, PriceDistribution, PriceDrops, SupplyTrend
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -63,3 +63,20 @@ def supply_trend(session: SessionDep, keyword: Keyword, days: Days = 30) -> Supp
     let the frontend close it up and invent a trend.
     """
     return SupplyTrend(**analytics.supply_trend(session, keyword, days=days))
+
+
+@router.get("/listing-duration", response_model=ListingDuration)
+def listing_duration(session: SessionDep, keyword: Keyword, days: Days = 30) -> ListingDuration:
+    """How long this keyword's listings stayed inside our observation range.
+
+    Here `days` bounds which listings count by their FIRST sighting, so the
+    distribution cannot be stretched by listings older than the history it
+    claims to cover. Only listings that have gone stale are in it — a listing
+    still coming back has no duration yet, only an age.
+
+    Read `aperture_pages_min` / `aperture_pages_max` before reading the
+    numbers. They are the page counts the cycles behind this window actually
+    fetched, and when they differ the observation range changed mid-window,
+    which makes the distribution incomparable with itself.
+    """
+    return ListingDuration(**analytics.listing_duration(session, keyword, days=days))

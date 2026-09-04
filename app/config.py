@@ -54,3 +54,12 @@ def load_settings() -> Settings:
 
 
 settings = load_settings()
+
+
+# Rows asked of one search page. Not a Settings field: it is the upstream page
+# size we have actually verified, and nothing about a deployment changes it.
+# It lives here rather than at the scheduler's call site because
+# `analytics.listing_duration` has to report the observation aperture
+# (pages x rows) a duration distribution was measured through, and the two
+# halves of that number must not drift apart.
+SEARCH_ROWS = 30

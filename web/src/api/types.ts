@@ -359,6 +359,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analytics/listing-duration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listing Duration
+         * @description How long this keyword's listings stayed inside our observation range.
+         *
+         *     Here `days` bounds which listings count by their FIRST sighting, so the
+         *     distribution cannot be stretched by listings older than the history it
+         *     claims to cover. Only listings that have gone stale are in it — a listing
+         *     still coming back has no duration yet, only an age.
+         *
+         *     Read `aperture_pages_min` / `aperture_pages_max` before reading the
+         *     numbers. They are the page counts the cycles behind this window actually
+         *     fetched, and when they differ the observation range changed mid-window,
+         *     which makes the distribution incomparable with itself.
+         */
+        get: operations["listing_duration_api_analytics_listing_duration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -496,6 +526,34 @@ export interface components {
              */
             baseline: boolean;
         };
+        /**
+         * DurationBucket
+         * @description One histogram column. Edges are whole hours, expressed in minutes.
+         */
+        DurationBucket: {
+            /** Lo Minutes */
+            lo_minutes: number;
+            /** Hi Minutes */
+            hi_minutes: number;
+            /** Count */
+            count: number;
+        };
+        /**
+         * DurationQuantiles
+         * @description Minutes. Empty below two samples, for the same reason PriceQuantiles is.
+         */
+        DurationQuantiles: {
+            /** P10 */
+            p10?: number | null;
+            /** P25 */
+            p25?: number | null;
+            /** P50 */
+            p50?: number | null;
+            /** P75 */
+            p75?: number | null;
+            /** P90 */
+            p90?: number | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -570,6 +628,50 @@ export interface components {
             in_range?: boolean | null;
             /** Unverified Filters */
             unverified_filters?: string[] | null;
+        };
+        /**
+         * ListingDuration
+         * @description How long listings stayed inside our observation range.
+         *
+         *     Not a time to sale, and the field names must never start claiming it is: a
+         *     listing stops coming back because it was bought, because it was delisted,
+         *     or because its rank fell past the pages we read — and the last of those is
+         *     our own doing.
+         *
+         *     Which is why the aperture is part of the response and not a footnote.
+         *     `aperture_pages_min` / `max` are the narrowest and widest page counts any
+         *     cycle for this keyword actually fetched inside the window, with rows
+         *     written before paging existed counted as the single page they were.
+         *     **When the two differ, the aperture changed mid-window and the
+         *     distribution is not internally comparable** — a wider aperture makes a
+         *     listing "leave" later, so the shape is partly a measurement of us. Both
+         *     are null when no cycle in the window recorded an aperture, which is not
+         *     the same as one page.
+         *
+         *     Durations are integer minutes for the same reason prices are integer
+         *     cents. Histogram edges land on whole hours.
+         */
+        ListingDuration: {
+            /** Sample Size */
+            sample_size: number;
+            /** Data Days */
+            data_days: number;
+            /** Window Days */
+            window_days: number;
+            quantiles: components["schemas"]["DurationQuantiles"];
+            /** Histogram */
+            histogram: components["schemas"]["DurationBucket"][];
+            /** Aperture Pages Min */
+            aperture_pages_min?: number | null;
+            /** Aperture Pages Max */
+            aperture_pages_max?: number | null;
+            /** Aperture Rows */
+            aperture_rows: number;
+            /**
+             * Legacy Clock Rows
+             * @default 0
+             */
+            legacy_clock_rows: number;
         };
         /** MonitorCreate */
         MonitorCreate: {
@@ -1842,6 +1944,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SupplyTrend"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listing_duration_api_analytics_listing_duration_get: {
+        parameters: {
+            query: {
+                keyword: string;
+                days?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingDuration"];
                 };
             };
             /** @description Validation Error */

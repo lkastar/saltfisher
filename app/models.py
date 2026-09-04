@@ -183,6 +183,18 @@ class MonitorHit(SQLModel, table=True):
     monitor_id: int = Field(foreign_key="monitor.id", primary_key=True)
     item_id: str = Field(foreign_key="item.id", primary_key=True)
     first_hit_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    # The last cycle of THIS rule that saw this listing. Item.last_seen_at
+    # cannot answer that: it is global, so a listing two keywords both return
+    # keeps a fresh timestamp while it has already dropped out of one of them.
+    # Measured: 29 of the 59 listings in the `iPhone 15 128G` ledger are also
+    # in `iPhone 15`, so 49% of that keyword's rows had their clock kept
+    # running by a different rule -- and they left the duration sample
+    # silently rather than showing up with an inflated one.
+    #
+    # Nullable because rows written before it existed cannot be backfilled;
+    # readers fall back to Item.last_seen_at for those, which is the old
+    # (global) behaviour and has to be labelled as such.
+    last_hit_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
     notified_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
     notified_price_cents: int | None = None
     in_range: bool = True

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  apertureNote,
   formatChangeRatio,
+  formatDuration,
   formatPrice,
   formatRelativeTime,
   parseUtc,
@@ -95,5 +97,73 @@ describe("parseYuanToCents", () => {
   it("rounds instead of truncating", () => {
     // 12.345 * 100 is 1234.4999... in binary floating point.
     expect(parseYuanToCents("12.345")).toBe(1235);
+  });
+});
+
+describe("formatDuration", () => {
+  it("keeps sub-hour spans in minutes", () => {
+    // The shortest measurable duration: seen in one cycle, gone by the next.
+    expect(formatDuration(0)).toBe("0 分钟");
+    expect(formatDuration(25)).toBe("25 分钟");
+    expect(formatDuration(59)).toBe("59 分钟");
+  });
+
+  it("switches to hours, without a trailing .0", () => {
+    expect(formatDuration(60)).toBe("1 小时");
+    expect(formatDuration(150)).toBe("2.5 小时");
+    expect(formatDuration(2820)).toBe("47 小时");
+  });
+
+  it("switches to days past two of them", () => {
+    expect(formatDuration(2880)).toBe("2 天");
+    expect(formatDuration(2940)).toBe("2 天 1 小时");
+  });
+
+  it("never rounds its way to 24 hours", () => {
+    // 4319 minutes is 71.98 hours. Rounding the leftover hours instead of
+    // flooring them first prints "2 天 24 小时", which is not a duration.
+    expect(formatDuration(4319)).toBe("2 天 23 小时");
+    expect(formatDuration(4320)).toBe("3 天");
+  });
+
+  it("says nothing rather than NaN", () => {
+    expect(formatDuration(null)).toBe("—");
+    expect(formatDuration(undefined)).toBe("—");
+    expect(formatDuration(Number.NaN)).toBe("—");
+  });
+});
+
+describe("apertureNote", () => {
+  it("states the aperture and raises nothing when it held still", () => {
+    const { aperture, caveat } = apertureNote(2, 2, 30);
+    expect(aperture).toContain("前 2 页 × 30 条 = 60 件");
+    expect(caveat).toBe(null);
+  });
+
+  it("says so when the aperture changed inside the window", () => {
+    // The whole reason the field exists: 1x30 and 2x30 are not comparable,
+    // and the wider one makes a listing "disappear" later.
+    const { caveat } = apertureNote(1, 2, 30);
+    expect(caveat).toContain("口径变过");
+    expect(caveat).toContain("1 页 → 2 页");
+  });
+
+  it("says so when there is no record of the aperture at all", () => {
+    // Real case: `iPhone 15` has 264 ledger items and zero CollectRun rows,
+    // because they were collected before the run log existed.
+    expect(apertureNote(null, null, 30).caveat).toContain("没有采集记录");
+    expect(apertureNote(undefined, undefined, 30).caveat).toContain("没有采集记录");
+  });
+
+  it("never claims a disappearance was a purchase", () => {
+    // Acceptance item. A listing stops coming back because it was bought,
+    // because it was delisted, or because its rank fell past our pages.
+    for (const args of [[1, 1], [1, 2], [null, null]] as const) {
+      const { aperture, caveat } = apertureNote(args[0], args[1], 30);
+      for (const text of [aperture, caveat ?? ""]) {
+        expect(text).not.toContain("成交");
+        expect(text).not.toContain("售出");
+      }
+    }
   });
 });

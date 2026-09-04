@@ -277,6 +277,7 @@ def evaluate_hit(
             monitor_id=monitor_id,
             item_id=raw.item_id,
             first_hit_at=now,
+            last_hit_at=now,
             in_range=in_range,
             unverified_filters=json.dumps(list(labels), ensure_ascii=False) or None,
         )
@@ -298,6 +299,12 @@ def evaluate_hit(
             _stamp_as_known(hit, raw.price_cents, now)
             return None
         return _notifiable(raw, None, "new_in_range", labels)
+
+    # Stamped before any in-range reasoning: "this rule saw this listing" is a
+    # different fact from "it qualifies", and the duration metric needs the
+    # former. Out-of-range sightings keep the clock running too -- a listing
+    # above budget is still on the market.
+    hit.last_hit_at = now
 
     previous_price = hit.notified_price_cents
     was_in_range = hit.in_range

@@ -1,14 +1,17 @@
-import type { PriceBucket } from "../api/queries";
 import { bucketRects, scale, type Bucket } from "../lib/chart";
-import { formatPrice } from "../lib/format";
 
-/** Asking-price distribution: one bar per price bucket, one sample per
- *  listing.
+/** One bar per bucket, one sample per listing.
  *
  *  Rectangles on the same linear `scale()` the step line uses, so there is
  *  still no chart library here. The median is marked because the shape alone
  *  does not answer "what is this thing worth", which is the question the page
  *  exists for.
+ *
+ *  Unit-agnostic on purpose: asking prices in cents and
+ *  left-our-observation-range durations in minutes are the same chart over a
+ *  linear axis, so `format` and `label` come in as props rather than a second
+ *  copy of this file existing. The neutral `Bucket` from `lib/chart.ts` is the
+ *  prop type, and each caller maps its own wire shape onto it.
  *
  *  The table below is the same numbers. An SVG cannot be asked "how many
  *  between ¥2000 and ¥2400", and it is a single unlabelled image to a screen
@@ -20,29 +23,28 @@ const H = 200;
 const PAD = { top: 16, right: 12, bottom: 28, left: 44 };
 const PLOT = { left: PAD.left, right: W - PAD.right, top: PAD.top, bottom: H - PAD.bottom };
 
-export default function Histogram({
-  buckets,
-  medianCents,
-}: {
-  buckets: PriceBucket[];
-  medianCents: number | null | undefined;
-}) {
+type HistogramProps = {
+  buckets: Bucket[];
+  /** Turns an axis value into words. `formatPrice` or `formatDuration`. */
+  format: (value: number) => string;
+  /** What the axis measures, used in the aria-label and the table header.
+   *  A noun, because both places read "<label>分布" and "<label>区间". */
+  label: string;
+  /** The median line. Explicitly null below two samples, when there is no
+   *  median to draw -- not optional, so a caller cannot forget it and TS can
+   *  narrow it for the label. */
+  median: number | null;
+};
+
+export default function Histogram({ buckets, format, label, median }: HistogramProps) {
   const first = buckets[0];
   const last = buckets[buckets.length - 1];
   if (!first || !last) return null;
 
-  const domain: Bucket[] = buckets.map((b) => ({
-    lo: b.lo_cents,
-    hi: b.hi_cents,
-    count: b.count,
-  }));
-  const rects = bucketRects(domain, PLOT);
+  const rects = bucketRects(buckets, PLOT);
   const peak = Math.max(...buckets.map((b) => b.count));
   const total = buckets.reduce((sum, b) => sum + b.count, 0);
-  const medianX =
-    medianCents === null || medianCents === undefined
-      ? null
-      : scale(medianCents, first.lo_cents, last.hi_cents, PLOT.left, PLOT.right);
+  const medianX = median === null ? null : scale(median, first.lo, last.hi, PLOT.left, PLOT.right);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
@@ -52,7 +54,7 @@ export default function Histogram({
           width="100%"
           height={H}
           role="img"
-          aria-label={`${total} 件商品的价格分布，从 ${formatPrice(first.lo_cents)} 到 ${formatPrice(last.hi_cents)}，最高一档 ${peak} 件，详细数值见下方表格`}
+          aria-label={`${total} 件商品的${label}分布，从 ${format(first.lo)} 到 ${format(last.hi)}，最高一档 ${peak} 件，详细数值见下方表格`}
           // Below this the bars are too thin to read a shape from, so the
           // wrapper scrolls instead of squeezing the chart -- the page body
           // still never scrolls sideways.
@@ -88,7 +90,7 @@ export default function Histogram({
               fill="var(--primary)"
             />
           ))}
-          {medianX === null ? null : (
+          {medianX === null || median === null ? null : (
             <>
               <line
                 x1={medianX}
@@ -107,7 +109,7 @@ export default function Histogram({
                 fill="var(--text)"
                 fontFamily="var(--font-mono)"
               >
-                中位 {formatPrice(medianCents)}
+                中位 {format(median)}
               </text>
             </>
           )}
@@ -118,7 +120,7 @@ export default function Histogram({
             fill="var(--text-muted)"
             fontFamily="var(--font-mono)"
           >
-            {formatPrice(first.lo_cents)}
+            {format(first.lo)}
           </text>
           <text
             x={PLOT.right}
@@ -128,7 +130,7 @@ export default function Histogram({
             fill="var(--text-muted)"
             fontFamily="var(--font-mono)"
           >
-            {formatPrice(last.hi_cents)}
+            {format(last.hi)}
           </text>
         </svg>
       </div>
@@ -148,16 +150,16 @@ export default function Histogram({
           </caption>
           <thead>
             <tr>
-              <th>价格区间</th>
+              <th>{label}区间</th>
               <th style={{ textAlign: "right" }}>件数</th>
               <th style={{ textAlign: "right" }}>占比</th>
             </tr>
           </thead>
           <tbody>
             {buckets.map((bucket) => (
-              <tr key={bucket.lo_cents}>
+              <tr key={bucket.lo}>
                 <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-                  {formatPrice(bucket.lo_cents)} – {formatPrice(bucket.hi_cents)}
+                  {format(bucket.lo)} – {format(bucket.hi)}
                 </td>
                 <td className="num">{bucket.count}</td>
                 <td className="num muted">

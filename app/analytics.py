@@ -1,6 +1,6 @@
 """Market analytics over the collected history.
 
-Three metrics, all read-only, all returning plain dicts. Every response
+Four metrics, all read-only, all returning plain dicts. Every response
 carries `data_days` and `sample_size`, and that is not decoration: this tool
 starts with an empty database, so a chart has to be able to say "17 listings
 over 4 days" rather than draw a confident line over almost nothing.
@@ -24,8 +24,9 @@ every cycle; the point is the ratio. Every figure here is therefore "what the
 searches for this keyword saw", which the UI must say out loud instead of
 implying it is the market.
 
-No pandas: these are three `GROUP BY`s and one call to `statistics.quantiles`
-over a few hundred values. See the task's design.md for that deviation.
+No pandas: these are a handful of `GROUP BY`s and two calls to
+`statistics.quantiles` over a few hundred values. See the task's design.md for
+that deviation.
 """
 
 import math
@@ -33,9 +34,10 @@ import statistics
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlmodel import Session, col, select
 
+from app.config import SEARCH_ROWS
 from app.models import CollectRun, Item, Monitor, MonitorHit, PriceSnapshot, utcnow
 from app.store import snapshot_ids_at
 
@@ -56,6 +58,9 @@ FALLBACK_INTERVAL_SECONDS = 300
 MIN_BUCKETS = 5
 MAX_BUCKETS = 20
 CENTS_PER_YUAN = 100
+# Durations cross the wire as integer minutes for the same reason prices cross
+# as integer cents, and their histogram buckets align to whole hours.
+MINUTES_PER_HOUR = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,8 +135,11 @@ def _ledger_item_ids(scope: Scope):
     return select(col(MonitorHit.item_id)).where(col(MonitorHit.monitor_id).in_(scope.monitor_ids))
 
 
-def _quantiles(prices: list[int]) -> dict[str, int]:
-    """p10/p25/p50/p75/p90 in cents, or empty below two samples.
+def _quantiles(values: list[int]) -> dict[str, int]:
+    """p10/p25/p50/p75/p90, or empty below two samples.
+
+    Unit-agnostic: prices in cents, durations in minutes. The examples below
+    are prices because that is the case that produced the bug.
 
     `statistics.quantiles(n=20)` returns the 19 five-percent cut points, so the
     percentiles wanted here are indexes 1, 4, 9, 14 and 17. It raises below two
@@ -150,9 +158,9 @@ def _quantiles(prices: list[int]) -> dict[str, int]:
     these are the listings our searches saw, not a sample of the market (see
     the module docstring).
     """
-    if len(prices) < 2:
+    if len(values) < 2:
         return {}
-    cuts = statistics.quantiles(prices, n=20, method="inclusive")
+    cuts = statistics.quantiles(values, n=20, method="inclusive")
     return {
         "p10": round(cuts[1]),
         "p25": round(cuts[4]),
@@ -162,26 +170,32 @@ def _quantiles(prices: list[int]) -> dict[str, int]:
     }
 
 
-def _histogram(prices: list[int]) -> list[dict[str, int]]:
-    """Equal-width buckets aligned to whole yuan.
+def _histogram(values: list[int], *, align: int = CENTS_PER_YUAN) -> list[dict[str, int]]:
+    """Equal-width buckets aligned to a whole `align` unit.
 
     Bucket count follows sqrt(n) between 5 and 20: too few buckets hide the
-    shape a price distribution is drawn for, too many turn a 30-listing sample
+    shape a distribution is drawn for, too many turn a 30-listing sample
     into a comb of ones. Edges are whole yuan because a bucket labelled
     "¥2413–¥2687" reads as noise; all arithmetic stays integer for the same
     reason prices are integer cents everywhere else.
+
+    `align` is that readability rule, parameterised rather than copied: the
+    duration histogram passes minutes with `align=MINUTES_PER_HOUR`, so its
+    edges land on whole hours for exactly the reason price edges land on whole
+    yuan. The edge keys keep their `_cents` names because the price caller is
+    the one whose schema uses them; the duration caller renames them.
     """
-    if not prices:
+    if not values:
         return []
-    lo, hi = min(prices), max(prices)
-    start = (lo // CENTS_PER_YUAN) * CENTS_PER_YUAN
-    wanted = min(MAX_BUCKETS, max(MIN_BUCKETS, math.isqrt(len(prices))))
+    lo, hi = min(values), max(values)
+    start = (lo // align) * align
+    wanted = min(MAX_BUCKETS, max(MIN_BUCKETS, math.isqrt(len(values))))
     span = hi - start + 1
-    width = max(CENTS_PER_YUAN, math.ceil(span / wanted / CENTS_PER_YUAN) * CENTS_PER_YUAN)
+    width = max(align, math.ceil(span / wanted / align) * align)
     count = math.ceil(span / width)
 
     counts = [0] * count
-    for price in prices:
+    for price in values:
         # ponytail: the min() is provably unreachable, kept as a guard. With
         # span = hi - start + 1 and count = ceil(span / width), the largest
         # index any price can produce is (span - 1) // width, which equals
@@ -434,4 +448,121 @@ def supply_trend(
 
     result["days"] = series
     result["sample_size"] = total_new
+    return result
+
+
+def listing_duration(
+    session: Session, keyword: str, *, days: int = 30, now: datetime | None = None
+) -> dict:
+    """How long a listing stayed inside our observation range, in minutes.
+
+    Deliberately NOT a time to sale. A listing that stops coming back may have
+    been bought, may have been delisted, or may merely have dropped in rank
+    past the pages we read — and the third one is our own doing rather than
+    the market's. So the metric is named after what it actually measures, and
+    the response carries the aperture it was measured through.
+
+    "Left our range" is staleness of `last_seen_at` against `fresh_cutoff`,
+    never `Item.status`: measured 2026-09-05, 0 of 328 items had any other
+    status, because only a watched item's detail fetch ever writes one (see
+    the module docstring). There is no status filter here in either
+    direction — a listing we did observe as gone has the most meaningful end
+    time in the set, and dropping it would bias the distribution short.
+
+    The clock starts at `MonitorHit.first_hit_at`, per keyword, never
+    `Item.first_seen_at`. The latter is global and the two disagree by four
+    full days on this project's own database, so a listing two keywords both
+    saw would be credited to whichever searched first.
+
+    Two limits to know before reading the number:
+
+    - The clock STOPS at `MonitorHit.last_hit_at`, also per keyword, falling
+      back to `Item.last_seen_at` only for ledger rows written before that
+      column existed. The global timestamp alone was not good enough:
+      measured, 29 of the 59 listings in the `iPhone 15 128G` ledger are also
+      in `iPhone 15`, so 49% of that keyword's rows had their clock kept
+      running by a different rule and left the sample silently instead of
+      showing an inflated duration. Pre-`last_hit_at` rows still behave the
+      old way, which is why `legacy_clock_rows` is reported.
+    - Only listings first seen inside the window count, so the distribution
+      cannot be stretched by listings older than the history it claims.
+
+    Minutes rather than hours on the wire: the buckets are whole hours, which
+    is the reading unit, but at a 300 s poll interval a listing that lasted 25
+    minutes is an ordinary sample, and integer minutes keeps the no-floats
+    discipline prices have.
+    """
+    now = now or utcnow()
+    scope = keyword_scope(session, keyword)
+    result: dict = {
+        "quantiles": {},
+        "histogram": [],
+        "sample_size": 0,
+        "data_days": data_days(scope, now),
+        "window_days": days,
+        # None, not 1, when nothing in the window recorded an aperture: "we
+        # never looked" is not "we looked at one page".
+        "aperture_pages_min": None,
+        "aperture_pages_max": None,
+        "aperture_rows": SEARCH_ROWS,
+        # How many of the samples are still timed by the old global clock,
+        # i.e. ledger rows written before MonitorHit.last_hit_at existed.
+        # Non-zero means the distribution mixes two measurements.
+        "legacy_clock_rows": 0,
+    }
+    if not scope.known:
+        return result
+
+    # One sample per LISTING, not per ledger row: two rules on one keyword
+    # each hold a hit for the same item, and the earlier of the two is when
+    # this keyword first saw it. last_seen_at joins the grouping because it is
+    # functionally dependent on the item, not because it varies.
+    first_hit = func.min(col(MonitorHit.first_hit_at))
+    # Per-keyword end of clock, with the global timestamp as the fallback for
+    # rows predating the column. max() because two rules can share a keyword.
+    last_hit = func.max(func.coalesce(col(MonitorHit.last_hit_at), col(Item.last_seen_at)))
+    # How many samples are still on the old global clock, so the page can say
+    # so rather than presenting a mixed measurement as a clean one.
+    legacy = func.sum(func.iif(col(MonitorHit.last_hit_at).is_(None), 1, 0))
+    rows = session.exec(
+        select(first_hit, last_hit, legacy)
+        .join(Item, col(Item.id) == col(MonitorHit.item_id))
+        .where(col(MonitorHit.monitor_id).in_(scope.monitor_ids))
+        .group_by(col(MonitorHit.item_id))
+        .having(first_hit >= now - timedelta(days=days))
+        .having(last_hit < fresh_cutoff(scope, now))
+    ).all()
+
+    # The aperture is read whether or not there are samples: an empty
+    # distribution still has to say how wide a net produced it.
+    pages = func.coalesce(col(CollectRun.pages), 1)
+    aperture = session.exec(
+        select(func.min(pages), func.max(pages))
+        .where(col(CollectRun.monitor_id).in_(scope.monitor_ids))
+        .where(col(CollectRun.started_at) >= now - timedelta(days=days))
+        # A NULL `pages` means one of two different things and they must not
+        # be merged: a row written before paging existed (single page — a
+        # fact about that cycle, not missing data), or a cycle that failed
+        # before fetching anything (no aperture at all). `ok` separates them.
+        # Counting the failures as one page would report "the aperture
+        # changed mid-window" for every keyword that ever hit a timeout.
+        .where(or_(col(CollectRun.pages).is_not(None), col(CollectRun.ok)))
+    ).one()
+    result["aperture_pages_min"] = aperture[0]
+    result["aperture_pages_max"] = aperture[1]
+
+    if not rows:
+        return result
+
+    # max(0, ...) guards a global last_seen_at older than this keyword's first
+    # hit. The collector cannot produce that, but seeded or hand-edited rows
+    # can, and a negative duration would plot as a bucket left of zero.
+    minutes = [max(0, int((row[1] - row[0]).total_seconds() // 60)) for row in rows]
+    result["sample_size"] = len(minutes)
+    result["legacy_clock_rows"] = sum(int(row[2] or 0) for row in rows)
+    result["quantiles"] = _quantiles(minutes)
+    result["histogram"] = [
+        {"lo_minutes": b["lo_cents"], "hi_minutes": b["hi_cents"], "count": b["count"]}
+        for b in _histogram(minutes, align=MINUTES_PER_HOUR)
+    ]
     return result

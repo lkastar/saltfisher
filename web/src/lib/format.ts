@@ -20,6 +20,81 @@ export function formatPrice(cents: number | null | undefined): string {
   })}`;
 }
 
+/** Durations cross the wire as integer minutes, for the same reason prices
+ *  cross as integer cents. Exactly one function turns them into words.
+ *
+ *  Hours are the reading unit — a listing lasts hours or days here, and
+ *  "3720 分钟" is a number nobody converts in their head. Below an hour stays
+ *  in minutes rather than rounding to "0 小时": at a 300s poll interval a
+ *  listing seen in one cycle and gone by the next is an ordinary sample, and
+ *  it is the shortest one the tool can measure.
+ */
+export function formatDuration(minutes: number | null | undefined): string {
+  if (minutes === null || minutes === undefined || !Number.isFinite(minutes)) {
+    return "—";
+  }
+  if (minutes < 60) return `${Math.round(minutes)} 分钟`;
+  // Whole hours first, so the day split cannot round its way to "1 天 24 小时".
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) {
+    const exact = minutes % 60 === 0;
+    return `${exact ? hours : (minutes / 60).toFixed(1)} 小时`;
+  }
+  const rest = hours % 24;
+  const days = (hours - rest) / 24;
+  return rest === 0 ? `${days} 天` : `${days} 天 ${rest} 小时`;
+}
+
+/** The observation aperture behind a duration distribution, in words.
+ *
+ *  Lives here, with a test, rather than as a ternary inside the page: getting
+ *  the condition backwards would hide exactly the caveat the field exists to
+ *  surface, and it would hide it silently.
+ *
+ *  `caveat` is non-null when the distribution is not safe to read as a market
+ *  measurement — the aperture changed inside the window, or we cannot say
+ *  what it was. A wider aperture makes a listing "disappear" later, so those
+ *  numbers are partly a measurement of how many pages we happened to read.
+ */
+/** How many samples are still timed by the old global clock.
+ *
+ *  `MonitorHit.last_hit_at` cannot be backfilled, so listings recorded before
+ *  it existed end their clock at `Item.last_seen_at` — which another keyword's
+ *  rule keeps winding. Those rows under-report, and a mixed sample must say so
+ *  rather than pass itself off as one clean measurement. Returns null once
+ *  none are left, which happens on its own as new cycles stamp the column.
+ */
+export function legacyClockNote(legacy: number, total: number): string | null {
+  if (legacy <= 0 || total <= 0) return null;
+  if (legacy >= total) {
+    return `这 ${total} 个样本全部还在旧的全局时钟上：它们的「消失时刻」取自商品的全局最后一次观测，而不是这个关键词自己最后一次看到它。被多个关键词共享的商品会因此偏短。新采集的周期会自己修正，这个数会降下去。`;
+  }
+  return `${total} 个样本里有 ${legacy} 个还在旧的全局时钟上（早于按关键词记录最后观测时刻的那次改动），它们偏短。剩下 ${total - legacy} 个是按本关键词计的。`;
+}
+
+export function apertureNote(
+  pagesMin: number | null | undefined,
+  pagesMax: number | null | undefined,
+  rows: number,
+): { aperture: string; caveat: string | null } {
+  const lo = pagesMin ?? null;
+  const hi = pagesMax ?? null;
+  if (lo === null || hi === null) {
+    return {
+      aperture:
+        "商品从我们的搜索结果里消失，不等于它被买走了——也可能是下架，也可能只是排名掉出了我们读的那几页。",
+      caveat:
+        "这个窗口里没有采集记录，说不出当时的观测口径（每轮读了几页）。下面的分布只能当参考：口径越宽，商品越晚「消失」。",
+    };
+  }
+  const aperture = `观测口径：每轮只读搜索结果的前 ${hi} 页 × ${rows} 条 = ${hi * rows} 件。商品从这个范围里消失，不等于它被买走了——也可能是下架，也可能只是排名掉出了我们读的这几页。`;
+  if (lo === hi) return { aperture, caveat: null };
+  return {
+    aperture,
+    caveat: `这个窗口里观测口径变过（${lo} 页 → ${hi} 页，每页 ${rows} 条），所以分布内部不可比：口径越宽，商品越晚「消失」。等口径稳定满一个窗口再横向比较。`,
+  };
+}
+
 /** Signed percentage for a price change. Negative means cheaper. */
 export function formatChangeRatio(ratio: number | null | undefined): string {
   if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) {

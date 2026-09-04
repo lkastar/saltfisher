@@ -22,6 +22,12 @@ NOW = datetime.now(UTC)
 KW = "iPhone 15 128G"
 
 ENDPOINTS = ("price-distribution", "price-drops", "supply-trend")
+# `seed()` below leaves every listing fresh, so listing-duration has no sample
+# over it by design -- a listing still coming back has an age, not a duration.
+# It therefore joins the contract tests (auth, bounds, unknown keyword, query
+# count) but not the ones that assert a sample shape, which have their own
+# seed further down.
+ALL_ENDPOINTS = (*ENDPOINTS, "listing-duration")
 
 # Twenty days: inside the default 30-day supply window -- which starts at
 # now-29d, so a first sighting exactly 30 days old falls just outside it --
@@ -96,20 +102,20 @@ def client():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.parametrize("endpoint", ENDPOINTS)
+@pytest.mark.parametrize("endpoint", ALL_ENDPOINTS)
 def test_auth_required(client, endpoint):
     c, _ = client
     assert c.get(f"/api/analytics/{endpoint}?keyword={KW}").status_code == 401
 
 
-@pytest.mark.parametrize("endpoint", ENDPOINTS)
+@pytest.mark.parametrize("endpoint", ALL_ENDPOINTS)
 def test_a_keyword_is_required(client, endpoint):
     c, _ = client
     assert c.get(f"/api/analytics/{endpoint}", headers=AUTH).status_code == 422
     assert c.get(f"/api/analytics/{endpoint}?keyword=", headers=AUTH).status_code == 422
 
 
-@pytest.mark.parametrize("endpoint", ENDPOINTS)
+@pytest.mark.parametrize("endpoint", ALL_ENDPOINTS)
 @pytest.mark.parametrize("days", [0, -1, 400])
 def test_the_window_bounds_are_rejected_as_422_not_500(client, endpoint, days):
     """Expressed as Query(ge=1, le=365) rather than an `if` in the body, so
@@ -137,7 +143,7 @@ def test_the_drop_limit_is_bounded(client):
     )
 
 
-@pytest.mark.parametrize("endpoint", ENDPOINTS)
+@pytest.mark.parametrize("endpoint", ALL_ENDPOINTS)
 def test_an_unknown_keyword_is_an_empty_result_not_a_404(client, endpoint):
     """A deleted rule or a stale shared link lands here. Returning 404 would
     make the frontend handle a special case for an ordinary state, and the
@@ -223,7 +229,7 @@ def test_the_supply_series_covers_every_day_in_the_window(client):
     assert body["days"][0]["collected"] is False
 
 
-@pytest.mark.parametrize("endpoint", ENDPOINTS)
+@pytest.mark.parametrize("endpoint", ALL_ENDPOINTS)
 def test_query_count_does_not_grow_with_rows(client, endpoint):
     """Proved by EQUALITY, not by a bound.
 
@@ -271,6 +277,78 @@ def _reseed(items: int):
 
     app.dependency_overrides[get_session] = override
     return engine
+
+
+def seed_gone(engine, *, items: int = 3) -> None:
+    """One rule on KW whose listings have all gone stale.
+
+    Separate from `seed()` rather than folded into it: the duration metric
+    needs listings that stopped coming back, and the distribution tests need
+    ones that did not. One seed cannot be both, and making `seed()` produce
+    stale rows would quietly change what `fresh_size` means in three other
+    tests.
+    """
+    with Session(engine) as s:
+        s.add(Monitor(name="rule", keyword=KW, interval_seconds=300))
+        s.add(Seller(id="s1", nick="老王"))
+        s.commit()
+        for i in range(items):
+            # Seen for i+1 hours, then gone for a day -- well past the
+            # 600 s freshness cutoff two 300 s cycles give.
+            gone_at = NOW - timedelta(days=1)
+            s.add(
+                Item(
+                    id=f"g{i}",
+                    title=f"{KW} 第{i}台",
+                    seller_id="s1",
+                    seller_nick="老王",
+                    first_seen_at=gone_at - timedelta(hours=i + 1),
+                    last_seen_at=gone_at,
+                )
+            )
+            s.add(
+                MonitorHit(
+                    monitor_id=1, item_id=f"g{i}", first_hit_at=gone_at - timedelta(hours=i + 1)
+                )
+            )
+        s.add(CollectRun(monitor_id=1, started_at=NOW, ok=True, item_count=items, pages=2))
+        s.commit()
+
+
+def test_the_duration_response_carries_the_aperture_it_was_measured_through(client):
+    """Not optional metadata. The same keyword at 1x30 and at 2x30 produces
+    incomparable distributions, so a reader who cannot see the aperture reads
+    our page count as a market fact.
+    """
+    c, engine = client
+    seed_gone(engine)
+    body = c.get(f"/api/analytics/listing-duration?keyword={KW}", headers=AUTH).json()
+
+    assert body["sample_size"] == 3
+    assert body["aperture_pages_min"] == 2
+    assert body["aperture_pages_max"] == 2
+    assert body["aperture_rows"] == 30
+    assert body["quantiles"]["p50"] >= 60, "an hour is the shortest seeded duration"
+    assert sum(bucket["count"] for bucket in body["histogram"]) == 3
+    for bucket in body["histogram"]:
+        assert bucket["lo_minutes"] % 60 == 0
+        assert bucket["hi_minutes"] % 60 == 0
+
+
+def test_a_still_listed_keyword_has_no_durations_yet(client):
+    """`seed()`'s listings are all fresh. The response still validates, so the
+    page renders "nothing has left the range yet" rather than an error.
+    """
+    c, engine = client
+    seed(engine)
+    body = c.get(f"/api/analytics/listing-duration?keyword={KW}", headers=AUTH).json()
+
+    assert body["sample_size"] == 0
+    assert body["quantiles"]["p50"] is None
+    assert body["histogram"] == []
+    # The aperture is still reported: an empty chart has to say how wide a net
+    # produced it, or "nothing left the range" reads as a market fact.
+    assert body["aperture_pages_min"] == 1, "seed()'s run predates paging"
 
 
 def test_an_unmatched_analytics_path_is_still_json_404(client):

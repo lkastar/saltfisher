@@ -34,6 +34,8 @@ export type PriceDrops = Schemas["PriceDrops"];
 export type PriceDrop = Schemas["PriceDrop"];
 export type SupplyTrend = Schemas["SupplyTrend"];
 export type SupplyDay = Schemas["SupplyDay"];
+export type ListingDuration = Schemas["ListingDuration"];
+export type DurationBucket = Schemas["DurationBucket"];
 
 /** Key hierarchy. Invalidating a prefix invalidates everything under it. */
 export const keys = {
@@ -46,19 +48,21 @@ export const keys = {
   item: (id: string) => ["items", id] as const,
   itemPrices: (id: string) => ["items", id, "prices"] as const,
   session: ["session"] as const,
-  /** Coarse -> fine, so invalidating ["analytics"] drops all three charts at
+  /** Coarse -> fine, so invalidating ["analytics"] drops all four charts at
    *  once. The window is part of the key because two windows are two
    *  different answers, not two renderings of one. */
   priceDistribution: (q: AnalyticsQuery) =>
     ["analytics", "price-distribution", q] as const,
   priceDrops: (q: AnalyticsDropsQuery) => ["analytics", "price-drops", q] as const,
   supplyTrend: (q: AnalyticsQuery) => ["analytics", "supply-trend", q] as const,
+  listingDuration: (q: AnalyticsQuery) => ["analytics", "listing-duration", q] as const,
 };
 
 /** What the analytics endpoints are scoped by. `days` means something
- *  different in each of the three -- which listings count, what "before"
- *  means, how wide the chart is -- so the page states it per chart rather
- *  than pretending one window has one meaning.
+ *  different in each of the four -- which listings count, what "before"
+ *  means, how wide the chart is, which first sightings are in scope -- so the
+ *  page states it per chart rather than pretending one window has one
+ *  meaning.
  */
 export type AnalyticsQuery = { keyword: string; days: number };
 export type AnalyticsDropsQuery = AnalyticsQuery & { limit: number };
@@ -165,6 +169,14 @@ export function supplyTrendOptions(q: AnalyticsQuery) {
   return queryOptions({
     queryKey: keys.supplyTrend(q),
     queryFn: () => request<SupplyTrend>(`/api/analytics/supply-trend${queryString(q)}`),
+  });
+}
+
+export function listingDurationOptions(q: AnalyticsQuery) {
+  return queryOptions({
+    queryKey: keys.listingDuration(q),
+    queryFn: () =>
+      request<ListingDuration>(`/api/analytics/listing-duration${queryString(q)}`),
   });
 }
 

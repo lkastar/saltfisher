@@ -385,3 +385,62 @@ class SupplyDay(SQLModel):
 
 class SupplyTrend(Sample):
     days: list[SupplyDay]
+
+
+# --------------------------------------------------------------------------- #
+# Market analytics (P3)
+# --------------------------------------------------------------------------- #
+
+
+class DurationQuantiles(SQLModel):
+    """Minutes. Empty below two samples, for the same reason PriceQuantiles is."""
+
+    p10: int | None = None
+    p25: int | None = None
+    p50: int | None = None
+    p75: int | None = None
+    p90: int | None = None
+
+
+class DurationBucket(SQLModel):
+    """One histogram column. Edges are whole hours, expressed in minutes."""
+
+    lo_minutes: int
+    hi_minutes: int
+    count: int
+
+
+class ListingDuration(Sample):
+    """How long listings stayed inside our observation range.
+
+    Not a time to sale, and the field names must never start claiming it is: a
+    listing stops coming back because it was bought, because it was delisted,
+    or because its rank fell past the pages we read — and the last of those is
+    our own doing.
+
+    Which is why the aperture is part of the response and not a footnote.
+    `aperture_pages_min` / `max` are the narrowest and widest page counts any
+    cycle for this keyword actually fetched inside the window, with rows
+    written before paging existed counted as the single page they were.
+    **When the two differ, the aperture changed mid-window and the
+    distribution is not internally comparable** — a wider aperture makes a
+    listing "leave" later, so the shape is partly a measurement of us. Both
+    are null when no cycle in the window recorded an aperture, which is not
+    the same as one page.
+
+    Durations are integer minutes for the same reason prices are integer
+    cents. Histogram edges land on whole hours.
+    """
+
+    quantiles: DurationQuantiles
+    histogram: list[DurationBucket]
+    aperture_pages_min: int | None = None
+    aperture_pages_max: int | None = None
+    aperture_rows: int
+    # Samples still timed by the old GLOBAL clock, i.e. ledger rows written
+    # before MonitorHit.last_hit_at existed. Non-zero means the distribution
+    # mixes a per-keyword measurement with a global one: for those rows a
+    # listing another rule still sees keeps a fresh timestamp, so they under-
+    # report. Cannot be backfilled, so it shrinks on its own and the page
+    # says so while it is non-zero.
+    legacy_clock_rows: int = 0

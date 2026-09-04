@@ -30,7 +30,7 @@ from app.collector.base import (
 )
 from app.collector.filters import RuleFilters
 from app.collector.pipeline import Pipeline
-from app.config import settings
+from app.config import SEARCH_ROWS, settings
 from app.db import engine
 from app.models import CollectRun, Monitor, NotifyChannel, Watchlist, utcnow
 from app.notify import (
@@ -344,7 +344,9 @@ async def run_monitor_cycle(pipeline: Pipeline, monitor: Monitor) -> CycleOutcom
     # settings.search_pages is read here, not inside the pipeline: this is the
     # one place that owns how many upstream requests a cycle is worth, and the
     # manual-run endpoint reaches the upstream through this same function.
-    result = await pipeline.collect_search(monitor.keyword, rows=30, pages=settings.search_pages)
+    result = await pipeline.collect_search(
+        monitor.keyword, rows=SEARCH_ROWS, pages=settings.search_pages
+    )
     items = list(result.items)
     candidates = await pipeline.screen(items, rule_filters(monitor))
     hits = await asyncio.to_thread(

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
 import {
+  listingDurationOptions,
   monitorsOptions,
   priceDistributionOptions,
   priceDropsOptions,
@@ -12,15 +13,22 @@ import DailyBars from "../components/DailyBars";
 import Histogram from "../components/Histogram";
 import RemoteImage from "../components/RemoteImage";
 import { Empty, ErrorState, Loading } from "../components/States";
-import { formatChangeRatio, formatPrice, formatRelativeTime } from "../lib/format";
+import {
+  apertureNote,
+  legacyClockNote,
+  formatChangeRatio,
+  formatDuration,
+  formatPrice,
+  formatRelativeTime,
+} from "../lib/format";
 
 /** Market analysis for one keyword.
  *
- *  One window selector drives all three blocks, and `days` genuinely means
+ *  One window selector drives all four blocks, and `days` genuinely means
  *  something different in each of them — which listings count, what "before"
- *  means, how wide the chart is. That is not an inconsistency to paper over,
- *  so every block states its own reading of the window instead of leaving the
- *  user to assume one.
+ *  means, how wide the chart is, which first sightings are in scope. That is
+ *  not an inconsistency to paper over, so every block states its own reading
+ *  of the window instead of leaving the user to assume one.
  *
  *  No LLM button. M4 owns that, and a disabled placeholder promises a feature
  *  that does not exist.
@@ -126,7 +134,16 @@ function DistributionBlock({ query }: { query: AnalyticsQuery }) {
           </table>
         </div>
       )}
-      <Histogram buckets={dist.data.histogram} medianCents={q.p50} />
+      <Histogram
+        buckets={dist.data.histogram.map((b) => ({
+          lo: b.lo_cents,
+          hi: b.hi_cents,
+          count: b.count,
+        }))}
+        format={formatPrice}
+        label="价格"
+        median={q.p50 ?? null}
+      />
     </Block>
   );
 }
@@ -257,6 +274,141 @@ function TrendBlock({ query }: { query: AnalyticsQuery }) {
   );
 }
 
+function DurationBlock({ query }: { query: AnalyticsQuery }) {
+  const duration = useQuery(listingDurationOptions(query));
+
+  if (duration.isPending) return <Loading rows={4} />;
+  if (duration.isError) {
+    return (
+      <ErrorState
+        title="拉取离开观测范围时长失败"
+        error={duration.error}
+        onRetry={() => duration.refetch()}
+      />
+    );
+  }
+
+  const {
+    quantiles: q,
+    histogram,
+    sample_size,
+    data_days,
+    aperture_pages_min,
+    aperture_pages_max,
+    aperture_rows,
+    legacy_clock_rows,
+  } = duration.data;
+  const note = `口径：首次见到落在最近 ${query.days} 天内、且已经连续两轮没再出现的商品，量的是「首次见到 → 最后见到」这段时间 · 已收集 ${data_days} 天 · 样本 ${sample_size} 件`;
+
+  // The aperture is the reason this metric exists in this shape rather than as
+  // a market number, so it is stated in words above the chart every time. The
+  // two cases that make the distribution unreadable -- it changed, or we
+  // cannot say what it was -- come back as `caveat` and get the emphasised
+  // box rather than the muted line.
+  const { aperture, caveat } = apertureNote(aperture_pages_min, aperture_pages_max, aperture_rows);
+  // A second caveat with a different lifetime: the aperture one is about how
+  // wide a net we cast, this one about which clock stopped. It disappears on
+  // its own as new cycles stamp MonitorHit.last_hit_at, so it is not worth a
+  // dismiss control.
+  const legacy = legacyClockNote(legacy_clock_rows, sample_size);
+
+  return (
+    <Block title="离开观测范围的时长" note={note}>
+      <p className="muted" style={{ fontSize: 12 }}>
+        {aperture}
+      </p>
+      {caveat === null ? null : (
+        // Not a --warn pill: that colour is reserved for risk control and a
+        // degraded collector (styling-guidelines.md). This is a caveat about
+        // what the numbers can mean, and it has to be readable in words
+        // rather than inferred from a hue.
+        <p
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            margin: 0,
+            padding: "var(--space-2) var(--space-3)",
+            border: "1px solid var(--border-strong)",
+            borderRadius: "var(--radius)",
+          }}
+        >
+          {caveat}
+        </p>
+      )}
+      {legacy === null ? null : (
+        <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+          {legacy}
+        </p>
+      )}
+      {sample_size === 0 ? (
+        // Two different empties. "Nothing has left yet" is a fact about the
+        // listings; "no history at all" is a fact about the rule, and one of
+        // them is fixed by waiting while the other is not.
+        <Empty
+          message={
+            data_days === 0
+              ? "这个关键词没有任何采集记录。"
+              : `最近 ${query.days} 天里首次见到的商品还都在搜索结果里，没有「已经离开」的可以统计。等它们掉出观测范围，或者换更长的窗口。`
+          }
+          action={data_days === 0 ? CREATE_RULE : undefined}
+        />
+      ) : (
+        <>
+          {sample_size < 2 ? (
+            <p className="muted" style={{ fontSize: 13 }}>
+              只有 1 件样本，给不出分位数——下面这一档就是它本身。
+            </p>
+          ) : (
+            <div className="table-scroll">
+              <table>
+                <caption
+                  className="muted"
+                  style={{
+                    captionSide: "top",
+                    textAlign: "left",
+                    padding: "var(--space-2)",
+                    fontSize: 12,
+                  }}
+                >
+                  分位数：一半的商品在中位数这么久之后就不再出现了。
+                </caption>
+                <thead>
+                  <tr>
+                    <th>P10</th>
+                    <th>P25</th>
+                    <th>中位 P50</th>
+                    <th>P75</th>
+                    <th>P90</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    {[q.p10, q.p25, q.p50, q.p75, q.p90].map((minutes, i) => (
+                      <td key={i} className="num" style={{ textAlign: "left" }}>
+                        {formatDuration(minutes)}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Histogram
+            buckets={histogram.map((b) => ({
+              lo: b.lo_minutes,
+              hi: b.hi_minutes,
+              count: b.count,
+            }))}
+            format={formatDuration}
+            label="离开观测范围的时长"
+            median={q.p50 ?? null}
+          />
+        </>
+      )}
+    </Block>
+  );
+}
+
 export default function AnalyticsPage() {
   const [params, setParams] = useSearchParams();
   const monitors = useQuery(monitorsOptions());
@@ -358,12 +510,13 @@ export default function AnalyticsPage() {
           market. */}
       <p className="muted" style={{ fontSize: 12 }}>
         以下数字都来自「{keyword}」这个关键词的搜索结果，包含被规则价格区间和排除词挡掉的商品——市场是市场，规则是规则。
-        不是整个闲鱼。日期与日界均为 UTC。三块内容里「{days} 天」的含义各不相同，见每块自己的口径。
+        不是整个闲鱼。日期与日界均为 UTC。四块内容里「{days} 天」的含义各不相同，见每块自己的口径。
       </p>
 
       <DistributionBlock query={query} />
       <DropsBlock query={query} />
       <TrendBlock query={query} />
+      <DurationBlock query={query} />
     </div>
   );
 }
