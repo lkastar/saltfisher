@@ -36,7 +36,13 @@ class StubBrowser:
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    """Importing cookies now also touches the database (it re-enables the rules
+    the challenge switched off), so this fixture has to own a real one."""
+    from app import scheduler
+    from tests.conftest import memory_engine
+
+    monkeypatch.setattr(scheduler, "engine", memory_engine())
     app.state.session = UpstreamSession()
     app.state.browser = StubBrowser()
     yield TestClient(app), app.state.session, app.state.browser

@@ -64,6 +64,8 @@ def _sync_send_email(cfg: EmailConfig, notification: Notification) -> None:
 
 def _plain_body(notification: Notification) -> str:
     lines = [notification.title, ""]
+    if notification.body:
+        lines += [notification.body, ""]
     for hit in notification.sorted_hits():
         lines.append(describe(hit))
         lines.append(f"  {hit.url}")
@@ -93,9 +95,15 @@ def _html_body(notification: Notification) -> str:
             f'<div style="color:#666;font-size:12px">{escape(hit.seller_nick)}</div>{labels}</td>'
             f"</tr>"
         )
+    intro = (
+        f'<pre style="white-space:pre-wrap;font-family:inherit;margin:0 0 12px">'
+        f"{escape(notification.body)}</pre>"
+        if notification.body
+        else ""
+    )
     return (
         f'<div style="font-family:system-ui,sans-serif">'
-        f"<h3>{escape(notification.title)}</h3>"
+        f"<h3>{escape(notification.title)}</h3>{intro}"
         f'<table style="border-collapse:collapse">{"".join(rows)}</table>'
         f'<p style="color:#999;font-size:12px">— saltfish-digger</p></div>'
     )

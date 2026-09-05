@@ -44,6 +44,10 @@ class UpstreamSession:
     # for a freshly imported cookie whose detail endpoint was still
     # challenged. Nothing had failed *yet*, which is not the same as working.
     last_success_at: datetime | None = None
+    # Edge detector for the challenge notification. Both loops times N rules
+    # hit the SAME challenge within seconds, so "notify when challenged" would
+    # be a burst; this makes it "notify on the transition INTO challenged".
+    challenge_announced: bool = False
 
     @property
     def proven(self) -> bool:
@@ -60,6 +64,7 @@ class UpstreamSession:
 
     def mark_success(self, now: datetime | None = None) -> None:
         self.last_success_at = now or datetime.now(UTC)
+        self.challenge_announced = False
 
     @property
     def token(self) -> str | None:
@@ -89,6 +94,7 @@ class UpstreamSession:
         self.origin = origin
         self.established_at = datetime.now(UTC)
         self.challenged_apis.clear()
+        self.challenge_announced = False
         # `established_at` moving forward is what withdraws the previous
         # credential's proof: `proven` requires last_success_at >=
         # established_at, so an older success stops counting on its own. An
@@ -142,3 +148,24 @@ class UpstreamSession:
         """An endpoint answered normally again."""
         if self.challenged_apis.pop(api, None) is not None:
             log.info("endpoint recovered", extra={"api": api})
+
+    def take_challenge_notice(self, detail: str) -> str | None:
+        """Claim the right to announce this challenge episode, exactly once.
+
+        Returns what to name in the message, or None if this episode has
+        already been announced. `detail` is only the fallback: some challenges
+        never reach `mark_challenged` (an absent `_m_h5_tk`, a non-JSON
+        interstitial), and an alert saying nothing at all is worse than one
+        naming the upstream's own words.
+
+        An episode ends at a transition OUT of the challenged state, which is
+        `mark_success` (an upstream call worked) or `adopt` (new credentials).
+        Reset on adopt is deliberate even though an import proves nothing: if
+        the paste was wrong, the next failing cycle has to be allowed to say
+        so, and the flag re-arms on that first cycle so the other N rules stay
+        quiet.
+        """
+        if self.challenge_announced:
+            return None
+        self.challenge_announced = True
+        return ", ".join(sorted(self.challenged_apis)) or detail

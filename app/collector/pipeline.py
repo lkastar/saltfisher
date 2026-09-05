@@ -70,6 +70,16 @@ class Pipeline:
         self._browser = browser
         self._session = session
 
+    @property
+    def session(self) -> UpstreamSession:
+        """The shared upstream session.
+
+        Exposed for the scheduler alone: a challenge is process-wide state, and
+        the alert has to be deduped against it rather than against a per-cycle
+        variable that resets every 15 seconds.
+        """
+        return self._session
+
     # ------------------------------------------------------------------ #
     # Acquisition with degradation
     # ------------------------------------------------------------------ #

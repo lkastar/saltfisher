@@ -242,7 +242,7 @@ class MonitorChannel(SQLModel, table=True):
 class NotifyLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     channel_id: int = Field(foreign_key="notifychannel.id", index=True)
-    kind: str  # new_in_range | price_drop | gone | test
+    kind: str  # new_in_range | price_drop | gone | test | challenge
     monitor_id: int | None = None
     item_count: int = 0
     ok: bool

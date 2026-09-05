@@ -61,6 +61,8 @@ def render(notification: Notification) -> str:
     """
     header = f"<b>{escape(notification.title)}</b>"
     lines: list[str] = [header]
+    if notification.body:
+        lines.append(escape(notification.body))
     hits = notification.sorted_hits()
 
     for index, hit in enumerate(hits):

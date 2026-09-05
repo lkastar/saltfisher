@@ -6,12 +6,14 @@ come from a human who solved a slider in their own browser — there is no way t
 do that inside a headless container, so the panel has to accept a paste.
 """
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
 from app.collector.browser import BrowserCollector
 from app.collector.session import UpstreamSession
+from app.scheduler import resume_challenge_disabled
 from app.schemas import CookieImport, SessionState
 
 log = logging.getLogger(__name__)
@@ -89,7 +91,15 @@ async def import_cookies(payload: CookieImport, request: Request) -> SessionStat
     session: UpstreamSession = request.app.state.session
     browser: BrowserCollector = request.app.state.browser
     await browser.import_cookies(cookies)
+    # adopt() already clears the challenge flags and re-arms the alert. What it
+    # cannot reach is the DATABASE side of the damage: the rules the challenge
+    # switched off, which the user otherwise has to re-enable by hand one by
+    # one. Only the slider itself needs a human.
     session.adopt(cookies, payload.origin)
+    resumed = await asyncio.to_thread(resume_challenge_disabled)
+    # Not "recovered" — nothing here has talked to the upstream. The state is
+    # cleared and the next sweep will produce the actual evidence.
+    log.info("cookies imported", extra={"resumed_monitors": len(resumed)})
     return _state(session)
 
 
@@ -100,6 +110,7 @@ async def clear_cookies(request: Request) -> SessionState:
     await browser.clear_cookies()
     session.cookies.clear()
     session.challenged_apis.clear()
+    session.challenge_announced = False
     session.established_at = None
     session.last_error = "credentials cleared"
     log.info("session cleared by request")

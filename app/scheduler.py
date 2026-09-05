@@ -30,6 +30,7 @@ from app.collector.base import (
 )
 from app.collector.filters import RuleFilters
 from app.collector.pipeline import Pipeline
+from app.collector.session import UpstreamSession
 from app.config import SEARCH_ROWS, settings
 from app.db import engine
 from app.models import CollectRun, Monitor, NotifyChannel, Watchlist, utcnow
@@ -40,7 +41,7 @@ from app.notify import (
     group_by_reason,
     log_delivery,
 )
-from app.notify.base import Notification, Notifier
+from app.notify.base import Notification, Notifier, challenge_body
 from app.store import (
     NotifiableHit,
     fresh_seller_ids,
@@ -64,6 +65,18 @@ BACKOFF_CAP_SECONDS = 1800
 
 # Per-monitor backoff, in memory on purpose: a restart legitimately clears it.
 _backoff: dict[int, float] = {}
+
+# The marker that says WHY a rule is off. `last_error` is the only durable
+# record of that, so the import endpoint keys its resume on this exact string --
+# which is why it is a constant used both where the challenge branch stamps it
+# and where the resume reads it, instead of two hand-typed literals.
+#
+# It separates the three ways a rule ends up disabled:
+#   - challenge          -> last_error contains this; resumed on import
+#   - five plain failures-> last_error carries the collector's own message
+#   - the user's own hand-> update_monitor writes neither
+# Only the first is a state an import actually fixes.
+NEEDS_VERIFICATION = "needs verification: "
 
 
 def jittered(seconds: float) -> float:
@@ -424,10 +437,15 @@ async def _run_and_record(
             _sync_record_outcome,
             monitor_id,
             collector=None,
-            error=f"needs verification: {exc}",
+            error=f"{NEEDS_VERIFICATION}{exc}",
             disable=True,
             started_at=started_at,
         )
+        if registry is not None:
+            # Reading last_error off the management page is not a notification.
+            # Collection has stopped for everything, and until this the user
+            # only found out by opening the panel.
+            await dispatch_challenge(registry, pipeline.session, str(exc))
         return CycleOutcome()
     except CollectorError as exc:
         _bump_backoff(monitor_id)
@@ -538,9 +556,13 @@ def _sync_persist_watch(
     return hit
 
 
-def _sync_watch_channels() -> list[NotifyChannel]:
-    """Every enabled channel: a watched item is not bound to a rule, so there
-    is no rule-level channel list to consult."""
+def _sync_enabled_channels() -> list[NotifyChannel]:
+    """Every enabled channel.
+
+    Two callers, same reasoning: a watched item is not bound to a rule, and a
+    challenge is not one rule's problem, so neither has a rule-level channel
+    list to consult.
+    """
     with Session(engine) as session:
         channels = enabled_channels(session)
         for channel in channels:
@@ -559,7 +581,7 @@ def _sync_commit_watch_delivery(
 
 
 async def dispatch_watch_hit(registry: dict[str, Notifier], hit: NotifiableHit) -> None:
-    channels = await asyncio.to_thread(_sync_watch_channels)
+    channels = await asyncio.to_thread(_sync_enabled_channels)
     if not channels:
         log.info("no channels enabled", extra={"item_id": hit.item_id})
         return
@@ -573,6 +595,77 @@ async def dispatch_watch_hit(registry: dict[str, Notifier], hit: NotifiableHit) 
                 extra={"channel_id": channel.id, "err": error},
             )
         await asyncio.to_thread(_sync_commit_watch_delivery, channel.id, notification, hit, error)
+
+
+def _sync_log_challenge(channel_id: int, notification: Notification, error: str | None) -> None:
+    """NotifyLog only. There is no per-item dedup stamp to write: the dedup for
+    a challenge lives on the session (`take_challenge_notice`), because the
+    thing being deduplicated is the episode, not an item.
+    """
+    with Session(engine) as session:
+        log_delivery(session, channel_id, notification, None, error)
+        session.commit()
+
+
+async def dispatch_challenge(
+    registry: dict[str, Notifier], upstream: UpstreamSession, detail: str
+) -> None:
+    """Announce a challenged session to EVERY enabled channel, once.
+
+    Not the rule's bound channels: collection stopping is global, and a rule
+    with nothing bound to it would otherwise fail in total silence -- which is
+    exactly the failure this was written to remove.
+
+    `take_challenge_notice` is the edge detector, and it is consulted before
+    anything else here so that two loops times N rules produce one message.
+    """
+    notice = upstream.take_challenge_notice(detail)
+    if notice is None:
+        return
+    notification = Notification(kind="challenge", hits=[], body=challenge_body(notice))
+    channels = await asyncio.to_thread(_sync_enabled_channels)
+    if not channels:
+        log.warning("session challenged and no channel is enabled to say so")
+        return
+    for channel in channels:
+        assert channel.id is not None
+        error = await deliver(registry, channel, notification)
+        if error is not None:
+            log.error(
+                "challenge notification failed",
+                extra={"channel_id": channel.id, "kind": channel.kind, "err": error},
+            )
+        await asyncio.to_thread(_sync_log_challenge, channel.id, notification, error)
+
+
+def resume_challenge_disabled() -> list[int]:
+    """Re-enable the rules a challenge switched off, and only those.
+
+    Called after a credential import. Clearing the failure state mirrors what
+    `update_monitor` does for a manual re-enable -- leaving the streak intact
+    would re-trip the auto-disable on the first hiccup.
+
+    It deliberately does NOT run a cycle. Every resumed rule firing at once is
+    precisely the request burst that gets a fresh session re-flagged, and the
+    normal sweep picks them up within one tick anyway, serialised through
+    COLLECT_SEMAPHORE with the usual jittered pause. Proof that recovery
+    worked therefore comes from a real collection, not from the import --
+    docs/operations.md:「判定成功看行为，不看 cookie 名单」.
+    """
+    resumed: list[int] = []
+    with Session(engine) as session:
+        for monitor in session.exec(select(Monitor)).all():
+            if monitor.enabled or NEEDS_VERIFICATION not in (monitor.last_error or ""):
+                continue
+            monitor.enabled = True
+            monitor.consecutive_failures = 0
+            monitor.last_error = None
+            if monitor.id is not None:
+                resumed.append(monitor.id)
+        session.commit()
+    if resumed:
+        log.info("resumed rules disabled by a challenge", extra={"monitor_ids": resumed})
+    return resumed
 
 
 async def run_watch_cycle(
@@ -597,8 +690,10 @@ async def run_watch_cycle(
         return None
     except ChallengeError as exc:
         await asyncio.to_thread(
-            record_watch_failure_sync, item_id, f"needs verification: {exc}", started_at
+            record_watch_failure_sync, item_id, f"{NEEDS_VERIFICATION}{exc}", started_at
         )
+        if registry is not None:
+            await dispatch_challenge(registry, pipeline.session, str(exc))
         return None
     except CollectorError as exc:
         await asyncio.to_thread(record_watch_failure_sync, item_id, str(exc), started_at)
