@@ -301,3 +301,49 @@ async def test_screen_can_skip_profile_fetching_entirely(usable_session):
     )
     assert mtop.seller_calls == 0
     assert "min_seller_credit" in candidates[0].outcome.unverified
+
+
+# --------------------------------------------------------------------------- #
+# Seller profiles: paid for once, kept, and not re-bought
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_a_profile_fetched_while_screening_reaches_the_candidate(usable_session):
+    """The fetch used to be consumed by the filter and dropped.
+
+    Measured on the real database before this: 249 seller rows, `fetched_at`
+    on 6 of them, `credit_score` on none -- every cycle bought a profile per
+    candidate and threw it away, so FR-3b's dataset stayed empty while the
+    request count stayed high. Carrying it on the Candidate is what lets
+    `persist_cycle` store what was already paid for.
+    """
+    mtop = StubMtop()
+    pipeline = Pipeline(mtop, StubBrowser(), usable_session)
+    rule = RuleFilters(min_seller_credit=1)
+
+    candidates = await pipeline.screen([make_item("1", seller_id="s1")], rule)
+
+    assert len(candidates) == 1
+    assert mtop.seller_calls == 1, "no profile was fetched, so nothing is proved"
+    assert candidates[0].seller is not None, "the profile was fetched and discarded"
+    assert candidates[0].seller.credit_level == 5
+
+
+@pytest.mark.asyncio
+async def test_a_seller_with_a_fresh_profile_is_not_fetched_again(usable_session):
+    """`settings.seller_profile_ttl_days` had no second reference in the whole
+    project, so the documented 7-day cache did not exist and every cycle
+    re-fetched. One extra upstream request per candidate per cycle is the
+    request amplification the pacing rules are written to prevent.
+
+    The freshness set is passed IN because `collector/` may not read the
+    database; `store.fresh_seller_ids` computes it in one query.
+    """
+    mtop = StubMtop()
+    pipeline = Pipeline(mtop, StubBrowser(), usable_session)
+    rule = RuleFilters(min_seller_credit=1)
+
+    await pipeline.screen([make_item("1", seller_id="s1")], rule, fresh_sellers=frozenset({"s1"}))
+
+    assert mtop.seller_calls == 0, "re-bought a profile it already had"

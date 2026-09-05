@@ -83,6 +83,34 @@ def upsert_seller_from_item(session: Session, raw: RawItem) -> None:
         seller.positive_rate = raw.seller_positive_rate
 
 
+def fresh_seller_ids(
+    session: Session, seller_ids: list[str], *, now: datetime | None = None
+) -> frozenset[str]:
+    """Sellers whose stored profile is still inside the TTL.
+
+    Exists so `pipeline.screen` can skip a fetch it does not need. The set is
+    computed here and passed IN because `collector/` may not touch the
+    database, and it is one query regardless of how many ids are asked about.
+
+    `settings.seller_profile_ttl_days` had no second reference anywhere in the
+    project until this function: the knob was documented, defaulted to 7, and
+    read by nothing, so every cycle re-fetched every candidate's profile. That
+    is one extra upstream request per candidate per cycle, against the pacing
+    rules that exist precisely to keep request volume down.
+    """
+    ids = list(dict.fromkeys(seller_ids))
+    if not ids:
+        return frozenset()
+    cutoff = (now or utcnow()) - timedelta(days=settings.seller_profile_ttl_days)
+    rows = session.exec(
+        select(col(Seller.id))
+        .where(col(Seller.id).in_(ids))
+        .where(col(Seller.fetched_at).is_not(None))
+        .where(col(Seller.fetched_at) >= cutoff)
+    ).all()
+    return frozenset(rows)
+
+
 def upsert_seller_profile(session: Session, raw: RawSeller) -> None:
     seller = session.get(Seller, raw.seller_id)
     if seller is None:
@@ -409,6 +437,18 @@ def persist_cycle(
 
     for candidate in candidates:
         upsert_seller_from_item(session, candidate.item)
+    session.flush()
+
+    for candidate in candidates:
+        if candidate.seller is None:
+            continue
+        # Keyed on the id the ITEM points at: search rows and detail payloads
+        # use different id spaces for the same seller, and writing the detail
+        # id here would orphan the profile from every item referencing it --
+        # exactly the pair of duplicate rows M1 left behind.
+        upsert_seller_profile(
+            session, replace(candidate.seller, seller_id=candidate.item.seller_id)
+        )
     session.flush()
 
     for candidate in candidates:

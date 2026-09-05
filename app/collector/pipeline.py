@@ -48,6 +48,12 @@ class Candidate:
 
     item: RawItem
     outcome: FilterOutcome
+    # The profile fetched while screening, so the cycle can store what it
+    # already paid a request for. It used to be consumed by the filter and
+    # dropped: 249 seller rows, `fetched_at` on 6 of them, `credit_score` on
+    # none -- every cycle bought this data and threw it away, which is the
+    # request amplification the pacing rules exist to prevent.
+    seller: RawSeller | None = None
 
     @property
     def passed(self) -> bool:
@@ -228,7 +234,12 @@ class Pipeline:
     # ------------------------------------------------------------------ #
 
     async def screen(
-        self, items: list[RawItem], rule: RuleFilters, *, fetch_seller: bool = True
+        self,
+        items: list[RawItem],
+        rule: RuleFilters,
+        *,
+        fetch_seller: bool = True,
+        fresh_sellers: frozenset[str] = frozenset(),
     ) -> list[Candidate]:
         """Verdict for EVERY item, not only the survivors.
 
@@ -242,6 +253,7 @@ class Pipeline:
         """
         candidates: list[Candidate] = []
         for item in items:
+            seller: RawSeller | None = None
             outcome = filters.apply_local(item, rule)
             if not outcome.passed:
                 log.debug(
@@ -251,14 +263,19 @@ class Pipeline:
                 candidates.append(Candidate(item=item, outcome=outcome))
                 continue
             if outcome.needs_seller_profile:
-                if fetch_seller:
+                if fetch_seller and item.seller_id not in fresh_sellers:
                     seller = await self.collect_seller_via_item(item.item_id)
                     outcome = filters.apply_seller(seller, rule, outcome)
+                elif fetch_seller:
+                    # Profile already stored and still inside the TTL. The
+                    # freshness set is passed IN rather than queried here:
+                    # `collector/` is forbidden from touching the database.
+                    outcome = filters.apply_seller_from_item(item, rule, outcome)
                 else:
                     # Still honour whatever the row itself revealed rather than
                     # waving everything through as compliant.
                     outcome = filters.apply_seller_from_item(item, rule, outcome)
-            candidates.append(Candidate(item=item, outcome=outcome))
+            candidates.append(Candidate(item=item, outcome=outcome, seller=seller))
         log.info(
             "screened",
             extra={"in": len(items), "passed": sum(1 for c in candidates if c.passed)},

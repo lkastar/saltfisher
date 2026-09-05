@@ -43,6 +43,7 @@ from app.notify import (
 from app.notify.base import Notification, Notifier
 from app.store import (
     NotifiableHit,
+    fresh_seller_ids,
     mark_notified,
     mark_watch_notified,
     persist_cycle,
@@ -102,6 +103,11 @@ def _sync_load_monitor(monitor_id: int) -> Monitor | None:
         if monitor is not None:
             session.expunge(monitor)
         return monitor
+
+
+def _sync_fresh_sellers(seller_ids: list[str]) -> frozenset[str]:
+    with Session(engine) as session:
+        return fresh_seller_ids(session, seller_ids)
 
 
 def _sync_persist_cycle(
@@ -348,7 +354,10 @@ async def run_monitor_cycle(pipeline: Pipeline, monitor: Monitor) -> CycleOutcom
         monitor.keyword, rows=SEARCH_ROWS, pages=settings.search_pages
     )
     items = list(result.items)
-    candidates = await pipeline.screen(items, rule_filters(monitor))
+    # Which sellers we already have a fresh profile for, so screening does not
+    # re-buy one. One query, off the event loop, before any upstream request.
+    fresh = await asyncio.to_thread(_sync_fresh_sellers, [i.seller_id for i in items])
+    candidates = await pipeline.screen(items, rule_filters(monitor), fresh_sellers=fresh)
     hits = await asyncio.to_thread(
         _sync_persist_cycle, monitor.id, candidates, baseline_done=monitor.baseline_done
     )

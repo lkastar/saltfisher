@@ -66,6 +66,33 @@ ITEM_PROMPT = """你是二手交易平台的捡漏助手。下面是一件商品
 DEFAULT_PROMPTS: dict[str, str] = {"market": MARKET_PROMPT, "item": ITEM_PROMPT}
 
 
+# The placeholders whose absence makes a template actively harmful rather than
+# merely degraded. Everything else can go missing and the answer just gets
+# thinner; drop one of these and the surrounding prose still says "下面是聚合
+# 统计数据" and "每条 reason 必须指向上面给出的某个具体数字" while carrying no
+# data at all -- a prompt that pressures the model to invent the numbers it was
+# not given, and bills full price for the answer.
+#
+# Measured: deleting `{stats}` from the market template took the rendered
+# prompt from 1626 characters to 352, keeping both of those sentences.
+LOAD_BEARING: dict[str, tuple[str, ...]] = {
+    "market": ("stats",),
+    "item": ("item",),
+}
+
+
+def missing_placeholders(scenario: str, template: str) -> tuple[str, ...]:
+    """Load-bearing placeholders this template dropped.
+
+    The original design asked for "渲染时缺失占位符要报可读错误，不静默塞空
+    字符串". `render` deliberately does not raise -- a typo'd `{plcaeholder}`
+    should survive as visible text rather than 500 on someone mid-edit -- so
+    the check lives here, where the caller can refuse to spend money instead
+    of failing a keystroke.
+    """
+    return tuple(name for name in LOAD_BEARING.get(scenario, ()) if f"{{{name}}}" not in template)
+
+
 def default_prompt(scenario: str) -> str:
     """The built-in template for a scenario. Raises LlmConfigError if unknown."""
     try:

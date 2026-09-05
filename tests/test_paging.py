@@ -299,7 +299,7 @@ class FakePipeline:
         self.pages_asked = pages
         return self.result
 
-    async def screen(self, items, rule, *, fetch_seller=True):
+    async def screen(self, items, rule, *, fetch_seller=True, fresh_sellers=frozenset()):
         return [Candidate(item=i, outcome=FilterOutcome(passed=True)) for i in items]
 
 
