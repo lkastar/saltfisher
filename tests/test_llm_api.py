@@ -409,6 +409,7 @@ def test_an_unsaved_scenario_is_a_shape_not_a_404(client):
         "prompt_template": None,
         "send_images": False,
         "max_tokens": None,
+        "missing_placeholders": [],
         "enabled": False,
     }
 
@@ -438,6 +439,7 @@ def test_scenario_upsert_round_trip(client):
         "prompt_template": None,
         "send_images": False,
         "max_tokens": None,
+        "missing_placeholders": [],
         "enabled": False,
     }
 

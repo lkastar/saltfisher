@@ -544,6 +544,12 @@ class LlmScenarioPublic(SQLModel):
     # own advice is "raise max_tokens", and an error that names a knob the
     # product does not offer is not actionable.
     max_tokens: int | None = None
+    # Load-bearing placeholders this template dropped. Non-empty means the
+    # rendered prompt would carry no data while still telling the model to
+    # cite specific numbers, so the analyze route refuses rather than billing
+    # for a fabrication. Reported here so the warning reaches the user on the
+    # config page, before they click and wait 150 seconds for a refusal.
+    missing_placeholders: list[str] = []
     enabled: bool
 
 

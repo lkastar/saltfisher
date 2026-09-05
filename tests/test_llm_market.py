@@ -532,11 +532,17 @@ def test_a_starved_endpoint_talks_about_the_token_budget(client):
 def test_a_broken_template_shows_the_model_text_verbatim(client):
     """A user breaking the template is a normal event, not an exception: the
     answer comes back as `unparsable` with the model's own words to look at.
+
+    `{stats}` is kept deliberately. Dropping it is a DIFFERENT failure with a
+    different answer -- the prompt would carry no data while still demanding
+    cited numbers, so the route refuses before spending anything. This test is
+    about a template that still hands over the evidence and merely asks for
+    prose back.
     """
     c, engine = client
     with Session(engine) as s:
         seed_market(s)
-        configure(s, template="只回答一句话：{keyword} 现在贵不贵？")
+        configure(s, template="只回答一句话：{keyword} 现在贵不贵？\n{stats}")
     chats = gateway(httpx.Response(200, json=chat_payload("不算贵，最近还降了点。")))
 
     body = analyze(c).json()
@@ -672,3 +678,29 @@ def test_nothing_automatic_can_reach_the_market_analysis():
     reaches = re.compile(r"llm|analyze_market|market_input")
     for source in [pathlib.Path("app/scheduler.py"), *pathlib.Path("app/collector").glob("*.py")]:
         assert not reaches.search(source.read_text()), source
+
+
+def test_a_template_without_its_data_is_refused_before_it_bills(client):
+    """The prompt this would send is worse than an empty string.
+
+    Measured: deleting `{stats}` takes the market prompt from 1626 characters
+    to 352 while keeping "下面是聚合统计数据" and "每条 reason 必须指向上面给出
+    的某个具体数字". The model is told to cite numbers it never received, so
+    the only answer it can give is invented -- and the call bills in full,
+    around 150 seconds, sometimes twice.
+
+    Refused at analyze time rather than rejected on save: someone mid-edit
+    should not lose their template to a validation error, and the money is
+    spent here.
+    """
+    c, engine = client
+    with Session(engine) as s:
+        seed_market(s)
+        configure(s, template="给我讲讲 {keyword} 的行情，要引用具体数字。")
+    chats = gateway(httpx.Response(200, json=chat_payload("{}")))
+
+    answer = analyze(c)
+
+    assert answer.status_code == 409
+    assert "{stats}" in answer.json()["detail"]
+    assert chats == [], "billed for a prompt that could only be answered by inventing"

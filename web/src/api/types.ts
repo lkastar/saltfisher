@@ -1154,6 +1154,11 @@ export interface components {
             send_images: boolean;
             /** Max Tokens */
             max_tokens?: number | null;
+            /**
+             * Missing Placeholders
+             * @default []
+             */
+            missing_placeholders: string[];
             /** Enabled */
             enabled: boolean;
         };

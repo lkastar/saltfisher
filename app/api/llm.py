@@ -87,6 +87,11 @@ def _scenario_public(row: LlmScenarioConfig) -> LlmScenarioPublic:
         prompt_template=row.prompt_template,
         send_images=row.send_images,
         max_tokens=row.max_tokens,
+        missing_placeholders=list(
+            prompts.missing_placeholders(
+                row.scenario, row.prompt_template or prompts.default_prompt(row.scenario)
+            )
+        ),
         enabled=row.enabled,
     )
 
@@ -317,6 +322,38 @@ def read_default_prompt(scenario: Scenario) -> LlmDefaultPrompt:
 MARKET = "market"
 
 UNCONFIGURED_MESSAGE = "行情分析还没有配置好：请先在设置页选择端点与模型，并启用「行情分析」场景。"
+
+
+def _refuse_if_template_lost_its_data(scenario: str, template: str) -> None:
+    """Refuse to bill for a prompt that asks the model to invent its evidence.
+
+    The original design asked for "渲染时缺失占位符要报可读错误，不静默塞空
+    字符串", and what actually happens without this guard is worse than an
+    empty string. Measured: deleting `{stats}` from the market template takes
+    the rendered prompt from 1626 characters to 352 while KEEPING the two
+    sentences "下面是聚合统计数据" and "每条 reason 必须指向上面给出的某个具体
+    数字". The model is told to cite numbers it was never given -- a prompt
+    shaped to produce a fabrication -- and the call bills in full, roughly
+    150 seconds and sometimes two draws.
+
+    A 409 rather than a 422 on save: the user may be mid-edit, and losing an
+    in-progress template to a validation error is worse than storing one. The
+    money is spent here, so this is where the refusal belongs.
+    """
+    missing = prompts.missing_placeholders(scenario, template)
+    if not missing:
+        return
+    names = "、".join(f"{{{name}}}" for name in missing)
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"提示词模板里少了 {names}，渲染出来的提示词不含任何数据，"
+            "但仍然要求模型引用具体数字——那样只会得到编造的答案，所以这次调用没有发出。"
+            "请在设置页把这个占位符加回去，或点「恢复默认」。"
+        ),
+    )
+
+
 # Not a model's job to notice. Asked to read a price level off zero listings,
 # a model produces a fluent answer about nothing -- and bills for it.
 NO_DATA_MESSAGE = (
@@ -407,6 +444,7 @@ async def analyze_market(
         )
 
     template = row.prompt_template or prompts.default_prompt(MARKET)
+    _refuse_if_template_lost_its_data(MARKET, template)
     llm_request = market.market_request(source, template)
     if row.max_tokens:
         llm_request = dc_replace(llm_request, max_tokens=row.max_tokens)
@@ -488,11 +526,13 @@ async def analyze_item(item_id: str, session: SessionDep, request: Request) -> L
     if item is None:
         raise HTTPException(status_code=404, detail="item not found")
 
+    item_template = row.prompt_template or prompts.default_prompt("item")
+    _refuse_if_template_lost_its_data("item", item_template)
     built = await items.build_request(
         session,
         request.app.state.notify_client,
         item,
-        template=row.prompt_template or prompts.default_prompt("item"),
+        template=item_template,
         model=row.model,
         send_images=row.send_images,
     )

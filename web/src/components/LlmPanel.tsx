@@ -57,10 +57,10 @@ type LlmPanelProps = {
   runLabel: string;
   onRun: () => void;
   pending: boolean;
-  /** True when the scenario is not configured yet, or there is nothing to
-   *  analyse. `blockedReason` says which. */
+  /** True when there is nothing to analyse -- an empty keyword, a listing
+   *  with no data. NOT used for an unconfigured scenario: the contract says
+   *  that entry is hidden entirely, so the panel never renders at all. */
   disabled?: boolean;
-  blockedReason?: React.ReactNode;
   /** A thrown failure: unreachable backend, 409 unconfigured, 502 upstream.
    *  Distinct from a `result` whose `kind` is not "ok" -- that one is a
    *  successful request reporting what the model did. */
@@ -127,7 +127,6 @@ export default function LlmPanel({
   onRun,
   pending,
   disabled = false,
-  blockedReason,
   error,
   errorTitle,
   result,
@@ -165,11 +164,6 @@ export default function LlmPanel({
         >
           {pending ? "生成中…" : runLabel}
         </button>
-        {!pending && blockedReason ? (
-          <span className="muted" style={{ fontSize: 12 }}>
-            {blockedReason}
-          </span>
-        ) : null}
       </div>
 
       {pending ? <PendingNotice /> : null}

@@ -432,6 +432,18 @@ function MarketPanel({ query }: { query: AnalyticsQuery }) {
   const reading = marketReading(result?.reading);
   const ready = scenarioReady(config.data);
 
+  // Hidden, not disabled, when the scenario is off or unconfigured. The
+  // contract is explicit (overall-design prd.md:259: "默认关闭；场景未配置或未
+  // 启用时对应入口整体隐藏，不得报错"), and the reasoning holds: the feature
+  // ships OFF, so a permanently dead button on this page is what most users
+  // would see forever. Discovery belongs on the settings page, next to the
+  // switch that turns it on.
+  //
+  // `config.isPending` is not "not ready" -- rendering nothing and then
+  // popping a panel in is worse than waiting one tick.
+  if (config.isPending) return null;
+  if (!ready) return null;
+
   return (
     <LlmPanel
       title="AI 行情解读"
@@ -444,15 +456,6 @@ function MarketPanel({ query }: { query: AnalyticsQuery }) {
       runLabel={`分析「${query.keyword}」最近 ${query.days} 天`}
       onRun={() => analyze.mutate({ keyword: query.keyword, days: query.days })}
       pending={analyze.isPending}
-      disabled={!ready}
-      blockedReason={
-        config.isPending || ready ? null : (
-          <>
-            还没配置好：<Link to="/settings">去设置页</Link>
-            选择端点与模型，并启用「行情分析」场景。
-          </>
-        )
-      }
       error={analyze.error}
       errorTitle="行情分析失败"
       result={result}
