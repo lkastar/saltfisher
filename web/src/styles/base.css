@@ -740,6 +740,13 @@ tbody tr:last-child td {
   align-items: start;
 }
 
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
 .side-stack {
   display: grid;
   gap: 14px;
@@ -1018,6 +1025,123 @@ button.btn-text:hover:not(:disabled) {
   margin: 0;
 }
 
+/* ---------- analytics: quantile row, ratio bar, chart legend ---------- */
+
+/* Quantile strip (价格分布 / 离开时长). The values are real text, so they stay
+ * accessible without the table the old layout used; the histogram below keeps
+ * its own full data table. */
+.q-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.q-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.q-k {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.q-v {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline proportion bar (降价排行). Green because a drop is a drop; the
+ * percentage beside it carries the number -- the bar only carries scale. */
+.bar-track {
+  width: 110px;
+  height: 5px;
+  background: var(--bg3);
+  border-radius: 4px;
+  overflow: hidden;
+  flex: none;
+}
+
+.bar {
+  height: 5px;
+  border-radius: 4px;
+  background: var(--green);
+}
+
+/* Chart legend (supply trend). Swatches mirror what the SVG actually draws. */
+.legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--text2);
+  font-family: var(--font-mono);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.legend .lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sw {
+  display: inline-block;
+  width: 16px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.sw-line {
+  height: 2px;
+  background: var(--acc);
+}
+
+.sw-band {
+  background: var(--chart-band);
+  border: 1px solid color-mix(in srgb, var(--acc) 35%, transparent);
+}
+
+.sw-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chart-dot-fill);
+  border: 1.5px solid var(--acc);
+}
+
+.sw-hatch {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--border-strong) 0 1px,
+    transparent 1px 6px
+  );
+  border: 1px solid var(--line);
+}
+
+.sw-hatch-red {
+  background: repeating-linear-gradient(45deg, var(--red) 0 1.5px, transparent 1.5px 4px);
+  border: 1px solid var(--line);
+}
+
+/* Destructive text button (追踪列表 移出). The word carries the meaning; the
+ * hover rule below would otherwise repaint it accent-blue. */
+.btn-text[data-tone="danger"],
+button.btn-text[data-tone="danger"]:hover:not(:disabled) {
+  color: var(--red);
+}
+
 /* AI answer card: the prototype's top accent hairline on a normal .card. */
 .ai-card {
   overflow: hidden;
@@ -1129,7 +1253,8 @@ button.btn-text:hover:not(:disabled) {
     font-size: 72px;
   }
 
-  .grid-21 {
+  .grid-21,
+  .grid-2 {
     grid-template-columns: 1fr;
   }
 }

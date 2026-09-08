@@ -13,7 +13,9 @@ import {
 } from "../api/queries";
 import DailyBars from "../components/DailyBars";
 import Histogram from "../components/Histogram";
+import { Icon, type IconName } from "../components/Icon";
 import LlmPanel, { LLM_WAIT_NOTE } from "../components/LlmPanel";
+import { PageHero } from "../components/PageHero";
 import RemoteImage from "../components/RemoteImage";
 import { Empty, ErrorState, Loading } from "../components/States";
 import {
@@ -44,51 +46,130 @@ const WINDOWS = [7, 30, 90];
 const DEFAULT_DAYS = 30;
 const DROP_LIMIT = 20;
 
-const CREATE_RULE = <Link to="/">去建一条监控规则</Link>;
+const CREATE_RULE = <Link to="/#tasks">去建一条监控规则</Link>;
 
 /** Long titles reach 250+ characters in real captures; an aria-label built
- *  from one reads the whole listing before saying what the control is.
+ *  from one reads the whole listing before saying what the control is. The
+ *  hero keyword gets the same cut for the same reason clamp(38px…) type has:
+ *  a 100-char keyword would wrap the title into a wall.
  */
 function shortTitle(title: string): string {
   return title.length > 18 ? `${title.slice(0, 18)}…` : title;
 }
 
+/** One stat card. The `note` slot is the prototype's short mono fact (sample
+ *  counts); the long 口径 sentence goes in `caption` because each block reads
+ *  the window differently and has to say so in words.
+ */
 function Block({
+  icon,
   title,
   note,
+  caption,
   children,
 }: {
+  icon: IconName;
   title: string;
-  note: string;
+  note?: string;
+  caption?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-      <h2>{title}</h2>
-      <p className="muted" style={{ fontSize: 12 }}>
-        {note}
-      </p>
+    <section className="card">
+      <div className="card-h">
+        <h2>
+          <Icon name={icon} size={15} />
+          {title}
+        </h2>
+        {note === undefined ? null : <span className="note">{note}</span>}
+      </div>
+      {caption === undefined ? null : (
+        <p className="muted" style={{ fontSize: 12, marginBottom: "var(--space-3)" }}>
+          {caption}
+        </p>
+      )}
       {children}
     </section>
+  );
+}
+
+/** The five quantiles as the prototype's stat strip. Values are real text
+ *  (not pixels), and the chart below keeps its full data table.
+ *
+ *  Structural on purpose: `PriceQuantiles` (cents) and `DurationQuantiles`
+ *  (minutes) are two generated schemas with the same shape, and the caller's
+ *  `format` is what knows the unit.
+ */
+type Quantiles = {
+  p10?: number | null;
+  p25?: number | null;
+  p50?: number | null;
+  p75?: number | null;
+  p90?: number | null;
+};
+
+function QuantileRow({
+  quantiles: q,
+  format,
+  meaning,
+}: {
+  quantiles: Quantiles;
+  format: (value: number | null | undefined) => string;
+  meaning: string;
+}) {
+  const cells: [string, number | null | undefined][] = [
+    ["P10", q.p10],
+    ["P25", q.p25],
+    ["中位 P50", q.p50],
+    ["P75", q.p75],
+    ["P90", q.p90],
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+      <div className="q-row">
+        {cells.map(([label, value]) => (
+          <span className="q-item" key={label}>
+            <span className="q-k">{label}</span>
+            <span
+              className="q-v"
+              style={label === "中位 P50" ? { color: "var(--acc2)" } : undefined}
+            >
+              {format(value)}
+            </span>
+          </span>
+        ))}
+      </div>
+      <p className="dim" style={{ fontSize: 11.5, margin: 0 }}>
+        {meaning}
+      </p>
+    </div>
   );
 }
 
 function DistributionBlock({ query }: { query: AnalyticsQuery }) {
   const dist = useQuery(priceDistributionOptions(query));
 
-  if (dist.isPending) return <Loading rows={4} />;
+  if (dist.isPending) {
+    return (
+      <Block icon="bar-chart-2" title="价格分布">
+        <Loading rows={4} />
+      </Block>
+    );
+  }
   if (dist.isError) {
     return (
-      <ErrorState title="拉取价格分布失败" error={dist.error} onRetry={() => dist.refetch()} />
+      <Block icon="bar-chart-2" title="价格分布">
+        <ErrorState title="拉取价格分布失败" error={dist.error} onRetry={() => dist.refetch()} />
+      </Block>
     );
   }
 
   const { quantiles: q, sample_size, fresh_size, data_days } = dist.data;
-  const note = `口径：最近 ${query.days} 天内还被看到过的商品，每件只取最新一次报价 · 已收集 ${data_days} 天 · 样本 ${sample_size} 件，其中 ${fresh_size} 件最近两轮仍在售`;
+  const caption = `口径：最近 ${query.days} 天内还被看到过的商品，每件只取最新一次报价 · 已收集 ${data_days} 天 · 样本 ${sample_size} 件，其中 ${fresh_size} 件最近两轮仍在售`;
 
   if (sample_size === 0) {
     return (
-      <Block title="价格分布" note={note}>
+      <Block icon="bar-chart-2" title="价格分布" note="0 SAMPLES" caption={caption}>
         <Empty
           message={`最近 ${query.days} 天里没有这个关键词的在售报价。换更长的窗口，或等下一轮采集。`}
         />
@@ -97,59 +178,38 @@ function DistributionBlock({ query }: { query: AnalyticsQuery }) {
   }
 
   return (
-    <Block title="价格分布" note={note}>
-      {/* Two samples is where statistics.quantiles starts working, so one
-          listing is an ordinary day-one state and not an error. Saying so
-          beats printing five dashes and letting the user guess. */}
-      {sample_size < 2 ? (
-        <p className="muted" style={{ fontSize: 13 }}>
-          只有 1 件样本，给不出分位数——下面这一档就是它本身。
-        </p>
-      ) : (
-        <div className="table-scroll">
-          <table>
-            <caption
-              className="muted"
-              style={{
-                captionSide: "top",
-                textAlign: "left",
-                padding: "var(--space-2)",
-                fontSize: 12,
-              }}
-            >
-              分位数：一半的商品报价低于中位数。
-            </caption>
-            <thead>
-              <tr>
-                <th>P10</th>
-                <th>P25</th>
-                <th>中位 P50</th>
-                <th>P75</th>
-                <th>P90</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                {[q.p10, q.p25, q.p50, q.p75, q.p90].map((cents, i) => (
-                  <td key={i} className="num" style={{ textAlign: "left" }}>
-                    {formatPrice(cents)}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-      <Histogram
-        buckets={dist.data.histogram.map((b) => ({
-          lo: b.lo_cents,
-          hi: b.hi_cents,
-          count: b.count,
-        }))}
-        format={formatPrice}
-        label="价格"
-        median={q.p50 ?? null}
-      />
+    <Block
+      icon="bar-chart-2"
+      title="价格分布"
+      note={`${sample_size} SAMPLES`}
+      caption={caption}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+        {/* Two samples is where statistics.quantiles starts working, so one
+            listing is an ordinary day-one state and not an error. Saying so
+            beats printing five dashes and letting the user guess. */}
+        {sample_size < 2 ? (
+          <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+            只有 1 件样本，给不出分位数——下面这一档就是它本身。
+          </p>
+        ) : (
+          <QuantileRow
+            quantiles={q}
+            format={formatPrice}
+            meaning="一半的商品报价低于中位数。"
+          />
+        )}
+        <Histogram
+          buckets={dist.data.histogram.map((b) => ({
+            lo: b.lo_cents,
+            hi: b.hi_cents,
+            count: b.count,
+          }))}
+          format={formatPrice}
+          label="价格"
+          median={q.p50 ?? null}
+        />
+      </div>
     </Block>
   );
 }
@@ -157,18 +217,33 @@ function DistributionBlock({ query }: { query: AnalyticsQuery }) {
 function DropsBlock({ query }: { query: AnalyticsQuery }) {
   const drops = useQuery(priceDropsOptions({ ...query, limit: DROP_LIMIT }));
 
-  if (drops.isPending) return <Loading rows={4} />;
+  if (drops.isPending) {
+    return (
+      <Block icon="trending-down" title="降价排行">
+        <Loading rows={4} />
+      </Block>
+    );
+  }
   if (drops.isError) {
-    return <ErrorState title="拉取降价排行失败" error={drops.error} onRetry={() => drops.refetch()} />;
+    return (
+      <Block icon="trending-down" title="降价排行">
+        <ErrorState title="拉取降价排行失败" error={drops.error} onRetry={() => drops.refetch()} />
+      </Block>
+    );
   }
 
   const { rows, sample_size, data_days } = drops.data;
-  const note = `口径：拿 ${query.days} 天前的报价和现价比 · 已收集 ${data_days} 天 · ${sample_size} 件商品两个时点都有报价，其中 ${rows.length} 件降了价。窗口内才上架的没有旧价，不参与。`;
+  const caption = `口径：拿 ${query.days} 天前的报价和现价比 · 已收集 ${data_days} 天 · ${sample_size} 件商品两个时点都有报价，其中 ${rows.length} 件降了价。窗口内才上架的没有旧价，不参与。`;
   const deepest = Math.max(...rows.map((row) => row.drop_bps), 1);
 
   if (rows.length === 0) {
     return (
-      <Block title="降价排行" note={note}>
+      <Block
+        icon="trending-down"
+        title="降价排行"
+        note={`0 / ${sample_size} DROPS`}
+        caption={caption}
+      >
         <Empty
           message={
             sample_size === 0
@@ -181,17 +256,21 @@ function DropsBlock({ query }: { query: AnalyticsQuery }) {
   }
 
   return (
-    <Block title="降价排行" note={note}>
+    <Block
+      icon="trending-down"
+      title="降价排行"
+      note={`TOP ${rows.length} / ${sample_size}`}
+      caption={caption}
+    >
       {/* A ranking, not a chart: rows read better than bars when the question
           is "which one", and the inline bar carries the magnitude. */}
       <div className="table-scroll">
         <table>
           <thead>
             <tr>
-              <th />
               <th>商品</th>
-              <th style={{ textAlign: "right" }}>窗口初价</th>
-              <th style={{ textAlign: "right" }}>现价</th>
+              <th>价格变化</th>
+              <th aria-label="降幅比例条" />
               <th style={{ textAlign: "right" }}>降幅</th>
               <th>最后见到</th>
             </tr>
@@ -200,49 +279,52 @@ function DropsBlock({ query }: { query: AnalyticsQuery }) {
             {rows.map((row) => (
               <tr key={row.item_id}>
                 <td>
-                  <RemoteImage src={row.cover_url} alt={shortTitle(row.title)} width={40} height={40} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <RemoteImage
+                      src={row.cover_url}
+                      alt={shortTitle(row.title)}
+                      width={40}
+                      height={40}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <Link
+                        className="t2l"
+                        to={`/items/${row.item_id}`}
+                        title={row.title}
+                        style={{ maxWidth: 200, fontSize: 13 }}
+                      >
+                        {row.title}
+                      </Link>
+                      {row.is_fresh ? null : (
+                        // Not a colour-only hint: without the words, a user
+                        // clicks through to a listing that is already gone.
+                        <span className="pill" data-tone="danger">
+                          <Icon name="x" size={11} />
+                          已离开观测范围
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </td>
-                <td style={{ maxWidth: 320 }}>
-                  <Link
-                    to={`/items/${row.item_id}`}
-                    title={row.title}
-                    style={{
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {row.title}
-                  </Link>
-                  {row.is_fresh ? null : (
-                    // Not a colour-only hint: without the words, a user
-                    // clicks through to a listing that is already gone.
-                    <span className="pill" data-tone="danger" style={{ marginTop: 2 }}>
-                      已离开观测范围
-                    </span>
-                  )}
+                <td className="mono" style={{ whiteSpace: "nowrap", fontSize: 12.5 }}>
+                  <span className="dim">{formatPrice(row.then_cents)}</span>
+                  {" → "}
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>
+                    {formatPrice(row.now_cents)}
+                  </span>
                 </td>
-                <td className="num muted">{formatPrice(row.then_cents)}</td>
-                <td className="num" style={{ fontWeight: 600 }}>
-                  {formatPrice(row.now_cents)}
+                <td>
+                  <div className="bar-track" aria-hidden="true">
+                    <div
+                      className="bar"
+                      style={{ width: `${Math.max((row.drop_bps / deepest) * 100, 6)}%` }}
+                    />
+                  </div>
                 </td>
-                <td className="num" style={{ color: "var(--success)", fontWeight: 600 }}>
+                <td className="num" style={{ color: "var(--green)", fontWeight: 600 }}>
                   {formatChangeRatio(-row.drop_bps / 10000)}
-                  <div
-                    aria-hidden="true"
-                    style={{
-                      marginTop: 3,
-                      height: 4,
-                      borderRadius: 2,
-                      background: "var(--success)",
-                      width: `${Math.max((row.drop_bps / deepest) * 100, 6)}%`,
-                      marginLeft: "auto",
-                    }}
-                  />
                 </td>
-                <td className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                <td className="dim" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
                   {formatRelativeTime(row.last_seen_at)}
                 </td>
               </tr>
@@ -257,24 +339,43 @@ function DropsBlock({ query }: { query: AnalyticsQuery }) {
 function TrendBlock({ query }: { query: AnalyticsQuery }) {
   const trend = useQuery(supplyTrendOptions(query));
 
-  if (trend.isPending) return <Loading rows={4} />;
+  if (trend.isPending) {
+    return (
+      <Block icon="activity" title="供应量趋势">
+        <Loading rows={4} />
+      </Block>
+    );
+  }
   if (trend.isError) {
-    return <ErrorState title="拉取供应量趋势失败" error={trend.error} onRetry={() => trend.refetch()} />;
+    return (
+      <Block icon="activity" title="供应量趋势">
+        <ErrorState
+          title="拉取供应量趋势失败"
+          error={trend.error}
+          onRetry={() => trend.refetch()}
+        />
+      </Block>
+    );
   }
 
   const { days, sample_size, data_days } = trend.data;
-  const note = `口径：横轴就是这 ${query.days} 天 · 已收集 ${data_days} 天 · 窗口内新增 ${sample_size} 件。「没有新货」和「我们没在看」是两回事，图上分开画。`;
+  const caption = `口径：横轴就是这 ${query.days} 天 · 已收集 ${data_days} 天 · 窗口内新增 ${sample_size} 件。「没有新货」和「我们没在看」是两回事，图上分开画。`;
 
   if (days.length === 0) {
     return (
-      <Block title="供应量趋势" note={note}>
+      <Block icon="activity" title="供应量趋势" note="NO DATA" caption={caption}>
         <Empty message="这个关键词没有任何采集记录。" action={CREATE_RULE} />
       </Block>
     );
   }
 
   return (
-    <Block title="供应量趋势" note={note}>
+    <Block
+      icon="activity"
+      title="供应量趋势"
+      note="NEW ITEMS PER DAY · UTC"
+      caption={caption}
+    >
       <DailyBars days={days} />
     </Block>
   );
@@ -283,14 +384,22 @@ function TrendBlock({ query }: { query: AnalyticsQuery }) {
 function DurationBlock({ query }: { query: AnalyticsQuery }) {
   const duration = useQuery(listingDurationOptions(query));
 
-  if (duration.isPending) return <Loading rows={4} />;
+  if (duration.isPending) {
+    return (
+      <Block icon="hourglass" title="离开观测范围的时长">
+        <Loading rows={4} />
+      </Block>
+    );
+  }
   if (duration.isError) {
     return (
-      <ErrorState
-        title="拉取离开观测范围时长失败"
-        error={duration.error}
-        onRetry={() => duration.refetch()}
-      />
+      <Block icon="hourglass" title="离开观测范围的时长">
+        <ErrorState
+          title="拉取离开观测范围时长失败"
+          error={duration.error}
+          onRetry={() => duration.refetch()}
+        />
+      </Block>
     );
   }
 
@@ -304,7 +413,7 @@ function DurationBlock({ query }: { query: AnalyticsQuery }) {
     aperture_rows,
     legacy_clock_rows,
   } = duration.data;
-  const note = `口径：首次见到落在最近 ${query.days} 天内、且已经连续两轮没再出现的商品，量的是「首次见到 → 最后见到」这段时间 · 已收集 ${data_days} 天 · 样本 ${sample_size} 件`;
+  const caption = `口径：首次见到落在最近 ${query.days} 天内、且已经连续两轮没再出现的商品，量的是「首次见到 → 最后见到」这段时间 · 已收集 ${data_days} 天 · 样本 ${sample_size} 件`;
 
   // The aperture is the reason this metric exists in this shape rather than as
   // a market number, so it is stated in words above the chart every time. The
@@ -319,98 +428,77 @@ function DurationBlock({ query }: { query: AnalyticsQuery }) {
   const legacy = legacyClockNote(legacy_clock_rows, sample_size);
 
   return (
-    <Block title="离开观测范围的时长" note={note}>
-      <p className="muted" style={{ fontSize: 12 }}>
-        {aperture}
-      </p>
-      {caveat === null ? null : (
-        // Not a --warn pill: that colour is reserved for risk control and a
-        // degraded collector (styling-guidelines.md). This is a caveat about
-        // what the numbers can mean, and it has to be readable in words
-        // rather than inferred from a hue.
-        <p
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            margin: 0,
-            padding: "var(--space-2) var(--space-3)",
-            border: "1px solid var(--border-strong)",
-            borderRadius: "var(--radius)",
-          }}
-        >
-          {caveat}
-        </p>
-      )}
-      {legacy === null ? null : (
+    <Block
+      icon="hourglass"
+      title="离开观测范围的时长（≈卖多快）"
+      note={`${sample_size} SAMPLES`}
+      caption={caption}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
         <p className="muted" style={{ fontSize: 12, margin: 0 }}>
-          {legacy}
+          {aperture}
         </p>
-      )}
-      {sample_size === 0 ? (
-        // Two different empties. "Nothing has left yet" is a fact about the
-        // listings; "no history at all" is a fact about the rule, and one of
-        // them is fixed by waiting while the other is not.
-        <Empty
-          message={
-            data_days === 0
-              ? "这个关键词没有任何采集记录。"
-              : `最近 ${query.days} 天里首次见到的商品还都在搜索结果里，没有「已经离开」的可以统计。等它们掉出观测范围，或者换更长的窗口。`
-          }
-          action={data_days === 0 ? CREATE_RULE : undefined}
-        />
-      ) : (
-        <>
-          {sample_size < 2 ? (
-            <p className="muted" style={{ fontSize: 13 }}>
-              只有 1 件样本，给不出分位数——下面这一档就是它本身。
-            </p>
-          ) : (
-            <div className="table-scroll">
-              <table>
-                <caption
-                  className="muted"
-                  style={{
-                    captionSide: "top",
-                    textAlign: "left",
-                    padding: "var(--space-2)",
-                    fontSize: 12,
-                  }}
-                >
-                  分位数：一半的商品在中位数这么久之后就不再出现了。
-                </caption>
-                <thead>
-                  <tr>
-                    <th>P10</th>
-                    <th>P25</th>
-                    <th>中位 P50</th>
-                    <th>P75</th>
-                    <th>P90</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    {[q.p10, q.p25, q.p50, q.p75, q.p90].map((minutes, i) => (
-                      <td key={i} className="num" style={{ textAlign: "left" }}>
-                        {formatDuration(minutes)}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
-          <Histogram
-            buckets={histogram.map((b) => ({
-              lo: b.lo_minutes,
-              hi: b.hi_minutes,
-              count: b.count,
-            }))}
-            format={formatDuration}
-            label="离开观测范围的时长"
-            median={q.p50 ?? null}
+        {caveat === null ? null : (
+          // Not a --warn pill: that colour is reserved for risk control and a
+          // degraded collector (styling-guidelines.md). This is a caveat about
+          // what the numbers can mean, and it has to be readable in words
+          // rather than inferred from a hue.
+          <p
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              margin: 0,
+              padding: "var(--space-2) var(--space-3)",
+              border: "1px solid var(--border-strong)",
+              borderRadius: "var(--radius)",
+            }}
+          >
+            {caveat}
+          </p>
+        )}
+        {legacy === null ? null : (
+          <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+            {legacy}
+          </p>
+        )}
+        {sample_size === 0 ? (
+          // Two different empties. "Nothing has left yet" is a fact about the
+          // listings; "no history at all" is a fact about the rule, and one of
+          // them is fixed by waiting while the other is not.
+          <Empty
+            message={
+              data_days === 0
+                ? "这个关键词没有任何采集记录。"
+                : `最近 ${query.days} 天里首次见到的商品还都在搜索结果里，没有「已经离开」的可以统计。等它们掉出观测范围，或者换更长的窗口。`
+            }
+            action={data_days === 0 ? CREATE_RULE : undefined}
           />
-        </>
-      )}
+        ) : (
+          <>
+            {sample_size < 2 ? (
+              <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+                只有 1 件样本，给不出分位数——下面这一档就是它本身。
+              </p>
+            ) : (
+              <QuantileRow
+                quantiles={q}
+                format={formatDuration}
+                meaning="一半的商品在中位数这么久之后就不再出现了。"
+              />
+            )}
+            <Histogram
+              buckets={histogram.map((b) => ({
+                lo: b.lo_minutes,
+                hi: b.hi_minutes,
+                count: b.count,
+              }))}
+              format={formatDuration}
+              label="离开观测范围的时长"
+              median={q.p50 ?? null}
+            />
+          </>
+        )}
+      </div>
     </Block>
   );
 }
@@ -550,77 +638,85 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
-      <h1>行情分析</h1>
+    <>
+      <PageHero
+        eyebrow={`ANALYTICS DECK · ${days}-DAY ROLLING WINDOW`}
+        ghost="MARKET"
+        title={
+          <>
+            行情分析<span className="thin"> / {shortTitle(keyword)}</span>
+          </>
+        }
+        meta={
+          <>
+            <span>
+              <Icon name="calendar" size={12} />
+              最近 {days} 天 · 日界 UTC
+            </span>
+            <span>
+              <Icon name="database" size={12} />
+              {keywords.length} 个关键词可选
+            </span>
+            {orphan ? (
+              <span>
+                <Icon name="info" size={12} />
+                「{shortTitle(keyword)}」的规则已删除，历史数据仍可查
+              </span>
+            ) : null}
+          </>
+        }
+      />
 
-      <form
-        onSubmit={(e) => e.preventDefault()}
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "var(--space-3)",
-          alignItems: "flex-end",
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius)",
-          padding: "var(--space-3)",
-        }}
-      >
-        <label
-          htmlFor="analytics-keyword"
-          style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
-        >
-          关键词
-          <select
-            id="analytics-keyword"
-            value={keyword}
-            onChange={(e) => update("keyword", e.target.value)}
-          >
-            {(orphan ? [keyword, ...keywords] : keywords).map((kw) => (
-              <option key={kw} value={kw}>
-                {kw}
-                {orphan && kw === keyword ? "（规则已删除）" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <form className="filterbar" onSubmit={(e) => e.preventDefault()}>
+          <label className="field">
+            <span className="field-label">监控关键词</span>
+            <select value={keyword} onChange={(e) => update("keyword", e.target.value)}>
+              {(orphan ? [keyword, ...keywords] : keywords).map((kw) => (
+                <option key={kw} value={kw}>
+                  {kw}
+                  {orphan && kw === keyword ? "（规则已删除）" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label
-          htmlFor="analytics-days"
-          style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
-        >
-          时间窗口
-          <select
-            id="analytics-days"
-            value={days}
-            onChange={(e) => update("days", e.target.value)}
-          >
-            {WINDOWS.map((n) => (
-              <option key={n} value={n}>
-                最近 {n} 天
-              </option>
-            ))}
-          </select>
-        </label>
-      </form>
+          <label className="field">
+            <span className="field-label">统计窗口</span>
+            <select value={days} onChange={(e) => update("days", e.target.value)}>
+              {WINDOWS.map((n) => (
+                <option key={n} value={n}>
+                  最近 {n} 天
+                </option>
+              ))}
+            </select>
+          </label>
 
-      {/* The one caveat that applies to every number below. A keyword is not
-          a product category: these are the listings OUR searches saw, not the
-          market. */}
-      <p className="muted" style={{ fontSize: 12 }}>
-        以下数字都来自「{keyword}」这个关键词的搜索结果，包含被规则价格区间和排除词挡掉的商品——市场是市场，规则是规则。
-        不是整个闲鱼。日期与日界均为 UTC。四块内容里「{days} 天」的含义各不相同，见每块自己的口径。
-      </p>
+          <div className="spacer" />
 
-      {/* Above the numbers it reads, not below them: it is a reading OF the
-          four blocks, and burying the trigger at the bottom of a long scroll
-          hides the one control on this page that costs money. */}
-      <MarketPanel query={query} />
+          {/* The one caveat that applies to every number below. A keyword is
+              not a product category: these are the listings OUR searches saw,
+              not the market. */}
+          <p className="muted" style={{ margin: 0, fontSize: 11.5, flexBasis: "100%" }}>
+            以下数字都来自「{keyword}
+            」这个关键词的搜索结果，包含被规则价格区间和排除词挡掉的商品——市场是市场，规则是规则。
+            不是整个闲鱼。日期与日界均为 UTC。四块内容里「{days}
+            天」的含义各不相同，见每块自己的口径。
+          </p>
+        </form>
 
-      <DistributionBlock query={query} />
-      <DropsBlock query={query} />
-      <TrendBlock query={query} />
-      <DurationBlock query={query} />
-    </div>
+        {/* Above the numbers it reads, not below them: it is a reading OF the
+            four blocks, and burying the trigger at the bottom of a long scroll
+            hides the one control on this page that costs money. */}
+        <MarketPanel query={query} />
+
+        <div className="grid-2">
+          <DistributionBlock query={query} />
+          <DropsBlock query={query} />
+          <TrendBlock query={query} />
+          <DurationBlock query={query} />
+        </div>
+      </div>
+    </>
   );
 }

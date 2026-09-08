@@ -1,13 +1,22 @@
 import type { SupplyDay } from "../api/queries";
-import { bucketRects, dayTicks, scale } from "../lib/chart";
+import {
+  bandPath,
+  dayTicks,
+  rollingBand,
+  scale,
+  smoothPath,
+  stateColumns,
+  type TrendState,
+} from "../lib/chart";
 
-/** New listings per day, with the days we did not collect drawn as such.
+/** New listings per day as the prototype's smoothed trend, with the days we
+ *  did not collect drawn as such.
  *
  *  The whole point of the chart is the difference between "the market was
  *  quiet" and "we were not watching". Both are zero new listings, and drawn
  *  the same way the chart reports a dead market during an outage — so a quiet
- *  day is an outlined stub sitting on the axis and an uncollected day is a
- *  hatched column across the full height.
+ *  collected day gets a dot sitting on the axis and an uncollected day gets a
+ *  hatched column across the full height (`stateColumns` in lib/chart.ts).
  *
  *  Hatching, not a colour: a colour-blind user or a greyscale print gets the
  *  pattern either way (`styling-guidelines.md` — colour never carries meaning
@@ -18,38 +27,63 @@ import { bucketRects, dayTicks, scale } from "../lib/chart";
  *  all means there is simply no record — every day before the run log existed
  *  is in that state, and drawing those as failures turns the entire history
  *  into one long fake outage.
+ *
+ *  The smoothing interpolates, so the band behind the line never leaves the
+ *  observed values and the table below stays the exact-values source.
  */
 
 const W = 720;
 const H = 180;
-const PAD = { top: 12, right: 12, bottom: 30, left: 44 };
+const PAD = { top: 14, right: 14, bottom: 30, left: 44 };
 const PLOT = { left: PAD.left, right: W - PAD.right, top: PAD.top, bottom: H - PAD.bottom };
 
-type DayState = "collected" | "failed" | "unknown";
-
-function stateOf(day: SupplyDay): DayState {
-  if (day.collected) return "collected";
-  return day.runs_failed > 0 ? "failed" : "unknown";
+function stateOf(day: SupplyDay): TrendState {
+  if (day.collected) return "ok";
+  return day.runs_failed > 0 ? "fail" : "idle";
 }
 
-const LEGEND: Record<DayState, string> = {
-  collected: "采集正常",
-  failed: "采集失败",
-  unknown: "无采集记录",
+const LEGEND: Record<TrendState, string> = {
+  ok: "采集正常",
+  fail: "采集失败",
+  idle: "无采集记录",
 };
 
 export default function DailyBars({ days }: { days: SupplyDay[] }) {
-  if (days.length === 0) return null;
+  const lastDay = days[days.length - 1];
+  if (!lastDay) return null;
 
-  const rects = bucketRects(
-    days.map((day, i) => ({ lo: i, hi: i + 1, count: day.new_count })),
-    PLOT,
-  );
-  const peak = Math.max(...days.map((d) => d.new_count));
-  const total = days.reduce((sum, d) => sum + d.new_count, 0);
-  const failed = days.filter((d) => stateOf(d) === "failed").length;
-  const unknown = days.filter((d) => stateOf(d) === "unknown").length;
+  const values = days.map((d) => d.new_count);
+  const states = days.map(stateOf);
+  const peak = Math.max(...values);
+  const total = values.reduce((sum, v) => sum + v, 0);
+  const failed = states.filter((s) => s === "fail").length;
+  const idle = states.filter((s) => s === "idle").length;
   const ticks = new Set(dayTicks(days.length));
+
+  const x = (i: number) => scale(i, 0, days.length - 1, PLOT.left, PLOT.right);
+  // Math.max(peak, 1): a window where nothing was ever new has peak 0, and
+  // scale() centres a zero-width domain -- the axis would float mid-chart.
+  const y = (v: number) => scale(v, 0, Math.max(peak, 1), PLOT.bottom, PLOT.top);
+  const pixels = values.map((v, i) => ({ x: x(i), y: y(v) }));
+  const lastPixel = pixels[pixels.length - 1]!;
+
+  // A single observation has no line; extend it flat so the chart is not an
+  // empty box, which reads as "no data" rather than "one observed day".
+  const linePath =
+    days.length === 1
+      ? `M ${PLOT.left} ${lastPixel.y} L ${PLOT.right} ${lastPixel.y}`
+      : smoothPath(pixels);
+
+  const band = rollingBand(values);
+  const areaPath =
+    days.length < 2
+      ? null
+      : bandPath(
+          band.upper.map((v, i) => ({ x: pixels[i]!.x, y: y(v) })),
+          band.lower.map((v, i) => ({ x: pixels[i]!.x, y: y(v) })),
+        );
+
+  const columns = stateColumns(states, PLOT);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
@@ -59,14 +93,14 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
           width="100%"
           height={H}
           role="img"
-          aria-label={`${days.length} 天内共新增 ${total} 件商品，最多一天 ${peak} 件；其中 ${unknown} 天没有采集记录、${failed} 天采集失败，详细数值见下方表格`}
-          // 30 columns need the room; under this the days merge into a
-          // smear. The wrapper scrolls, not the page.
+          aria-label={`${days.length} 天内共新增 ${total} 件商品，最多一天 ${peak} 件；其中 ${idle} 天没有采集记录、${failed} 天采集失败，详细数值见下方表格`}
+          // 30 days need the room; under this the days merge into a smear.
+          // The wrapper scrolls, not the page.
           style={{ display: "block", minWidth: 560 }}
         >
           <defs>
             <pattern
-              id="sfd-hatch-unknown"
+              id="sfd-hatch-idle"
               width="6"
               height="6"
               patternTransform="rotate(45)"
@@ -75,7 +109,7 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
               <line x1="0" y1="0" x2="0" y2="6" stroke="var(--border-strong)" strokeWidth="1" />
             </pattern>
             <pattern
-              id="sfd-hatch-failed"
+              id="sfd-hatch-fail"
               width="4"
               height="4"
               patternTransform="rotate(45)"
@@ -85,22 +119,17 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
             </pattern>
           </defs>
 
-          {days.map((day, i) => {
-            const rect = rects[i];
-            const state = stateOf(day);
-            if (!rect || state === "collected") return null;
-            return (
-              <rect
-                key={day.date}
-                x={rect.x}
-                y={PLOT.top}
-                width={rect.width}
-                height={PLOT.bottom - PLOT.top}
-                fill={`url(#sfd-hatch-${state})`}
-                opacity={state === "failed" ? 0.6 : 0.45}
-              />
-            );
-          })}
+          {columns.map((col) => (
+            <rect
+              key={col.x}
+              x={col.x}
+              y={col.y}
+              width={col.width}
+              height={col.height}
+              fill={`url(#sfd-hatch-${col.state})`}
+              opacity={col.state === "fail" ? 0.6 : 0.45}
+            />
+          ))}
 
           <line
             x1={PLOT.left}
@@ -113,11 +142,7 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
             <text
               key={count}
               x={PLOT.left - 8}
-              // Math.max(peak, 1) for the same reason bucketRects guards its
-              // height: a window where nothing was ever new has peak 0, and
-              // scale() centres a zero-width domain -- so the sole "0" label
-              // would float halfway up the axis instead of sitting on it.
-              y={scale(count, 0, Math.max(peak, 1), PLOT.bottom, PLOT.top) + 4}
+              y={y(count) + 4}
               textAnchor="end"
               fontSize="11"
               fill="var(--text3)"
@@ -127,47 +152,47 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
             </text>
           ))}
 
-          {days.map((day, i) => {
-            const rect = rects[i];
-            if (!rect) return null;
-            const x = rect.x + 1.5;
-            const width = Math.max(rect.width - 3, 1);
-            // A collected day with nothing new gets a visible outlined stub:
-            // no bar at all would be indistinguishable from the hatched
-            // columns behind it, which is exactly the confusion this chart is
-            // built to remove.
-            if (day.new_count === 0) {
-              return day.collected ? (
-                <rect
-                  key={day.date}
-                  x={x}
-                  y={PLOT.bottom - 4}
-                  width={width}
-                  height={4}
-                  fill="none"
-                  stroke="var(--border-strong)"
-                />
-              ) : null;
-            }
-            return (
-              <rect
+          {areaPath === null ? null : <path d={areaPath} fill="var(--chart-band)" stroke="none" />}
+          <path
+            d={linePath}
+            fill="none"
+            stroke="var(--acc)"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+          {/* Dots mark OBSERVED days only: a collected zero-day gets its dot
+              on the axis, which is exactly what tells it apart from the
+              hatched columns behind the line. */}
+          {days.map((day, i) =>
+            states[i] === "ok" ? (
+              <circle
                 key={day.date}
-                x={x}
-                y={rect.y}
-                width={width}
-                height={rect.height}
-                fill="var(--acc)"
+                cx={pixels[i]!.x}
+                cy={pixels[i]!.y}
+                r="3"
+                fill="var(--chart-dot-fill)"
+                stroke="var(--acc)"
+                strokeWidth="1.6"
               />
-            );
-          })}
+            ) : null,
+          )}
+          <circle
+            cx={lastPixel.x}
+            cy={lastPixel.y}
+            r="6.5"
+            fill="none"
+            stroke="var(--acc)"
+            strokeWidth="1"
+            opacity="0.5"
+          />
 
           {days.map((day, i) =>
-            ticks.has(i) && rects[i] ? (
+            ticks.has(i) ? (
               <text
                 key={day.date}
-                x={rects[i]!.x + rects[i]!.width / 2}
+                x={pixels[i]!.x}
                 y={H - 10}
-                textAnchor="middle"
+                textAnchor={i === 0 ? "start" : i === days.length - 1 ? "end" : "middle"}
                 fontSize="11"
                 fill="var(--text3)"
                 fontFamily="var(--font-mono)"
@@ -179,59 +204,25 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
         </svg>
       </div>
 
-      <ul
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "var(--space-4)",
-          listStyle: "none",
-          margin: 0,
-          padding: 0,
-          fontSize: 12,
-          color: "var(--text2)",
-        }}
-      >
-        <li style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-          <span
-            style={{ width: 12, height: 12, background: "var(--acc)", display: "inline-block" }}
-          />
-          有新增
+      <ul className="legend">
+        <li className="lg">
+          <span className="sw sw-line" />
+          每日新增（平滑）
         </li>
-        <li style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-          <span
-            style={{
-              width: 12,
-              height: 5,
-              border: "1px solid var(--border-strong)",
-              display: "inline-block",
-            }}
-          />
-          采集正常，零新增
+        <li className="lg">
+          <span className="sw sw-dot" />
+          观测日
         </li>
-        <li style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-          <span
-            style={{
-              width: 12,
-              height: 12,
-              display: "inline-block",
-              backgroundImage:
-                "repeating-linear-gradient(45deg, var(--border-strong) 0 1px, transparent 1px 6px)",
-              border: "1px solid var(--line)",
-            }}
-          />
+        <li className="lg">
+          <span className="sw sw-band" />
+          滚动高低区间带
+        </li>
+        <li className="lg">
+          <span className="sw sw-hatch" />
           无采集记录（斜纹）
         </li>
-        <li style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-          <span
-            style={{
-              width: 12,
-              height: 12,
-              display: "inline-block",
-              backgroundImage:
-                "repeating-linear-gradient(45deg, var(--red) 0 1.5px, transparent 1.5px 4px)",
-              border: "1px solid var(--line)",
-            }}
-          />
+        <li className="lg">
+          <span className="sw sw-hatch-red" />
           采集失败（密斜纹）
         </li>
       </ul>
@@ -247,7 +238,8 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
               fontSize: 12,
             }}
           >
-            每天首次见到的商品数。日界按 UTC 切分，不是本地时区。图上是同一份数据。
+            每天首次见到的商品数。日界按 UTC
+            切分，不是本地时区。曲线经过每个观测点，点与点之间是插值；精确数值以本表为准。
           </caption>
           <thead>
             <tr>
@@ -267,7 +259,7 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
                   </td>
                   <td className="num">{day.new_count}</td>
                   <td>
-                    {state !== "failed" ? (
+                    {state !== "fail" ? (
                       // --warn is reserved for risk control and a degraded
                       // collector (styling-guidelines.md). Thirty rows of
                       // "no record" is history, not an alarm, and spending
@@ -275,7 +267,7 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
                       <span className="muted">{LEGEND[state]}</span>
                     ) : (
                       <span className="pill" data-tone="danger">
-                        {LEGEND.failed}
+                        {LEGEND.fail}
                       </span>
                     )}
                   </td>
