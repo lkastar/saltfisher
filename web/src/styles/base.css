@@ -696,9 +696,8 @@ tbody tr:last-child td {
 
 .kpi-grid {
   display: grid;
-  /* auto-fit, not the prototype's repeat(4,1fr): the card count follows what
-   * the API can honestly supply (see OverviewPage), so the grid cannot assume
-   * four. */
+  /* auto-fit, not the prototype's repeat(4,1fr): four cards today (backed by
+   * /api/stats/overview), but the grid still should not assume the count. */
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 14px;
   margin-bottom: 14px;

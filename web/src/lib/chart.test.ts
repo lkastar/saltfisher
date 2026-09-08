@@ -4,6 +4,7 @@ import {
   bandPath,
   bucketRects,
   dayTicks,
+  kdeGeometry,
   rollingBand,
   scale,
   smoothPath,
@@ -244,6 +245,66 @@ describe("sparkPaths", () => {
     expect(area.startsWith(line)).toBe(true);
     expect(area).toContain(`L ${end!.x} 26`);
     expect(area.endsWith("L 2 26 Z")).toBe(true);
+  });
+});
+
+describe("kdeGeometry", () => {
+  const box = { left: 10, right: 210, top: 20, bottom: 120 };
+
+  it("is null for no samples", () => {
+    expect(kdeGeometry([], box)).toBeNull();
+  });
+
+  it("spans the box and touches the top exactly at its peak", () => {
+    const geo = kdeGeometry([100, 120, 125, 130, 200], box)!;
+    // The curve covers the whole box width...
+    expect(geo.curve[0]!.x).toBeCloseTo(box.left, 2);
+    expect(geo.curve[geo.curve.length - 1]!.x).toBeCloseTo(box.right, 2);
+    // ...stays inside it vertically, and its peak-normalisation puts the
+    // densest point on box.top -- otherwise every distribution would render
+    // at a different height and the card would look broken on sparse data.
+    const ys = geo.curve.map((p) => p.y);
+    expect(Math.min(...ys)).toBeCloseTo(box.top, 6);
+    for (const y of ys) {
+      expect(y).toBeGreaterThanOrEqual(box.top - 1e-6);
+      expect(y).toBeLessThanOrEqual(box.bottom + 1e-6);
+    }
+    expect(geo.curve.some((p) => Number.isNaN(p.x) || Number.isNaN(p.y))).toBe(false);
+  });
+
+  it("tails toward the baseline at both domain edges", () => {
+    // The domain extends two bandwidths past min/max so the curve dies down
+    // inside the box instead of being chopped mid-slope.
+    const geo = kdeGeometry([50, 55, 60], box)!;
+    const height = box.bottom - box.top;
+    expect(box.bottom - geo.curve[0]!.y).toBeLessThan(height * 0.25);
+    expect(box.bottom - geo.curve[geo.curve.length - 1]!.y).toBeLessThan(height * 0.25);
+  });
+
+  it("keeps rug dots inset from the edges and in value order", () => {
+    const geo = kdeGeometry([50, 100, 150], box)!;
+    const xs = geo.rug.map((r) => r.x);
+    // min/max sit two bandwidths inside the box, never on its edge.
+    expect(xs[0]!).toBeGreaterThan(box.left);
+    expect(xs[xs.length - 1]!).toBeLessThan(box.right);
+    expect([...xs].sort((a, b) => a - b)).toEqual(xs);
+    // The median line must land on the same mapping the rug used.
+    expect(geo.x(100)).toBeCloseTo(xs[1]!, 6);
+  });
+
+  it("stacks overlapping samples into lanes instead of hiding them", () => {
+    const geo = kdeGeometry([100, 100, 100], box)!;
+    expect(geo.rug.map((r) => r.lane)).toEqual([0, 1, 2]);
+    // All three are the same value, so the same x.
+    expect(new Set(geo.rug.map((r) => r.x)).size).toBe(1);
+  });
+
+  it("survives one sample and an all-equal set without NaN", () => {
+    for (const samples of [[42], [7, 7, 7, 7]]) {
+      const geo = kdeGeometry(samples, box)!;
+      expect(geo.curve.some((p) => Number.isNaN(p.x) || Number.isNaN(p.y))).toBe(false);
+      expect(Math.min(...geo.curve.map((p) => p.y))).toBeCloseTo(box.top, 6);
+    }
   });
 });
 

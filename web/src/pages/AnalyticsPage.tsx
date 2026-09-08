@@ -12,7 +12,7 @@ import {
   type AnalyticsQuery,
 } from "../api/queries";
 import DailyBars from "../components/DailyBars";
-import Histogram from "../components/Histogram";
+import DistroChart from "../components/DistroChart";
 import { Icon, type IconName } from "../components/Icon";
 import LlmPanel, { LLM_WAIT_NOTE } from "../components/LlmPanel";
 import { PageHero } from "../components/PageHero";
@@ -178,7 +178,7 @@ function DistributionBlock({ query }: { query: AnalyticsQuery }) {
     <Block
       icon="bar-chart-2"
       title="价格分布"
-      note={`${sample_size} SAMPLES`}
+      note={`${sample_size} SAMPLES · KDE & RUG`}
       caption={caption}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
@@ -196,7 +196,9 @@ function DistributionBlock({ query }: { query: AnalyticsQuery }) {
             meaning="一半的商品报价低于中位数。"
           />
         )}
-        <Histogram
+        <DistroChart
+          samples={dist.data.samples}
+          sampleSize={sample_size}
           buckets={dist.data.histogram.map((b) => ({
             lo: b.lo_cents,
             hi: b.hi_cents,
@@ -428,7 +430,7 @@ function DurationBlock({ query }: { query: AnalyticsQuery }) {
     <Block
       icon="hourglass"
       title="离开观测范围的时长（≈卖多快）"
-      note={`${sample_size} SAMPLES`}
+      note={sample_size === 0 ? "0 SAMPLES" : `${sample_size} SAMPLES · KDE & RUG`}
       caption={caption}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
@@ -483,7 +485,9 @@ function DurationBlock({ query }: { query: AnalyticsQuery }) {
                 meaning="一半的商品在中位数这么久之后就不再出现了。"
               />
             )}
-            <Histogram
+            <DistroChart
+              samples={duration.data.samples}
+              sampleSize={sample_size}
               buckets={histogram.map((b) => ({
                 lo: b.lo_minutes,
                 hi: b.hi_minutes,

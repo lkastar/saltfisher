@@ -9,6 +9,7 @@ import {
   itemPricesOptions,
   keys,
   llmScenarioOptions,
+  refreshSeller,
 } from "../api/queries";
 import { Icon } from "../components/Icon";
 import LlmPanel, { LLM_WAIT_NOTE } from "../components/LlmPanel";
@@ -143,6 +144,16 @@ export default function ItemDetailPage() {
   const watch = useMutation({
     mutationFn: () => addWatch({ item_id: itemId, interval_seconds: 300 }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.watchlist }),
+  });
+
+  // On-demand seller-profile fetch (prd round-2 item 5). The seller fields
+  // ride on ItemPublic, so re-syncing THIS item's query is what updates the
+  // card. onSettled, not onSuccess: a failed refresh may still have stored a
+  // partial profile, and returning the promise keeps isPending honest until
+  // the fresh item arrives (hook-guidelines).
+  const refresh = useMutation({
+    mutationFn: refreshSeller,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.item(itemId) }),
   });
 
   if (item.isPending) return <Loading rows={6} />;
@@ -326,7 +337,13 @@ export default function ItemDetailPage() {
           </div>
 
           <aside style={{ minWidth: 0 }}>
-            <SellerProfile seller={data} />
+            <SellerProfile
+              seller={data}
+              onRefresh={() => refresh.mutate(data.seller_id)}
+              refreshing={refresh.isPending}
+              refreshError={refresh.error}
+              fetchedAt={refresh.data?.fetched_at ?? null}
+            />
           </aside>
         </div>
 

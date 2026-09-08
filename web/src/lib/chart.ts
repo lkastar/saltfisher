@@ -132,6 +132,77 @@ export function sparkPaths(
   return { line, area: `${line} L ${round2(end.x)} ${height} L ${firstX} ${height} Z`, end };
 }
 
+/** Density-curve geometry for a distribution card, ported from the
+ *  prototype's `SFD.distro`: a gaussian KDE (Silverman's rule bandwidth)
+ *  peak-normalised into the box, plus beeswarm rug positions.
+ *
+ *  The domain extends two bandwidths past the observed min/max so the curve
+ *  tails off inside the box instead of being cut mid-slope. `x` is returned
+ *  so the median line and the axis ticks land on the SAME domain as the
+ *  curve -- two mappings is how a median line drifts off its own bump.
+ */
+export type KdeGeometry = {
+  /** Shared value -> pixel mapping over the extended domain. */
+  x: (value: number) => number;
+  /** The density polyline, left to right, y in [box.top, box.bottom];
+   *  the peak touches box.top exactly. */
+  curve: Pt[];
+  /** One dot per sample, in ascending value order. `lane` stacks dots that
+   *  would overlap horizontally (0 = on the baseline row). */
+  rug: { x: number; lane: number }[];
+};
+
+export function kdeGeometry(
+  samples: readonly number[],
+  box: Box,
+  grid = 120,
+  rugGap = 6,
+): KdeGeometry | null {
+  const n = samples.length;
+  if (n === 0) return null;
+
+  const sorted = [...samples].sort((a, b) => a - b);
+  const min = sorted[0]!;
+  const max = sorted[n - 1]!;
+  const mean = sorted.reduce((s, v) => s + v, 0) / n;
+  // Population sd; the fallbacks keep a single sample or an all-equal set
+  // drawable rather than dividing by a zero bandwidth.
+  const sd =
+    Math.sqrt(sorted.reduce((s, v) => s + (v - mean) ** 2, 0) / n) || (max - min) / 6 || 1;
+  const bw = 1.06 * sd * n ** -0.2;
+  const lo = min - bw * 2;
+  const hi = max + bw * 2;
+  const x = (value: number) => scale(value, lo, hi, box.left, box.right);
+
+  const density: number[] = [];
+  let peak = 0;
+  for (let g = 0; g <= grid; g += 1) {
+    const value = lo + ((hi - lo) * g) / grid;
+    let d = 0;
+    for (const s of sorted) {
+      const u = (value - s) / bw;
+      d += Math.exp(-0.5 * u * u);
+    }
+    density.push(d);
+    peak = Math.max(peak, d);
+  }
+  const curve = density.map((d, g) => ({
+    x: x(lo + ((hi - lo) * g) / grid),
+    y: box.bottom - (box.bottom - box.top) * (d / peak),
+  }));
+
+  const lanes: number[] = [];
+  const rug = sorted.map((value) => {
+    const px = x(value);
+    let lane = 0;
+    while (lanes[lane] !== undefined && px - lanes[lane]! < rugGap) lane += 1;
+    lanes[lane] = px;
+    return { x: px, lane };
+  });
+
+  return { x, curve, rug };
+}
+
 /** Map a value onto a pixel range, tolerating a zero-width domain (one
  *  observation, or several at the same price) by centring instead of dividing
  *  by zero.

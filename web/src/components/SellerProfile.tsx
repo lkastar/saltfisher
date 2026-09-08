@@ -9,6 +9,8 @@
  */
 
 import { Icon } from "./Icon";
+import { ErrorState } from "./States";
+import { formatRelativeTime } from "../lib/format";
 
 type Profile = {
   seller_nick: string;
@@ -20,11 +22,30 @@ type Profile = {
   seller_verified?: boolean | null;
 };
 
+type SellerProfileProps = {
+  seller: Profile;
+  /** Wire-up for the on-demand refresh (prd round-2 item 5). The mutation
+   *  lives in the page -- this component stays presentational. All optional so
+   *  a caller without a refresh path renders the plain card. */
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  refreshError?: Error | null;
+  /** From the refresh RESULT (`SellerRefreshResult.fetched_at`), not from
+   *  ItemPublic -- the item payload does not carry a profile timestamp. */
+  fetchedAt?: string | null;
+};
+
 function show(value: number | null | undefined, suffix = ""): string {
   return value === null || value === undefined ? "未知" : `${value}${suffix}`;
 }
 
-export default function SellerProfile({ seller }: { seller: Profile }) {
+export default function SellerProfile({
+  seller,
+  onRefresh,
+  refreshing = false,
+  refreshError = null,
+  fetchedAt = null,
+}: SellerProfileProps) {
   const shopKnown = seller.seller_is_shop !== null && seller.seller_is_shop !== undefined;
   const shop = !shopKnown ? "类型未知" : seller.seller_is_shop ? "鱼小铺（商家）" : "个人卖家";
 
@@ -35,11 +56,32 @@ export default function SellerProfile({ seller }: { seller: Profile }) {
           <Icon name="user-check" size={15} />
           卖家画像
         </h2>
-        {/* Accent only when the type is a fetched fact; "未知" stays neutral. */}
-        <span className="pill" data-tone={shopKnown ? "acc" : undefined}>
-          {shop}
-        </span>
+        <div className="actions">
+          {/* Accent only when the type is a fetched fact; "未知" stays neutral. */}
+          <span className="pill" data-tone={shopKnown ? "acc" : undefined}>
+            {shop}
+          </span>
+          {onRefresh === undefined ? null : (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              title="向闲鱼现场抓一次这个卖家的画像（画像还新鲜时不会重复抓）"
+            >
+              <Icon name="refresh-cw" size={13} />
+              {refreshing ? "刷新中…" : "刷新画像"}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Inline, not a toast: the backend's 502 detail is user-readable
+          (which upstream call failed and why) and belongs next to the button
+          that caused it. */}
+      {refreshError === null ? null : (
+        <ErrorState title="刷新卖家画像失败" error={refreshError} />
+      )}
 
       {seller.seller_positive_rate !== null && seller.seller_positive_rate !== undefined ? (
         <div
@@ -81,6 +123,14 @@ export default function SellerProfile({ seller }: { seller: Profile }) {
         <dt>已售出商品</dt>
         <dd>{show(seller.seller_sold_count, " 件")}</dd>
       </dl>
+
+      {/* Also shown when the refresh answered "still fresh" (refreshed:
+          false): the timestamp is the whole story there. */}
+      {fetchedAt === null ? null : (
+        <div className="dim mono" style={{ marginTop: 10, fontSize: 12 }}>
+          画像更新于 {formatRelativeTime(fetchedAt)}
+        </div>
+      )}
 
       <div
         className="dim mono"

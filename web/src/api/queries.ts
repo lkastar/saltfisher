@@ -26,6 +26,8 @@ export type WatchlistUpdate = Schemas["WatchlistUpdate"];
 export type Item = Schemas["ItemPublic"];
 export type PricePoint = Schemas["PricePoint"];
 export type SessionState = Schemas["SessionState"];
+export type StatsOverview = Schemas["StatsOverview"];
+export type SellerRefreshResult = Schemas["SellerRefreshResult"];
 export type CookieImport = Schemas["CookieImport"];
 export type ImportTicket = Schemas["ImportTicket"];
 export type PriceDistribution = Schemas["PriceDistribution"];
@@ -69,6 +71,7 @@ export const keys = {
   item: (id: string) => ["items", id] as const,
   itemPrices: (id: string) => ["items", id, "prices"] as const,
   session: ["session"] as const,
+  statsOverview: ["stats", "overview"] as const,
   /** Coarse -> fine, so invalidating ["analytics"] drops all four charts at
    *  once. The window is part of the key because two windows are two
    *  different answers, not two renderings of one. */
@@ -176,6 +179,16 @@ export function itemPricesOptions(id: string) {
   return queryOptions({
     queryKey: keys.itemPrices(id),
     queryFn: () => request<PricePoint[]>(`/api/items/${id}/prices`),
+  });
+}
+
+/** The overview KPI row in one request. The 30s poll is the caller's:
+ *  dashboard cadence belongs to the dashboard, not the factory.
+ */
+export function statsOverviewOptions() {
+  return queryOptions({
+    queryKey: keys.statsOverview,
+    queryFn: () => request<StatsOverview>("/api/stats/overview"),
   });
 }
 
@@ -327,6 +340,15 @@ export const updateWatch = (itemId: string, body: WatchlistUpdate) =>
 
 export const deleteWatch = (itemId: string) =>
   request<null>(`/api/watchlist/${itemId}`, { method: "DELETE" });
+
+/** On-demand seller profile fetch. encodeURIComponent because a seller id is
+ *  opaque base64 (`+` `/` `=` and all) and here it travels in the PATH, where
+ *  nothing escapes it for us the way URLSearchParams does in queries.
+ */
+export const refreshSeller = (sellerId: string) =>
+  request<SellerRefreshResult>(`/api/sellers/${encodeURIComponent(sellerId)}/refresh`, {
+    method: "POST",
+  });
 
 export const importCookies = (body: CookieImport) =>
   request<SessionState>("/api/session/cookies", {

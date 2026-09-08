@@ -18,6 +18,7 @@ import {
   notifyLogsOptions,
   runMonitor,
   sessionOptions,
+  statsOverviewOptions,
   updateMonitor,
   type Channel,
   type ItemFilters,
@@ -34,12 +35,10 @@ import {
   formatPrice,
   formatPriceRange,
   formatRelativeTime,
-  parseUtc,
   parseYuanToCents,
 } from "../lib/format";
 import { useCountUp, useReveal } from "../lib/fx";
 import { sellerLabel } from "../lib/itemFilters";
-import { countSince, dailyCounts, daysAgoStart, windowCovers } from "../lib/overview";
 
 /** Decorative count-up for a KPI number. A leaf on purpose: the rAF loop in
  *  useCountUp re-renders this one span ~40 times, not the whole page.
@@ -55,17 +54,12 @@ const MIN_INTERVAL = 60;
 
 const CONDITIONS = ["全新", "几乎全新", "轻微使用", "明显使用"] as const;
 
-/** Both list endpoints cap their responses at 200 rows (`/api/items` and
- *  `/api/notify-logs`). The KPIs below are counted from these capped windows,
- *  so every count checks `windowCovers` and admits "N+" when the cap cut the
- *  period short -- an under-count shown as a count is the dashboard lying.
- */
-const WINDOW_CAP = 200;
-
-/** Module-level so the query key is one stable object, not a new identity
+/** The recent-hits window feeds the ticker (12) and the 最近命中 card (5) --
+ *  nothing counts from it any more, `/api/stats/overview` counts server-side.
+ *  Module-level so the query key is one stable object, not a new identity
  *  per render.
  */
-const RECENT_ITEMS: ItemFilters = { sort: "-first_seen", limit: WINDOW_CAP };
+const RECENT_ITEMS: ItemFilters = { sort: "-first_seen", limit: 20 };
 
 /** Dashboard cadence per hook-guidelines: 30s on overview queries, and no
  *  faster -- collection cadence is the real freshness limit.
@@ -619,7 +613,8 @@ export default function OverviewPage() {
   const reveal = useReveal();
   const monitors = useQuery({ ...monitorsOptions(), refetchInterval: POLL });
   const recent = useQuery({ ...itemsOptions(RECENT_ITEMS), refetchInterval: POLL });
-  const logs = useQuery({ ...notifyLogsOptions(WINDOW_CAP), refetchInterval: POLL });
+  const logs = useQuery({ ...notifyLogsOptions(), refetchInterval: POLL });
+  const stats = useQuery({ ...statsOverviewOptions(), refetchInterval: POLL });
   const session = useQuery(sessionOptions());
   const channels = useQuery(channelsOptions());
 
@@ -637,27 +632,24 @@ export default function OverviewPage() {
   const fastest =
     enabledRules.length > 0 ? Math.min(...enabledRules.map((m) => m.interval_seconds)) : null;
 
-  // "Hits" on this dashboard are captured items -- the same fact ItemsPage
-  // lists. Counts come from the capped recent-items window; see WINDOW_CAP.
-  const firstSeens = (recent.data ?? []).map((i) => i.first_seen_at);
-  const todayStart = daysAgoStart(1);
-  const todayCount = countSince(firstSeens, todayStart);
-  const todayExact = windowCovers(firstSeens, todayStart, WINDOW_CAP);
-  const hitsCover7 = recent.isSuccess && windowCovers(firstSeens, daysAgoStart(7), WINDOW_CAP);
-  const hitsDaily = hitsCover7 ? dailyCounts(firstSeens, 7) : null;
+  // Every count below comes from `/api/stats/overview` (server-side, no row
+  // cap), which retired the old client-side derivations in lib/overview.ts
+  // and their "N+" cap-honesty captions. Day boundaries are UTC calendar
+  // days, same as the analytics endpoints.
+  const daily = stats.data?.daily ?? [];
+  const runsSpark = daily.map((d) => d.runs_total);
+  const hitsSpark = daily.map((d) => d.new_hits);
+  const pushesSpark = daily.map((d) => d.pushes);
+  // A zero-run day has no success rate; it is omitted rather than invented.
+  // The spark is decorative (aria-hidden, no axis), so gaps closing up is
+  // acceptable where a fabricated 100% would not be.
+  const rateSpark = daily
+    .filter((d) => d.runs_total > 0)
+    .map((d) => 1 - d.runs_failed / d.runs_total);
 
-  const sentAts = (logs.data ?? []).map((l) => l.sent_at);
-  // Recomputed each render on purpose: the 30s poll re-renders the page, and
-  // "the last 24 hours" is supposed to slide with it.
-  const dayAgo = new Date(new Date().getTime() - 86_400_000);
-  const pushes24 = (logs.data ?? []).filter(
-    (l) => parseUtc(l.sent_at).getTime() >= dayAgo.getTime(),
-  );
-  const pushesExact = windowCovers(sentAts, dayAgo, WINDOW_CAP);
-  const pushesOk = pushes24.filter((l) => l.ok).length;
-  const pushesFailed = pushes24.length - pushesOk;
-  const pushesCover7 = logs.isSuccess && windowCovers(sentAts, daysAgoStart(7), WINDOW_CAP);
-  const pushesDaily = pushesCover7 ? dailyCounts(sentAts, 7) : null;
+  const runs = stats.data?.runs_24h;
+  const successRate = runs !== undefined && runs.total > 0 ? 1 - runs.failed / runs.total : null;
+  const pushes = stats.data?.pushes_24h;
 
   return (
     <>
@@ -689,6 +681,12 @@ export default function OverviewPage() {
                     {session.data.usable ? "会话被风控" : "会话不可用"}
                   </span>
                 )}
+              </span>
+            ) : null}
+            {stats.data ? (
+              <span>
+                <Icon name="database" size={12} />
+                累计观测 {stats.data.items_total} 件
               </span>
             ) : null}
             {failing.length > 0 ? (
@@ -731,9 +729,11 @@ export default function OverviewPage() {
                 ? `${rules.length - enabledRules.length} 条停用 · ${failing.length} 条报错`
                 : " "}
           </span>
-          {/* ponytail: no sparkline here -- no endpoint records rule counts
-              over time, and a spark drawn from nothing would be decoration
-              pretending to be history. */}
+          {runsSpark.length > 1 ? (
+            <div className="kpi-spark">
+              <Spark values={runsSpark} />
+            </div>
+          ) : null}
         </div>
 
         <div className="card kpi" data-reveal ref={reveal}>
@@ -744,29 +744,56 @@ export default function OverviewPage() {
             </span>
           </div>
           <span className="kpi-value">
-            {recent.isPending ? (
-              "…"
-            ) : recent.isError ? (
-              "—"
-            ) : (
-              <>
-                <CountUp value={todayCount} />
-                {todayExact ? "" : "+"}
-              </>
-            )}
+            {stats.isPending ? "…" : stats.isError ? "—" : <CountUp value={stats.data.hits.today} />}
           </span>
           <span className="kpi-sub">
-            {recent.isError
-              ? "拉取失败，详见最近命中"
-              : hitsDaily
-                ? `昨日 ${hitsDaily[5] ?? 0} · 7 日均 ${Math.round(hitsDaily.reduce((a, b) => a + b, 0) / 7)}`
-                : recent.isSuccess
-                  ? `窗口只有最近 ${WINDOW_CAP} 条，7 日统计不完整`
-                  : " "}
+            {stats.isError
+              ? "拉取统计失败"
+              : stats.isSuccess
+                ? `昨日 ${stats.data.hits.yesterday} · 7 日均 ${Math.round(stats.data.hits.avg_7d * 10) / 10}`
+                : " "}
           </span>
-          {hitsDaily ? (
+          {hitsSpark.length > 1 ? (
             <div className="kpi-spark">
-              <Spark values={hitsDaily} color="var(--green)" />
+              <Spark values={hitsSpark} color="var(--green)" />
+            </div>
+          ) : null}
+        </div>
+
+        <div className="card kpi" data-reveal ref={reveal}>
+          <div className="kpi-top">
+            <span className="kpi-label">
+              <Icon name="gauge" size={13} />
+              24H 采集成功率
+            </span>
+            {/* --warn is exactly for this: a degraded collector. */}
+            {runs !== undefined && runs.failed > 0 ? (
+              <span className="pill" data-tone="warn">
+                有失败
+              </span>
+            ) : null}
+          </div>
+          <span className="kpi-value">
+            {/* No CountUp: the rate is not an integer, and useCountUp rounds. */}
+            {stats.isPending
+              ? "…"
+              : stats.isError || successRate === null
+                ? "—"
+                : `${(successRate * 100).toFixed(1)}`}
+            {successRate !== null ? <span className="unit">%</span> : null}
+          </span>
+          <span className="kpi-sub">
+            {stats.isError
+              ? "拉取统计失败"
+              : runs !== undefined
+                ? runs.total === 0
+                  ? "24H 内没有采集运行"
+                  : `${runs.total} 次运行 · ${runs.failed} 次失败`
+                : " "}
+          </span>
+          {rateSpark.length > 1 ? (
+            <div className="kpi-spark">
+              <Spark values={rateSpark} />
             </div>
           ) : null}
         </div>
@@ -779,28 +806,21 @@ export default function OverviewPage() {
             </span>
           </div>
           <span className="kpi-value">
-            {logs.isPending ? (
-              "…"
-            ) : logs.isError ? (
-              "—"
-            ) : (
-              <>
-                <CountUp value={pushes24.length} />
-                {pushesExact ? "" : "+"}
-              </>
-            )}
-            {logs.isSuccess ? <span className="unit">次</span> : null}
+            {stats.isPending ? "…" : stats.isError ? "—" : <CountUp value={stats.data.pushes_24h.total} />}
+            {stats.isSuccess ? <span className="unit">次</span> : null}
           </span>
           <span className="kpi-sub">
-            {logs.isError
-              ? "拉取失败，详见最近推送"
-              : logs.isSuccess
-                ? `成功 ${pushesOk} · 失败 ${pushesFailed}`
+            {stats.isError
+              ? "拉取统计失败"
+              : pushes !== undefined
+                ? `邮件 ${pushes.email} · Telegram ${pushes.telegram} · ${
+                    pushes.failed === 0 ? "全部成功" : `${pushes.failed} 次失败`
+                  }`
                 : " "}
           </span>
-          {pushesDaily ? (
+          {pushesSpark.length > 1 ? (
             <div className="kpi-spark">
-              <Spark values={pushesDaily} />
+              <Spark values={pushesSpark} />
             </div>
           ) : null}
         </div>
