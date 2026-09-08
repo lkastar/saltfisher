@@ -4,11 +4,15 @@
  *  "still asking", "the collector is broken", "nothing matched". Rendering
  *  them the same way -- or worse, collapsing isLoading || isError into one
  *  spinner -- hides exactly the failure the tool exists to report.
+ *
+ *  Visuals are the SIGNAL DECK prototype's: shimmer skeleton, tinted alert
+ *  strip, centered empty block (`.skeleton`/`.alert`/`.empty` in base.css).
  */
 
 import { useEffect, useState } from "react";
 
 import { ApiError } from "../api/client";
+import { Icon } from "./Icon";
 
 /** A skeleton that appears only if the wait is actually perceptible. Showing
  *  it immediately makes a 40ms response flash, which reads as a glitch.
@@ -24,29 +28,12 @@ export function Loading({ rows = 3 }: { rows?: number }) {
   if (!visible) return null;
 
   return (
-    <div
-      aria-busy="true"
-      aria-live="polite"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-2)",
-        padding: "var(--space-3)",
-      }}
-    >
+    <div className="skeleton" aria-busy="true" aria-live="polite">
       <span className="muted" style={{ fontSize: 12 }}>
         加载中…
       </span>
       {Array.from({ length: rows }, (_, i) => (
-        <div
-          key={i}
-          style={{
-            height: 11,
-            borderRadius: "var(--radius-sm)",
-            background: "var(--surface-2)",
-            width: `${100 - i * 12}%`,
-          }}
-        />
+        <div key={i} className="sk" style={{ width: `${100 - i * 12}%` }} />
       ))}
     </div>
   );
@@ -66,35 +53,27 @@ export function ErrorState({
   error,
   onRetry,
   tone = "danger",
+  action,
 }: {
   title?: string;
   error: unknown;
   onRetry?: () => void;
   tone?: "danger" | "warn";
+  /** Extra escape hatch beyond retry, e.g. "查看任务" on the items page's
+   *  broken-rule fork. */
+  action?: React.ReactNode;
 }) {
   return (
-    <div
-      role="alert"
-      style={{
-        border: `1px solid var(--${tone})`,
-        background: `var(--${tone}-bg)`,
-        borderRadius: "var(--radius)",
-        padding: "var(--space-3)",
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-2)",
-        alignItems: "flex-start",
-      }}
-    >
-      <strong style={{ color: `var(--${tone})` }}>{title}</strong>
-      <code className="mono" style={{ fontSize: 12, wordBreak: "break-word" }}>
-        {messageOf(error)}
-      </code>
+    <div role="alert" className="alert" data-tone={tone}>
+      <Icon name={tone === "warn" ? "alert-triangle" : "alert-circle"} size={15} />
+      <strong>{title}</strong>
+      <code className="alert-msg">{messageOf(error)}</code>
       {onRetry ? (
         <button type="button" onClick={onRetry}>
           重试
         </button>
       ) : null}
+      {action}
     </div>
   );
 }
@@ -110,17 +89,8 @@ export function Empty({
   action?: React.ReactNode;
 }) {
   return (
-    <div
-      style={{
-        padding: "var(--space-5) var(--space-3)",
-        textAlign: "center",
-        color: "var(--text-muted)",
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-3)",
-        alignItems: "center",
-      }}
-    >
+    <div className="empty">
+      <Icon name="inbox" size={26} />
       <span>{message}</span>
       {action}
     </div>

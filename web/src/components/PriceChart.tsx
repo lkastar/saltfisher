@@ -1,6 +1,13 @@
 import type { PricePoint } from "../api/queries";
 import { bandPath, rollingBand, scale, smoothPath } from "../lib/chart";
-import { formatDateTime, formatPrice, formatRelativeTime, parseUtc } from "../lib/format";
+import {
+  formatChangeRatio,
+  formatDateTime,
+  formatPrice,
+  formatRelativeTime,
+  parseUtc,
+} from "../lib/format";
+import { Icon } from "./Icon";
 
 /** Price history as the prototype's smoothed trend, plus the same numbers as
  *  a table.
@@ -25,9 +32,17 @@ const PAD = { top: 18, right: 14, bottom: 24, left: 64 };
 export default function PriceChart({ points }: { points: PricePoint[] }) {
   if (points.length === 0) {
     return (
-      <p className="muted" style={{ fontSize: 13 }}>
-        还没有价格观测。
-      </p>
+      <section className="card">
+        <div className="card-h">
+          <h2>
+            <Icon name="chart-spline" size={15} />
+            价格观测历史
+          </h2>
+        </div>
+        <p className="muted" style={{ fontSize: 13 }}>
+          还没有价格观测。
+        </p>
+      </section>
     );
   }
 
@@ -67,32 +82,36 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
   const change = last.price_cents - first.price_cents;
 
   return (
-    <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-      <header style={{ display: "flex", gap: "var(--space-4)", flexWrap: "wrap", alignItems: "baseline" }}>
-        <h2>价格历史</h2>
-        <span className="mono" style={{ fontSize: 16, fontWeight: 600 }}>
+    <section
+      className="card"
+      style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}
+    >
+      <div className="card-h" style={{ marginBottom: 0 }}>
+        <h2>
+          <Icon name="chart-spline" size={15} />
+          价格观测历史
+        </h2>
+        <span className="note">{points.length} SNAPSHOTS</span>
+      </div>
+
+      <div className="mono" style={{ fontSize: 12, color: "var(--text2)" }}>
+        当前{" "}
+        <span style={{ color: "var(--text)", fontWeight: 600 }}>
           {formatPrice(last.price_cents)}
         </span>
         {change !== 0 ? (
-          <span
-            className="mono"
-            style={{
-              color: change < 0 ? "var(--green)" : "var(--red)",
-              fontWeight: 600,
-              fontSize: 13,
-            }}
-          >
-            {change < 0 ? "▼" : "▲"} {formatPrice(Math.abs(change))}
-          </span>
+          <>
+            {" · "}较首次观测{" "}
+            <span style={{ color: change < 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
+              {change < 0 ? "▼" : "▲"} {formatPrice(Math.abs(change))} ·{" "}
+              {formatChangeRatio(change / first.price_cents)}
+            </span>
+          </>
         ) : (
-          <span className="muted" style={{ fontSize: 13 }}>
-            与首次观测持平
-          </span>
+          <> · 与首次观测持平</>
         )}
-        <span className="muted" style={{ fontSize: 12 }}>
-          最后观测 {formatRelativeTime(last.captured_at)} · 共 {points.length} 次
-        </span>
-      </header>
+        {" · "}最后观测 {formatRelativeTime(last.captured_at)} · 共 {points.length} 次
+      </div>
 
       <div className="table-scroll" style={{ padding: "var(--space-2)" }}>
         <svg

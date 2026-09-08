@@ -30,7 +30,13 @@ import RemoteImage from "../components/RemoteImage";
 import Spark from "../components/Spark";
 import { Empty, ErrorState, Loading } from "../components/States";
 import { Ticker } from "../components/Ticker";
-import { formatPrice, formatRelativeTime, parseUtc, parseYuanToCents } from "../lib/format";
+import {
+  formatPrice,
+  formatPriceRange,
+  formatRelativeTime,
+  parseUtc,
+  parseYuanToCents,
+} from "../lib/format";
 import { sellerLabel } from "../lib/itemFilters";
 import { countSince, dailyCounts, daysAgoStart, windowCovers } from "../lib/overview";
 
@@ -57,15 +63,6 @@ const RECENT_ITEMS: ItemFilters = { sort: "-first_seen", limit: WINDOW_CAP };
  *  faster -- collection cadence is the real freshness limit.
  */
 const POLL = 30_000;
-
-function priceRange(m: Monitor): string {
-  const lo = m.price_min_cents;
-  const hi = m.price_max_cents;
-  if (lo == null && hi == null) return "不限";
-  if (lo == null) return `≤ ${formatPrice(hi)}`;
-  if (hi == null) return `≥ ${formatPrice(lo)}`;
-  return `${formatPrice(lo)} – ${formatPrice(hi)}`;
-}
 
 /** What the rule watches. `keyword === null` IS the rule type -- see
  *  `models.Monitor`, where the xor CHECK is also the reason a `kind` column
@@ -525,7 +522,7 @@ function TasksSection({
                   <td>
                     <RuleTarget m={m} />
                   </td>
-                  <td className="num">{priceRange(m)}</td>
+                  <td className="num">{formatPriceRange(m.price_min_cents, m.price_max_cents)}</td>
                   <td className="num">{m.interval_seconds}s</td>
                   <td className="num">
                     <Link to={`/items?monitor_id=${m.id}`}>{m.hit_count}</Link>

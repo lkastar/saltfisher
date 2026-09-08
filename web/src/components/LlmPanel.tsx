@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { isFailure, showsRawText, type LlmResult } from "../lib/llm";
+import { Icon } from "./Icon";
 import { ErrorState } from "./States";
 
 /** The trigger button and the result area, shared by the market panel on the
@@ -137,19 +138,19 @@ export default function LlmPanel({
 
   return (
     <section
+      className="card ai-card"
       style={{
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius)",
-        background: "var(--surface)",
-        padding: "var(--space-4)",
         display: "flex",
         flexDirection: "column",
         gap: "var(--space-3)",
       }}
     >
-      <header style={{ display: "flex", gap: "var(--space-3)", alignItems: "baseline" }}>
-        <h2 style={{ margin: 0 }}>{title}</h2>
-      </header>
+      <div className="card-h" style={{ marginBottom: 0 }}>
+        <h2>
+          <Icon name="sparkles" size={15} />
+          {title}
+        </h2>
+      </div>
 
       <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
         {intro}

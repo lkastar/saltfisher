@@ -5,6 +5,7 @@ import {
   formatChangeRatio,
   formatDuration,
   formatPrice,
+  formatPriceRange,
   formatRelativeTime,
   legacyClockNote,
   parseUtc,
@@ -34,6 +35,19 @@ describe("formatPrice", () => {
     // A negative price cannot come off this API; the only requirement
     // here is that it renders something instead of throwing.
     expect(formatPrice(-100)).toBe("¥-1");
+  });
+});
+
+describe("formatPriceRange", () => {
+  it("covers the four boundedness cases", () => {
+    expect(formatPriceRange(null, null)).toBe("不限");
+    expect(formatPriceRange(null, 320000)).toBe("≤ ¥3,200");
+    expect(formatPriceRange(200000, null)).toBe("≥ ¥2,000");
+    expect(formatPriceRange(200000, 320000)).toBe("¥2,000 – ¥3,200");
+  });
+
+  it("treats 0 as a bound, not as unset", () => {
+    expect(formatPriceRange(0, 100)).toBe("¥0 – ¥1");
   });
 });
 

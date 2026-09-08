@@ -8,6 +8,8 @@
  *  Hence `??` and never `||` -- `0 || "未知"` is "未知".
  */
 
+import { Icon } from "./Icon";
+
 type Profile = {
   seller_nick: string;
   seller_is_shop?: boolean | null;
@@ -22,66 +24,75 @@ function show(value: number | null | undefined, suffix = ""): string {
   return value === null || value === undefined ? "未知" : `${value}${suffix}`;
 }
 
-const ROW: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: "var(--space-3)",
-  fontSize: 13,
-};
-
 export default function SellerProfile({ seller }: { seller: Profile }) {
-  const shop =
-    seller.seller_is_shop === null || seller.seller_is_shop === undefined
-      ? "未知"
-      : seller.seller_is_shop
-        ? "鱼小铺（商家）"
-        : "个人卖家";
+  const shopKnown = seller.seller_is_shop !== null && seller.seller_is_shop !== undefined;
+  const shop = !shopKnown ? "类型未知" : seller.seller_is_shop ? "鱼小铺（商家）" : "个人卖家";
 
   return (
-    <section
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-2)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius)",
-        background: "var(--surface)",
-        padding: "var(--space-3)",
-      }}
-    >
-      <h2>卖家</h2>
-      <div style={ROW}>
-        <span className="muted">昵称</span>
-        <span>{seller.seller_nick}</span>
-      </div>
-      <div style={ROW}>
-        <span className="muted">类型</span>
-        <span>{shop}</span>
-      </div>
-      <div style={ROW}>
-        <span className="muted">信用等级</span>
-        <span className="mono">{show(seller.seller_credit_level)}</span>
-      </div>
-      <div style={ROW}>
-        <span className="muted">评价数</span>
-        <span className="mono">{show(seller.seller_review_count)}</span>
-      </div>
-      <div style={ROW}>
-        <span className="muted">好评率</span>
-        <span className="mono">
-          {seller.seller_positive_rate === null ||
-          seller.seller_positive_rate === undefined
-            ? "未知"
-            : `${seller.seller_positive_rate}%`}
+    <section className="card">
+      <div className="card-h">
+        <h2>
+          <Icon name="user-check" size={15} />
+          卖家画像
+        </h2>
+        {/* Accent only when the type is a fetched fact; "未知" stays neutral. */}
+        <span className="pill" data-tone={shopKnown ? "acc" : undefined}>
+          {shop}
         </span>
       </div>
-      <div style={ROW}>
-        <span className="muted">已售</span>
-        <span className="mono">{show(seller.seller_sold_count)}</span>
+
+      {seller.seller_positive_rate !== null && seller.seller_positive_rate !== undefined ? (
+        <div
+          style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12 }}
+        >
+          <span
+            className="mono"
+            style={{ fontSize: 32, fontWeight: 700, color: "var(--acc2)", lineHeight: 1 }}
+          >
+            {seller.seller_positive_rate}%
+          </span>
+          <span className="dim mono" style={{ fontSize: 12 }}>
+            好评率{seller.seller_review_count !== null &&
+            seller.seller_review_count !== undefined
+              ? ` · ${seller.seller_review_count} 评价`
+              : ""}
+          </span>
+        </div>
+      ) : null}
+
+      <dl className="dl">
+        <dt>卖家昵称</dt>
+        <dd style={{ color: "var(--acc2)" }}>{seller.seller_nick.trim() || "未知"}</dd>
+        <dt>卖家类型</dt>
+        <dd>{shop}</dd>
+        <dt>信用等级</dt>
+        <dd>{show(seller.seller_credit_level)}</dd>
+        <dt>历史评价</dt>
+        <dd>{show(seller.seller_review_count, " 条")}</dd>
+        {/* No green here even though the prototype tints it: --green means
+            "cheaper / collecting normally" in this app, and a seller stat is
+            not a system state. The number stands on its own. */}
+        <dt>历史好评率</dt>
+        <dd>
+          {seller.seller_positive_rate === null || seller.seller_positive_rate === undefined
+            ? "未知"
+            : `${seller.seller_positive_rate}%`}
+        </dd>
+        <dt>已售出商品</dt>
+        <dd>{show(seller.seller_sold_count, " 件")}</dd>
+      </dl>
+
+      <div
+        className="dim mono"
+        style={{
+          marginTop: 14,
+          paddingTop: 12,
+          borderTop: "1px dashed var(--line2)",
+          fontSize: 12,
+        }}
+      >
+        「未知」是没抓到字段，不是 0 记录。0 条评价与未知评价是两种判断依据。
       </div>
-      <p className="muted" style={{ fontSize: 11.5, marginTop: "var(--space-1)" }}>
-        「未知」是没抓到，不是 0。0 条评价与未知评价是两种判断依据。
-      </p>
     </section>
   );
 }

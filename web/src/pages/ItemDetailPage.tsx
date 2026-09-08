@@ -10,15 +10,23 @@ import {
   keys,
   llmScenarioOptions,
 } from "../api/queries";
+import { Icon } from "../components/Icon";
 import LlmPanel, { LLM_WAIT_NOTE } from "../components/LlmPanel";
 import PriceChart from "../components/PriceChart";
 import RemoteImage from "../components/RemoteImage";
 import SellerProfile from "../components/SellerProfile";
 import { ErrorState, Loading } from "../components/States";
+import { StatusPill } from "../components/StatusPill";
 import { formatDateTime, formatPrice, formatRelativeTime } from "../lib/format";
 import { itemAdvice, scenarioReady } from "../lib/llm";
 
 const GOOFISH_ITEM = "https://www.goofish.com/item?id=";
+
+const ICON_BUTTON: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 7,
+};
 
 /** The single-item advice trigger (FR-P4-4).
  *
@@ -53,7 +61,7 @@ function AdvicePanel({ itemId }: { itemId: string }) {
 
   return (
     <LlmPanel
-      title="AI 单品建议"
+      title="AI 单品出价建议"
       intro={
         <>
           把这件商品的资料、价格历史、卖家画像、收藏备注和同关键词的行情统计交给模型，
@@ -92,17 +100,19 @@ function AdvicePanel({ itemId }: { itemId: string }) {
           <div
             style={{
               display: "flex",
-              gap: "var(--space-3)",
+              gap: "var(--space-2)",
               flexWrap: "wrap",
-              alignItems: "baseline",
+              alignItems: "center",
             }}
           >
             <span className="pill">结论 {advice.verdict || "—"}</span>
-            <span style={{ fontSize: 13 }}>
-              合理价{" "}
-              <strong className="mono">{formatPrice(advice.fairPriceCents)}</strong>
-              {" · "}建议出价{" "}
-              <strong className="mono">{formatPrice(advice.offerPriceCents)}</strong>
+            <span className="pill" data-tone="acc">
+              <Icon name="target" size={11} />
+              合理价 {formatPrice(advice.fairPriceCents)}
+            </span>
+            <span className="pill" data-tone="acc">
+              <Icon name="tag" size={11} />
+              建议出价 {formatPrice(advice.offerPriceCents)}
             </span>
           </div>
           <p style={{ margin: 0, fontSize: 13.5, whiteSpace: "pre-wrap" }}>{advice.summary}</p>
@@ -150,56 +160,48 @@ export default function ItemDetailPage() {
   const cover = hero ?? data.cover_url ?? data.image_urls[0] ?? null;
 
   return (
-    <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-      <nav style={{ fontSize: 12 }}>
-        <Link to="/items">← 返回命中列表</Link>
-      </nav>
+    <>
+      <Link className="crumb" to="/items">
+        <Icon name="arrow-left" size={13} />
+        返回命中列表
+      </Link>
 
-      <header style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-        <h1>{data.title}</h1>
+      {/* item-hero: page-specific layout per the prototype, so it stays inline
+          rather than growing base.css a one-caller class. */}
+      <header style={{ margin: "24px 0 16px" }}>
+        <div className="hero-eyebrow">ITEM DETAIL · ID: {data.id}</div>
+        <h1 style={{ fontSize: "clamp(22px, 2.6vw, 32px)", lineHeight: 1.25 }}>{data.title}</h1>
         <div
           style={{
             display: "flex",
-            gap: "var(--space-4)",
+            alignItems: "center",
+            gap: 16,
             flexWrap: "wrap",
-            alignItems: "baseline",
+            margin: "12px 0 8px",
           }}
         >
-          <span className="mono" style={{ fontSize: 22, fontWeight: 600 }}>
+          <span className="mono" style={{ fontSize: "clamp(32px, 3.2vw, 44px)", fontWeight: 600 }}>
             {formatPrice(data.price_cents)}
           </span>
-          {data.status === "on_sale" ? (
-            <span className="pill" data-tone="success">
-              在售
-            </span>
-          ) : (
-            <span className="pill" data-tone="danger">
-              {data.status === "sold" ? "已售" : "已下架"}
-            </span>
-          )}
-          <span className="muted" style={{ fontSize: 12 }}>
-            {data.region ?? "地区未知"} · 发布 {formatRelativeTime(data.publish_time)} · 首次入库{" "}
-            {formatDateTime(data.first_seen_at)}
-          </span>
+          <StatusPill status={data.status} />
         </div>
+        <div className="dim mono" style={{ fontSize: 12 }}>
+          {data.region ?? "地区未知"} · 发布 {formatRelativeTime(data.publish_time)} · 首次入库{" "}
+          {formatDateTime(data.first_seen_at)}
+          {prices.data ? ` · 观测 ${prices.data.length} 次` : ""}
+        </div>
+      </header>
 
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {(data.unverified_filters ?? []).length > 0 ? (
-          <p
-            role="note"
-            style={{
-              margin: 0,
-              fontSize: 12.5,
-              color: "var(--text)",
-              background: "var(--warn-bg)",
-              border: "1px solid var(--warn)",
-              borderRadius: "var(--radius-sm)",
-              padding: "var(--space-2)",
-            }}
-          >
-            <strong style={{ color: "var(--warn)" }}>保守放行：</strong>
-            {(data.unverified_filters ?? []).join("、")}
-            —— 这些筛选条件因数据缺失未能验证，命中不代表真的满足。
-          </p>
+          <div className="alert" data-tone="warn" role="note">
+            <Icon name="alert-triangle" size={15} />
+            <span>
+              以下筛选条件因数据缺失未能验证:{" "}
+              <strong>{(data.unverified_filters ?? []).join("、")}</strong>
+              。命中不代表真的满足全部过滤规则。
+            </span>
+          </div>
         ) : null}
 
         <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
@@ -208,8 +210,7 @@ export default function ItemDetailPage() {
             target="_blank"
             rel="noreferrer noopener"
             style={{
-              display: "inline-flex",
-              alignItems: "center",
+              ...ICON_BUTTON,
               minHeight: 32,
               padding: "var(--space-1) var(--space-3)",
               borderRadius: "var(--radius-sm)",
@@ -219,62 +220,92 @@ export default function ItemDetailPage() {
               textDecoration: "none",
             }}
           >
-            去闲鱼查看
+            <Icon name="external-link" size={14} />
+            去闲鱼查看原帖
           </a>
-          <button type="button" onClick={() => watch.mutate()} disabled={watch.isPending}>
+          <button
+            type="button"
+            style={ICON_BUTTON}
+            onClick={() => watch.mutate()}
+            disabled={watch.isPending}
+          >
+            <Icon name="bookmark-plus" size={14} />
             {watch.isPending ? "加入中…" : watch.isSuccess ? "已加入收藏" : "加入收藏并追踪降价"}
           </button>
         </div>
         {watch.isError ? <ErrorState title="加入收藏失败" error={watch.error} /> : null}
-      </header>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 2fr) minmax(240px, 1fr)",
-          gap: "var(--space-4)",
-          alignItems: "start",
-        }}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)", minWidth: 0 }}>
-          <RemoteImage src={cover} alt={data.title} width="100%" height={360} />
-          {data.image_urls.length > 1 ? (
-            <div style={{ display: "flex", gap: "var(--space-2)", overflowX: "auto" }}>
-              {data.image_urls.map((url) => (
-                <button
-                  key={url}
-                  type="button"
-                  onClick={() => setHero(url)}
-                  aria-label="查看这张图"
-                  style={{ padding: 0, border: "none", background: "none", minHeight: 0 }}
+        <div className="grid-21">
+          <div className="side-stack" style={{ minWidth: 0 }}>
+            <section className="card">
+              <RemoteImage src={cover} alt={data.title} width="100%" height={360} />
+              {data.image_urls.length > 1 ? (
+                <div style={{ display: "flex", gap: 8, marginTop: 10, overflowX: "auto" }}>
+                  {data.image_urls.map((url) => (
+                    <button
+                      key={url}
+                      type="button"
+                      onClick={() => setHero(url)}
+                      aria-label="查看这张图"
+                      aria-pressed={cover === url}
+                      style={{
+                        padding: 0,
+                        border: "none",
+                        background: "none",
+                        minHeight: 0,
+                        borderRadius: "var(--radius-sm)",
+                        opacity: cover === url ? 1 : 0.55,
+                        // boxShadow, not outline: an inline outline would
+                        // override the :focus-visible ring.
+                        boxShadow: cover === url ? "0 0 0 1.5px var(--acc)" : undefined,
+                      }}
+                    >
+                      <RemoteImage src={url} alt={data.title} width={64} height={64} />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+
+            {data.description ? (
+              <section className="card">
+                <div className="card-h">
+                  <h2>
+                    <Icon name="file-text" size={15} />
+                    卖家原帖描述
+                  </h2>
+                </div>
+                <div
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    fontSize: 13.5,
+                    lineHeight: 1.8,
+                    wordBreak: "break-word",
+                  }}
                 >
-                  <RemoteImage src={url} alt={data.title} width={72} height={72} />
-                </button>
-              ))}
-            </div>
-          ) : null}
+                  {data.description}
+                </div>
+              </section>
+            ) : null}
 
-          {data.description ? (
-            <p style={{ whiteSpace: "pre-wrap", fontSize: 13.5, wordBreak: "break-word" }}>
-              {data.description}
-            </p>
-          ) : null}
+            {prices.isPending ? <Loading rows={3} /> : null}
+            {prices.isError ? (
+              <ErrorState
+                title="拉取价格历史失败"
+                error={prices.error}
+                onRetry={() => void prices.refetch()}
+              />
+            ) : null}
+            {prices.data ? <PriceChart points={prices.data} /> : null}
+          </div>
 
-          {prices.isPending ? <Loading rows={3} /> : null}
-          {prices.isError ? (
-            <ErrorState
-              title="拉取价格历史失败"
-              error={prices.error}
-              onRetry={() => void prices.refetch()}
-            />
-          ) : null}
-          {prices.data ? <PriceChart points={prices.data} /> : null}
+          <aside style={{ minWidth: 0 }}>
+            <SellerProfile seller={data} />
+          </aside>
         </div>
 
-        <SellerProfile seller={data} />
+        <AdvicePanel itemId={itemId} />
       </div>
-
-      <AdvicePanel itemId={itemId} />
-    </section>
+    </>
   );
 }

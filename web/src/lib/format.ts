@@ -20,6 +20,20 @@ export function formatPrice(cents: number | null | undefined): string {
   })}`;
 }
 
+/** A monitor's price window in one string. Null on both ends is "不限" --
+ *  an unbounded rule filters nothing, and printing "— – —" would read as
+ *  missing data rather than a deliberate open window.
+ */
+export function formatPriceRange(
+  lo: number | null | undefined,
+  hi: number | null | undefined,
+): string {
+  if (lo == null && hi == null) return "不限";
+  if (lo == null) return `≤ ${formatPrice(hi)}`;
+  if (hi == null) return `≥ ${formatPrice(lo)}`;
+  return `${formatPrice(lo)} – ${formatPrice(hi)}`;
+}
+
 /** Durations cross the wire as integer minutes, for the same reason prices
  *  cross as integer cents. Exactly one function turns them into words.
  *
