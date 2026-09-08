@@ -119,6 +119,11 @@ class RawSeller:
     # On-sale listing count. 189 live listings is not a personal seller, and
     # this discriminates better than the identity label.
     listing_count: int | None = None
+    # The seller's NUMERIC userId, which is a different id space from
+    # `seller_id` above: search returns an opaque base64 token, and only a
+    # detail response's `sellerDO.sellerId` carries the numeric form the
+    # seller-listing API accepts. None from every other source.
+    numeric_id: str | None = None
     missing_fields: tuple[str, ...] = field(default=())
 
 
@@ -168,6 +173,7 @@ SELLER_FIELD_MAP: dict[str, tuple[str, ...]] = {
     "positive_rate": ("positiveRate", "goodRate", "praiseRate"),
     "listing_count": ("listingCount", "itemCount"),
     "account_age_days": ("accountAgeDays", "registerDays"),
+    "numeric_id": ("numericId", "sellerId", "userId"),
 }
 
 
@@ -381,6 +387,9 @@ def normalize_seller(payload: dict[str, Any], seller_id: str, source: str) -> Ra
         except (TypeError, ValueError):
             return None
 
+    def as_str(value: Any) -> str | None:
+        return None if value is None else str(value)
+
     return RawSeller(
         seller_id=seller_id,
         nick=str(get("nick") or ""),
@@ -395,5 +404,9 @@ def normalize_seller(payload: dict[str, Any], seller_id: str, source: str) -> Ra
         positive_rate=as_float(get("positive_rate")),
         listing_count=as_int(get("listing_count")),
         account_age_days=as_int(get("account_age_days")),
+        # str, not int: Seller.numeric_id is str and the upstream sends the
+        # value quoted anyway. A round trip through int would only add a place
+        # for a 13-digit id to lose fidelity.
+        numeric_id=as_str(get("numeric_id")),
         missing_fields=tuple(sorted(set(missing))),
     )

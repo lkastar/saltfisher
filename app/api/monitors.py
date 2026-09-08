@@ -9,7 +9,7 @@ from sqlmodel import select
 
 from app.collector.base import ChallengeError, CollectorError
 from app.db import SessionDep
-from app.models import Monitor, MonitorChannel, MonitorHit, NotifyChannel, utcnow
+from app.models import Monitor, MonitorChannel, MonitorHit, NotifyChannel, Seller, utcnow
 from app.scheduler import COLLECT_SEMAPHORE, record_manual_run, run_monitor_cycle
 from app.schemas import CycleResult, MonitorCreate, MonitorPublic, MonitorUpdate
 
@@ -32,9 +32,30 @@ def _public(session: SessionDep, monitor: Monitor) -> MonitorPublic:
     Built explicitly because `channel_ids` is not a column: returning the ORM
     row would serialise it as an empty list and quietly report that every rule
     notifies nobody.
+
+    `seller_nick` is the same story for the other direction: `seller_id` is an
+    opaque base64 token, so a seller rule with only that in the response is
+    unlabellable in the UI.
     """
     assert monitor.id is not None
-    return MonitorPublic(**monitor.model_dump(), channel_ids=_channel_ids(session, monitor.id))
+    seller = None if monitor.seller_id is None else session.get(Seller, monitor.seller_id)
+    return MonitorPublic(
+        **monitor.model_dump(),
+        channel_ids=_channel_ids(session, monitor.id),
+        seller_nick=None if seller is None else seller.nick,
+    )
+
+
+def _require_seller(session: SessionDep, seller_id: str | None) -> None:
+    """A rule may only point at a seller we have actually collected.
+
+    Same shape and same status as `_set_channels`'s channel check. Skipping it
+    would not even fail loudly: `PRAGMA foreign_keys` is per-connection and is
+    not set on the pooled ones, so a typo'd id lands in the table and comes
+    back as a rule with no name attached to it.
+    """
+    if seller_id is not None and session.get(Seller, seller_id) is None:
+        raise HTTPException(status_code=422, detail=f"seller {seller_id} does not exist")
 
 
 def _set_channels(session: SessionDep, monitor_id: int, channel_ids: list[int]) -> None:
@@ -61,6 +82,7 @@ def list_monitors(
 
 @router.post("", response_model=MonitorPublic, status_code=201)
 def create_monitor(payload: MonitorCreate, session: SessionDep) -> MonitorPublic:
+    _require_seller(session, payload.seller_id)
     monitor = Monitor(**payload.model_dump(exclude={"channel_ids"}))
     session.add(monitor)
     session.flush()
@@ -92,6 +114,16 @@ def update_monitor(monitor_id: int, payload: MonitorUpdate, session: SessionDep)
         raise HTTPException(
             status_code=422, detail="price_min_cents must not exceed price_max_cents"
         )
+    # The merged rule still has to target exactly one thing, and only this
+    # layer can see both halves: MonitorUpdate rejects "both in one request",
+    # but "clear the keyword and leave seller_id null" only looks wrong next
+    # to the stored row. Without this the database CHECK would answer, as a
+    # 500.
+    keyword = changes.get("keyword", monitor.keyword)
+    seller_id = changes.get("seller_id", monitor.seller_id)
+    if (keyword is None) == (seller_id is None):
+        raise HTTPException(status_code=422, detail="provide exactly one of keyword or seller_id")
+    _require_seller(session, seller_id)
     for key, value in changes.items():
         setattr(monitor, key, value)
     # Re-enabling by hand is an explicit "try again": clear the failure state,

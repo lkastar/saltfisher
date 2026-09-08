@@ -18,7 +18,12 @@ from app.config import settings
 
 class MonitorBase(SQLModel):
     name: str = Field(min_length=1, max_length=100)
-    keyword: str = Field(min_length=1, max_length=100)
+    # A rule watches a keyword OR a seller, never both and never neither.
+    # `keyword` stopped being required in P5/T2a; the xor is validated below
+    # and again by the database's rule_target_xor CHECK.
+    keyword: str | None = Field(default=None, min_length=1, max_length=100)
+    # The opaque base64 Seller.id, which is the only form search returns.
+    seller_id: str | None = Field(default=None, min_length=1, max_length=100)
     exclude_words: str = ""
     price_min_cents: int | None = Field(default=None, ge=0)
     price_max_cents: int | None = Field(default=None, ge=0)
@@ -31,6 +36,21 @@ class MonitorBase(SQLModel):
     # The 60s floor is an anti-ban rule, not a UI hint. See
     # .trellis/spec/backend/collector-guidelines.md.
     interval_seconds: int = Field(default=300, ge=settings.min_interval_seconds)
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self) -> "MonitorBase":
+        """Both or neither is a 422 here, never a 500 from the CHECK.
+
+        Blank keywords are caught here too, because the CHECK cannot: `''`
+        satisfies `IS NOT NULL`, so a whitespace-only keyword would pass the
+        database and then be searched for. `min_length=1` rejects the empty
+        string but not `'   '`.
+        """
+        if (self.keyword is None) == (self.seller_id is None):
+            raise ValueError("provide exactly one of keyword or seller_id")
+        if self.keyword is not None and not self.keyword.strip():
+            raise ValueError("keyword must not be blank")
+        return self
 
     @model_validator(mode="after")
     def _price_range_must_be_ordered(self) -> "MonitorBase":
@@ -51,6 +71,7 @@ class MonitorUpdate(SQLModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=100)
     keyword: str | None = Field(default=None, min_length=1, max_length=100)
+    seller_id: str | None = Field(default=None, min_length=1, max_length=100)
     exclude_words: str | None = None
     price_min_cents: int | None = Field(default=None, ge=0)
     price_max_cents: int | None = Field(default=None, ge=0)
@@ -67,6 +88,25 @@ class MonitorUpdate(SQLModel):
     # field a rule's channels were frozen at creation, and since the panel
     # created every rule with none, no rule could ever notify anyone.
     channel_ids: list[int] | None = None
+
+    @model_validator(mode="after")
+    def _keyword_must_not_be_blank(self) -> "MonitorUpdate":
+        """Only the check the route cannot make.
+
+        The xor is deliberately NOT repeated here: it needs the stored row
+        either way (`{"keyword": null}` alone is the legitimate first half of
+        a keyword rule becoming a seller rule), so
+        `api/monitors.update_monitor` re-checks the MERGED pair — the same
+        split the price range already uses, and it already covers "both in one
+        request". A copy here was written, found to be unreachable by deleting
+        it and watching every test stay green, and removed.
+
+        Blank is different: `min_length=1` stops `''` but not `'   '`, and the
+        database CHECK cannot see the difference at all.
+        """
+        if self.keyword is not None and not self.keyword.strip():
+            raise ValueError("keyword must not be blank")
+        return self
 
 
 class MonitorPublic(MonitorBase):
@@ -87,6 +127,12 @@ class MonitorPublic(MonitorBase):
     # So the edit form can show what is currently attached rather than
     # guessing, and so "this rule notifies nobody" is visible in the list.
     channel_ids: list[int] = []
+    # Which rule type this is, is `keyword === null` — the inherited xor makes
+    # that total, and a `kind` field would be a second truth (see
+    # models.Monitor). What the page cannot derive is the seller's NAME:
+    # `seller_id` is opaque base64 and shows a human nothing. Null on keyword
+    # rules, and also on a seller rule whose seller row has since vanished.
+    seller_nick: str | None = None
 
 
 class CycleResult(SQLModel):

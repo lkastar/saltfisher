@@ -517,7 +517,13 @@ export default function AnalyticsPage() {
     );
   }
 
-  const keywords = [...new Set(monitors.data.map((m) => m.keyword))];
+  // Seller rules have no keyword (`keyword` is null on them), and every
+  // number on this page is defined against a keyword's search results. So
+  // they are dropped here rather than rendered as a blank option: a picker
+  // entry that produces a 422 is worse than one that is absent.
+  const keywords = [
+    ...new Set(monitors.data.flatMap((m) => (m.keyword === null ? [] : [m.keyword]))),
+  ];
   // `||`, not `??`: a hand-edited or truncated `?keyword=` gives the empty
   // string, which the API rejects with a 422 (keyword is min_length=1) and the
   // page would answer with three error banners instead of a chart.

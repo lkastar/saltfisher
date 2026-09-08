@@ -533,5 +533,10 @@ def flatten_seller(seller_do: dict[str, Any]) -> dict[str, Any]:
         # stronger merchant signal than the identity label, which the live
         # search capture showed to be absent on obvious wholesalers.
         "listingCount": seller_do.get("itemCount"),
+        # The one place the NUMERIC seller id is available. Search returns an
+        # opaque base64 token instead, and the seller-listing API rejects that
+        # form, so this is where the mapping between the two id spaces comes
+        # from (P5/T1).
+        "numericId": seller_do.get("sellerId"),
     }
     return {k: v for k, v in flat.items() if v not in (None, "")}

@@ -54,6 +54,21 @@ _INTERVAL_CHECK = CheckConstraint(
     f"interval_seconds >= {settings.min_interval_seconds}", name="interval_floor"
 )
 
+# Exactly one target per rule: a keyword or a seller, never both and never
+# neither. `IS NOT NULL` evaluates to 0/1 in SQLite, so `<>` is exclusive or.
+#
+# In the database rather than only in the request schema, for the same reason
+# the interval floor is: SQLModel skips validation on table=True models, so
+# internal code could otherwise write a rule that targets nothing and the
+# scheduler would search for None.
+#
+# A BLANK keyword is deliberately NOT this constraint's job -- `keyword=''`
+# satisfies IS NOT NULL. This says "exactly one of the two"; "non-blank"
+# belongs to MonitorBase in schemas.py, where it is a 422 instead of a 500.
+_RULE_TARGET_CHECK = CheckConstraint(
+    "(keyword IS NOT NULL) <> (seller_id IS NOT NULL)", name="rule_target_xor"
+)
+
 
 # --------------------------------------------------------------------------- #
 # Monitoring rules
@@ -61,11 +76,21 @@ _INTERVAL_CHECK = CheckConstraint(
 
 
 class Monitor(SQLModel, table=True):
-    __table_args__ = (_INTERVAL_CHECK,)
+    __table_args__ = (_INTERVAL_CHECK, _RULE_TARGET_CHECK)
 
     id: int | None = Field(default=None, primary_key=True)
     name: str
-    keyword: str
+    # What this rule watches: exactly one of the two is set, enforced by
+    # _RULE_TARGET_CHECK. There is deliberately no `kind` column -- two
+    # mutually exclusive nullable columns already say which it is, and a third
+    # one would be a second truth that can disagree with them. Same call as
+    # CollectRun's monitor_id/item_id pair.
+    keyword: str | None = None
+    # The OPAQUE base64 seller id, i.e. Seller.id: the only form search
+    # returns and what every Item.seller_id points at. The NUMERIC userId the
+    # seller-listing API wants is Seller.numeric_id -- a different id space,
+    # and passing the opaque one there is rejected outright (P5/T1).
+    seller_id: str | None = Field(default=None, foreign_key="seller.id", index=True)
 
     # Filters. Anything the upstream API cannot express is applied locally;
     # see .trellis/spec/backend/collector-guidelines.md for the split.
@@ -122,6 +147,15 @@ class Seller(SQLModel, table=True):
     # missing -- 189 live listings is not a personal seller, and that
     # discriminates better than the shop label does.
     listing_count: int | None = None
+    # The numeric `userId` the seller-listing API takes. `id` above is the
+    # opaque base64 token search returns, and sending that as `userId` comes
+    # back FAIL_BIZ_BAD_REQUEST::解析参数失败 (measured, P5/T1), so both id
+    # spaces have to be stored. Source: a detail response's
+    # `sellerDO.sellerId`. None means nobody has resolved it yet.
+    #
+    # str rather than int because `id` is str and the upstream sends it quoted
+    # ("userId":"2218219939144") -- one fewer conversion to get wrong.
+    numeric_id: str | None = None
     fetched_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
     fetch_error: str | None = None
 

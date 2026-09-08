@@ -201,3 +201,34 @@ def test_a_pre_paging_ledger_gains_its_last_hit_at_column():
         # NULL, not 0 and not "now": the fallback depends on telling
         # "never stamped" apart from "stamped a long time ago".
         assert row.last_hit_at is None
+
+
+def test_a_pre_p5_seller_table_gains_its_numeric_id_column():
+    """P5/T2a added `Seller.numeric_id` -- the numeric `userId` the
+    seller-listing API takes, which search never returns.
+
+    Additive and nullable, so startup handles it and it stays OUT of
+    `scripts/migrations/001`: only `monitor` needed a rebuild there. NULL is
+    the honest value for every seller row that already exists, because the
+    mapping was parsed and dropped before the column existed.
+    """
+    from tests.conftest import memory_engine
+
+    engine = memory_engine()
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE seller DROP COLUMN numeric_id"))
+        conn.execute(
+            text(
+                "INSERT INTO seller (id, nick, listing_count) VALUES ('opaque==', '小顾数码', 189)"
+            )
+        )
+
+    applied = add_missing_columns(engine)
+
+    assert any("seller" in ddl and "numeric_id" in ddl for ddl in applied)
+    with Session(engine) as s:
+        seller = s.get(Seller, "opaque==")
+        assert seller.listing_count == 189
+        # Unresolved, not "the same as id" -- guessing that would be wrong for
+        # 251 of the 253 real rows.
+        assert seller.numeric_id is None

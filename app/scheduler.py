@@ -360,6 +360,15 @@ async def run_monitor_cycle(pipeline: Pipeline, monitor: Monitor) -> CycleOutcom
     re-announces everything after a restart.
     """
     assert monitor.id is not None
+    if monitor.keyword is None:
+        # A seller rule (P5/T2a gave the schema its seller_id; the collection
+        # path is T2b). Raised rather than silently skipped: a rule that never
+        # runs and never says why is the failure the health columns exist to
+        # prevent, and CollectorError routes to last_error like any other
+        # collection failure.
+        raise CollectorError(
+            f"monitor {monitor.id} watches a seller; seller collection is not implemented yet"
+        )
     # settings.search_pages is read here, not inside the pipeline: this is the
     # one place that owns how many upstream requests a cycle is worth, and the
     # manual-run endpoint reaches the upstream through this same function.

@@ -128,6 +128,7 @@ def upsert_seller_profile(session: Session, raw: RawSeller) -> None:
         "positive_rate",
         "account_age_days",
         "listing_count",
+        "numeric_id",
     ):
         value = getattr(raw, field_name)
         # None means "not available from this source"; it must not overwrite a

@@ -197,3 +197,78 @@ def test_item_count_from_the_real_payload_reaches_the_database(session):
     session.commit()
 
     assert session.get(Seller, "s1").listing_count == 189
+
+
+# --------------------------------------------------------------------------- #
+# numeric_id, the other half of the seller's identity (P5/T2a)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_numeric_seller_id_from_the_real_payload_reaches_the_database(session):
+    """`sellerDO.sellerId` -> RawSeller.numeric_id -> Seller.numeric_id.
+
+    The row is keyed on the OPAQUE id the item points at (store re-keys the
+    profile for exactly that reason), so this is the only place the two id
+    spaces are written down next to each other. Without the column, the
+    numeric `userId` the seller-listing API needs is unrecoverable from
+    anything search returns -- passing the opaque token instead comes back
+    FAIL_BIZ_BAD_REQUEST::解析参数失败 (measured, P5/T1).
+
+    Driven by the captured payload for the same reason `listing_count`'s test
+    is: a hand-written RawSeller cannot tell a parse bug from a missing column.
+    """
+    payload = json.loads((FIXTURES / "detail_real.json").read_text())["data"]
+    raw = normalize_seller(
+        flatten_seller(payload["sellerDO"]),
+        seller_id=str(payload["sellerDO"]["sellerId"]),
+        source="detail",
+    )
+    assert raw.numeric_id == "2218219939144", "the parse changed; this test is not the news"
+
+    persist_cycle(
+        session,
+        MONITOR,
+        [
+            Candidate(
+                item=make_item("1", seller_id="opaque=="),
+                outcome=FilterOutcome(True),
+                seller=raw,
+            )
+        ],
+        baseline_done=True,
+        now=NOW,
+    )
+    session.commit()
+
+    stored = session.get(Seller, "opaque==")
+    assert stored is not None, "the profile must key on the id the item points at"
+    assert stored.numeric_id == "2218219939144"
+    # str, not int: the upstream sends it quoted and Seller.id is str too.
+    assert isinstance(stored.numeric_id, str)
+
+
+def test_a_source_without_a_seller_do_leaves_the_numeric_id_unknown(session):
+    """None, not the opaque id. Guessing that `id` is also the numeric one is
+    true for exactly the two numeric-keyed rows in the real database and wrong
+    for the other 251; resolving it is T2b's job."""
+    assert normalize_seller({}, seller_id="opaque==", source="browser").numeric_id is None
+
+    session.add(Seller(id="opaque==", nick="小顾数码"))
+    session.commit()
+    assert session.get(Seller, "opaque==").numeric_id is None
+
+
+def test_a_known_numeric_id_is_not_overwritten_by_a_source_that_lacks_one(session):
+    """Same rule as every other profile field: None means "not available from
+    this source" and must not erase what another source already answered."""
+    session.add(Seller(id="opaque==", nick="小顾数码", numeric_id="2218219939144"))
+    session.commit()
+
+    from app.store import upsert_seller_profile
+
+    upsert_seller_profile(
+        session, RawSeller(seller_id="opaque==", nick="小顾数码", source="browser")
+    )
+    session.commit()
+
+    assert session.get(Seller, "opaque==").numeric_id == "2218219939144"

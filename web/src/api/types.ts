@@ -1303,7 +1303,9 @@ export interface components {
             /** Name */
             name: string;
             /** Keyword */
-            keyword: string;
+            keyword?: string | null;
+            /** Seller Id */
+            seller_id?: string | null;
             /**
              * Exclude Words
              * @default
@@ -1350,7 +1352,9 @@ export interface components {
             /** Name */
             name: string;
             /** Keyword */
-            keyword: string;
+            keyword?: string | null;
+            /** Seller Id */
+            seller_id?: string | null;
             /**
              * Exclude Words
              * @default
@@ -1401,6 +1405,8 @@ export interface components {
              * @default []
              */
             channel_ids: number[];
+            /** Seller Nick */
+            seller_nick?: string | null;
         };
         /**
          * MonitorUpdate
@@ -1412,6 +1418,8 @@ export interface components {
             name?: string | null;
             /** Keyword */
             keyword?: string | null;
+            /** Seller Id */
+            seller_id?: string | null;
             /** Exclude Words */
             exclude_words?: string | null;
             /** Price Min Cents */

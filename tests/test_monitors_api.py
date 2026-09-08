@@ -330,3 +330,149 @@ def test_the_scheduler_sees_the_channels_the_api_wrote(client):
 
     with Session(engine) as s:
         assert [ch.id for ch in channels_for_monitor(s, monitor_id)] == [first]
+
+
+# --------------------------------------------------------------------------- #
+# Seller rules (P5/T2a)
+# --------------------------------------------------------------------------- #
+# A rule targets a keyword OR a seller. Four cases, and the two failing ones
+# have to be 422s from the request schema -- reaching the database's
+# rule_target_xor CHECK would surface as an unreadable 500.
+
+SELLER_ID = "MnkxUUpBS3ZubkNTbXhKS2NNVXJqQQ=="  # opaque base64, as search gives it
+
+
+def _seller(engine, seller_id: str = SELLER_ID, nick: str = "小顾数码") -> None:
+    with Session(engine) as s:
+        s.add(Seller(id=seller_id, nick=nick))
+        s.commit()
+
+
+def test_a_seller_rule_can_be_created_without_a_keyword(client):
+    c, engine = client
+    _seller(engine)
+
+    r = c.post(
+        "/api/monitors",
+        json={"name": "小顾数码的新货", "seller_id": SELLER_ID, "interval_seconds": 600},
+        headers=AUTH,
+    )
+
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["keyword"] is None
+    assert body["seller_id"] == SELLER_ID
+
+
+def test_a_keyword_rule_still_leaves_seller_id_null(client):
+    c, _ = client
+    body = c.post("/api/monitors", json=VALID, headers=AUTH).json()
+    assert body["keyword"] == "iPhone 15"
+    assert body["seller_id"] is None
+
+
+def test_naming_both_a_keyword_and_a_seller_is_422_not_500(client):
+    c, engine = client
+    _seller(engine)
+
+    r = c.post("/api/monitors", json={**VALID, "seller_id": SELLER_ID}, headers=AUTH)
+
+    assert r.status_code == 422, r.text
+
+
+def test_naming_neither_is_422_not_500(client):
+    c, _ = client
+    r = c.post("/api/monitors", json={"name": "什么都不看的规则"}, headers=AUTH)
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.parametrize("keyword", ["", "   ", "\t\n"])
+def test_a_blank_keyword_is_422_because_the_check_cannot_catch_it(client, keyword):
+    """`keyword = ''` satisfies `IS NOT NULL`, so the database CHECK passes it
+    and the scheduler would go and search for whitespace. This is the layer
+    that has to say no."""
+    c, _ = client
+    r = c.post("/api/monitors", json={**VALID, "keyword": keyword}, headers=AUTH)
+    assert r.status_code == 422, r.text
+
+
+def test_a_rule_pointing_at_an_unknown_seller_is_422(client):
+    """`PRAGMA foreign_keys` is per-connection and off on the pooled ones, so
+    without this check a typo'd id lands in the table and comes back as a rule
+    with no name attached to it."""
+    c, _ = client
+    r = c.post("/api/monitors", json={"name": "幽灵卖家", "seller_id": "nope"}, headers=AUTH)
+    assert r.status_code == 422, r.text
+
+
+def test_a_seller_rule_reports_the_sellers_nick(client):
+    """Returning only `seller_id` would put a base64 blob in front of a human."""
+    c, engine = client
+    _seller(engine, nick="阿芳阿芳")
+
+    created = c.post(
+        "/api/monitors", json={"name": "看这个人", "seller_id": SELLER_ID}, headers=AUTH
+    ).json()
+
+    assert created["seller_nick"] == "阿芳阿芳"
+    assert c.get(f"/api/monitors/{created['id']}", headers=AUTH).json()["seller_nick"] == "阿芳阿芳"
+    assert c.get("/api/monitors", headers=AUTH).json()[0]["seller_nick"] == "阿芳阿芳"
+
+
+def test_a_keyword_rule_has_no_nick_to_report(client):
+    c, _ = client
+    assert c.post("/api/monitors", json=VALID, headers=AUTH).json()["seller_nick"] is None
+
+
+def test_a_keyword_rule_can_be_converted_to_a_seller_rule(client):
+    c, engine = client
+    _seller(engine)
+    rule = c.post("/api/monitors", json=VALID, headers=AUTH).json()
+
+    r = c.patch(
+        f"/api/monitors/{rule['id']}",
+        json={"keyword": None, "seller_id": SELLER_ID},
+        headers=AUTH,
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["keyword"] is None
+    assert r.json()["seller_id"] == SELLER_ID
+
+
+def test_patch_cannot_leave_a_rule_watching_nothing(client):
+    """Clearing the keyword alone is only wrong NEXT TO the stored row, which
+    is why the merged check lives in the route and not in MonitorUpdate."""
+    c, _ = client
+    rule = c.post("/api/monitors", json=VALID, headers=AUTH).json()
+
+    r = c.patch(f"/api/monitors/{rule['id']}", json={"keyword": None}, headers=AUTH)
+
+    assert r.status_code == 422, r.text
+    assert c.get(f"/api/monitors/{rule['id']}", headers=AUTH).json()["keyword"] == "iPhone 15"
+
+
+def test_patch_cannot_leave_a_rule_watching_both(client):
+    c, engine = client
+    _seller(engine)
+    rule = c.post("/api/monitors", json=VALID, headers=AUTH).json()
+
+    r = c.patch(f"/api/monitors/{rule['id']}", json={"seller_id": SELLER_ID}, headers=AUTH)
+
+    assert r.status_code == 422, r.text
+
+
+def test_patch_cannot_blank_a_keyword(client):
+    c, _ = client
+    rule = c.post("/api/monitors", json=VALID, headers=AUTH).json()
+    r = c.patch(f"/api/monitors/{rule['id']}", json={"keyword": "  "}, headers=AUTH)
+    assert r.status_code == 422, r.text
+
+
+def test_patch_cannot_point_a_rule_at_an_unknown_seller(client):
+    c, _ = client
+    rule = c.post("/api/monitors", json=VALID, headers=AUTH).json()
+    r = c.patch(
+        f"/api/monitors/{rule['id']}", json={"keyword": None, "seller_id": "nope"}, headers=AUTH
+    )
+    assert r.status_code == 422, r.text
