@@ -803,6 +803,14 @@ function BookmarkletBlock() {
         <span className="mono"> document.cookie </span>
         直接送回面板，不用再走开发者工具。
       </p>
+      {/* Say what it sends. The script now also reads the browser environment
+          so the collector stops claiming to be a different machine than the
+          one the cookies came from; that is worth one sentence rather than a
+          surprise for anyone who reads the script below. */}
+      <p className="muted" style={{ margin: 0 }}>
+        它同时会捎上这台浏览器的<strong>环境信息</strong>（UA、语言、时区、屏幕尺寸），让采集
+        请求和凭证来自同一台机器。都是页面上已经能读到的只读属性，不做任何额外探测。
+      </p>
       {blockedByMixedContent ? (
         <p className="muted" style={{ margin: 0 }}>
           <strong>这台面板用不了书签脚本</strong>：它开在明文 http 的
@@ -1012,6 +1020,25 @@ export default function SettingsPage() {
               {/* Names only. The values never leave the backend. */}
               <dd className="mono" style={{ margin: 0, wordBreak: "break-all" }}>
                 {state.cookie_names.length > 0 ? state.cookie_names.join(" ") : "—"}
+              </dd>
+              <dt className="muted">采集端身份</dt>
+              {/* A summary line, never the snapshot. Same rule as the cookie
+                  list: hardwareConcurrency / deviceMemory and the rest stay in
+                  the backend -- rendering them here would hand a page's worth
+                  of fingerprint to anything that can read this panel. */}
+              <dd style={{ margin: 0, wordBreak: "break-word" }}>
+                {state.fingerprint ?? "内置默认值（开发者工具导入不带环境信息）"}
+                {state.fingerprint && !state.fingerprint_applied ? (
+                  <span className="muted">
+                    {" "}
+                    ——<strong>已记录，但没有采用</strong>
+                    。这份快照来自移动端浏览器，而本工具驱动的每一个页面和接口都是 PC 版（
+                    <span className="mono">pc.search</span> /{" "}
+                    <span className="mono">pc.detail</span>
+                    ）。带着手机 UA 去请求 PC 接口，是把一种不一致换成更糟的一种，所以采集仍
+                    然用内置默认值。想让它生效，请在电脑浏览器上重新点一次书签。
+                  </span>
+                ) : null}
               </dd>
             </dl>
           </>

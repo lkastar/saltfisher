@@ -270,6 +270,59 @@ class PricePoint(SQLModel):
 # --------------------------------------------------------------------------- #
 
 
+class UserAgentBrand(SQLModel):
+    """One entry of `navigator.userAgentData.brands`.
+
+    Reassembled into `sec-ch-ua` verbatim, GREASE padding included: the padding
+    is part of what a real Chromium sends.
+    """
+
+    brand: str
+    version: str
+
+
+class UserAgentData(SQLModel):
+    """`navigator.userAgentData.toJSON()`. Chromium only.
+
+    Firefox and Safari have no such object, which is why the whole field is
+    optional rather than a set of defaults -- an invented `{brands: []}` would
+    be another thing the request claims that the browser never said.
+    """
+
+    brands: list[UserAgentBrand] = []
+    mobile: bool = False
+    platform: str | None = None
+
+
+class EnvSnapshot(SQLModel):
+    """What the bookmarklet reads off the page it runs on.
+
+    Every field is optional and every one of them is genuinely absent
+    somewhere: `userAgentData` on Firefox and Safari, `deviceMemory` outside
+    Chromium. The bookmarklet omits what it cannot read instead of sending
+    `null`, so "absent" here means the browser did not offer it rather than
+    "the browser said it has none".
+
+    No probing: only values already sitting on `navigator`, `screen` and
+    `Intl`. Nothing here costs a request or draws a canvas.
+    """
+
+    user_agent: str | None = None
+    platform: str | None = None
+    language: str | None = None
+    languages: list[str] | None = None
+    hardware_concurrency: int | None = None
+    device_memory: float | None = None
+    max_touch_points: int | None = None
+    ua_data: UserAgentData | None = None
+    screen_width: int | None = None
+    screen_height: int | None = None
+    device_pixel_ratio: float | None = None
+    color_depth: int | None = None
+    time_zone: str | None = None
+    locale: str | None = None
+
+
 class CookieImport(SQLModel):
     """A paste from the browser's devtools.
 
@@ -280,6 +333,10 @@ class CookieImport(SQLModel):
 
     cookie_header: str = Field(min_length=1)
     origin: str = "https://www.goofish.com"
+    # Only the bookmarklet can fill this in -- a devtools paste has no page to
+    # read it from. Absent means "keep the built-in defaults", which is the
+    # behaviour that shipped before this field existed.
+    env: EnvSnapshot | None = None
 
 
 class ImportTicket(SQLModel):
@@ -310,6 +367,14 @@ class SessionState(SQLModel):
     # next request fails.
     proven: bool
     last_success_at: datetime | None
+    # A one-line human summary of the imported environment, never the snapshot
+    # itself. Same rule as `cookie_names`: enough to answer "did it land", not
+    # enough to be a fingerprint anyone can read off the panel.
+    fingerprint: str | None
+    # A mobile snapshot is stored and deliberately not used -- every endpoint
+    # this app drives is the PC site. The page has to be able to say so, or the
+    # summary above looks like a claim about the outgoing requests.
+    fingerprint_applied: bool
 
 
 # --------------------------------------------------------------------------- #

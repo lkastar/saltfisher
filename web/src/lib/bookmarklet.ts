@@ -53,10 +53,29 @@ export function buildBookmarklet(panelOrigin: string, ticket: string): string {
     `d.setAttribute('style',${JSON.stringify(style)});` +
     "d.textContent='正在导入凭证…';" +
     "document.body.appendChild(d);" +
+    // The environment snapshot. Read-only properties that are already on the
+    // page -- no probe, no request, no canvas. `P` skips anything the browser
+    // does not offer, so `userAgentData` (Chromium-only) and `deviceMemory`
+    // arrive absent rather than as a null the backend would have to guess at.
+    //
+    // Wrapped in try/catch because losing the fingerprint must never cost the
+    // cookie import: the credentials are the reason the user clicked.
+    "var z={};try{" +
+    "var n=navigator,s=screen,r=Intl.DateTimeFormat().resolvedOptions()," +
+    "P=function(k,v){if(v!==undefined&&v!==null)z[k]=v};" +
+    "P('user_agent',n.userAgent);P('platform',n.platform);P('language',n.language);" +
+    "P('languages',n.languages&&[].slice.call(n.languages));" +
+    "P('hardware_concurrency',n.hardwareConcurrency);P('device_memory',n.deviceMemory);" +
+    "P('max_touch_points',n.maxTouchPoints);" +
+    "P('ua_data',n.userAgentData&&n.userAgentData.toJSON());" +
+    "P('screen_width',s.width);P('screen_height',s.height);" +
+    "P('device_pixel_ratio',window.devicePixelRatio);P('color_depth',s.colorDepth);" +
+    "P('time_zone',r.timeZone);P('locale',r.locale);" +
+    "}catch(e){z={}}" +
     "var done=function(m){d.textContent=m;setTimeout(function(){d.remove()},20000)};" +
     "fetch(U,{method:'POST',headers:{'content-type':'application/json'," +
     "'x-sfd-import-ticket':T},body:JSON.stringify({cookie_header:document.cookie," +
-    "origin:location.origin})})" +
+    "origin:location.origin,env:z})})" +
     ".then(function(r){return r.json().then(function(b){return{ok:r.ok,s:r.status,b:b}})})" +
     // Deliberately not "已恢复". The import only means the cookies were
     // accepted; only a real collection proves anything, so the message the

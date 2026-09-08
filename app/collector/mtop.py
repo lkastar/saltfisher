@@ -23,6 +23,7 @@ from app.collector.base import (
     RawSeller,
     TransientCollectorError,
 )
+from app.collector.fingerprint import Fingerprint
 from app.collector.session import CHALLENGE_COOKIE, UpstreamSession
 
 log = logging.getLogger(__name__)
@@ -35,11 +36,6 @@ ITEM_API = "mtop.taobao.idle.pc.detail"
 # carries a richer `sellerDO` than a profile page would, and the three other
 # candidate API names all returned FAIL_SYS_API_NOT_FOUNDED (verified
 # 2026-09-04, see the task research note).
-
-UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-)
 
 # ret prefix -> action. Derived from observed responses; see the probe record.
 _CHALLENGE_PREFIXES = (
@@ -117,12 +113,25 @@ class MtopClient:
     depends on.
     """
 
-    def __init__(self, session: UpstreamSession, timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        session: UpstreamSession,
+        fingerprint: Fingerprint | None = None,
+        timeout: float = 15.0,
+    ) -> None:
         self._session = session
+        # Shared with the browser collector so both paths claim one identity.
+        # Optional so the many tests that only care about signing keep working
+        # -- an absent fingerprint is the built-in defaults, which is what the
+        # devtools-paste deployment runs on anyway.
+        self._fingerprint = fingerprint or Fingerprint()
+        # The identity headers are NOT baked in here: they are read per request
+        # (below) so a credential import applies on the next call instead of
+        # the next restart, and so a snapshot without client hints does not
+        # inherit the previous one's.
         self._client = httpx.AsyncClient(
             timeout=timeout,
             headers={
-                "user-agent": UA,
                 "referer": "https://www.goofish.com/",
                 "content-type": "application/x-www-form-urlencoded",
             },
@@ -187,7 +196,10 @@ class MtopClient:
             self._client.cookies.update(sess.cookies)
             try:
                 response = await self._client.post(
-                    f"{BASE_URL}/{api}/1.0/", params=signed, data={"data": data}
+                    f"{BASE_URL}/{api}/1.0/",
+                    params=signed,
+                    data={"data": data},
+                    headers=self._fingerprint.http_headers(),
                 )
             except httpx.TimeoutException as exc:
                 raise TransientCollectorError(f"timeout calling {api}") from exc

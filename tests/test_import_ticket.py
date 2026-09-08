@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.session import TICKET_HEADER, parse_cookie_header
+from app.collector.fingerprint import Fingerprint
 from app.collector.session import UpstreamSession
 from app.main import app
 
@@ -52,6 +53,7 @@ def client(monkeypatch):
     monkeypatch.setattr(scheduler, "engine", memory_engine())
     app.state.session = UpstreamSession()
     app.state.browser = StubBrowser()
+    app.state.fingerprint = Fingerprint()
     app.state.import_tickets = {}
     yield TestClient(app), app.state.session
 

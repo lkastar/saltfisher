@@ -17,6 +17,7 @@ from app.api import llm as llm_api
 from app.api import session as session_api
 from app.auth import require_token
 from app.collector.browser import BrowserCollector
+from app.collector.fingerprint import load_fingerprint
 from app.collector.mtop import MtopClient
 from app.collector.pipeline import Pipeline
 from app.collector.session import UpstreamSession
@@ -55,10 +56,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     notify_client = httpx.AsyncClient(timeout=20.0)
     app.state.notify_client = notify_client
     app.state.notify_registry = build_registry(notify_client)
-    mtop = MtopClient(session)
-    browser = BrowserCollector(session)
+    # One fingerprint for both collectors: the cookies came from a real
+    # browser, so both paths have to claim to be that browser rather than each
+    # its own hardcoded guess. Loaded from disk, because an identity that
+    # reverts to the built-in defaults every restart is a bigger change than
+    # one that never moved.
+    fingerprint = load_fingerprint()
+    mtop = MtopClient(session, fingerprint)
+    browser = BrowserCollector(session, fingerprint)
     await browser.start()
     app.state.session = session
+    app.state.fingerprint = fingerprint
     app.state.browser = browser
     app.state.pipeline = Pipeline(mtop, browser, session)
     log.info("collector ready")

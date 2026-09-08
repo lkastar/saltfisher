@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
 from app.auth import require_token
 from app.collector.browser import BrowserCollector
+from app.collector.fingerprint import Fingerprint
 from app.collector.session import UpstreamSession
 from app.scheduler import resume_challenge_disabled
 from app.schemas import CookieImport, ImportTicket, SessionState
@@ -65,7 +66,9 @@ def parse_cookie_header(raw: str) -> dict[str, str]:
     return cookies
 
 
-def _state(session: UpstreamSession) -> SessionState:
+def _state(request: Request) -> SessionState:
+    session: UpstreamSession = request.app.state.session
+    fingerprint: Fingerprint = request.app.state.fingerprint
     return SessionState(
         origin=session.origin,
         usable=session.usable,
@@ -78,6 +81,11 @@ def _state(session: UpstreamSession) -> SessionState:
         # Names only. A count and a name list are enough to answer "did the
         # paste work"; the values must never leave the process.
         cookie_names=sorted(session.cookies),
+        # Same rule one field down: a summary line, never the snapshot. The
+        # panel says "Google Chrome 141 · Windows · 1920×1080 · Asia/Shanghai";
+        # `hardware_concurrency` and friends stay in the process.
+        fingerprint=fingerprint.summary(),
+        fingerprint_applied=fingerprint.applied,
     )
 
 
@@ -240,7 +248,7 @@ def read_session(request: Request) -> SessionState:
     act" — the UI has to be able to say which, or a challenged session looks
     identical to a quiet market.
     """
-    return _state(request.app.state.session)
+    return _state(request)
 
 
 @router.post("/cookies", response_model=SessionState)
@@ -274,6 +282,14 @@ async def import_cookies(
     session: UpstreamSession = request.app.state.session
     browser: BrowserCollector = request.app.state.browser
     await browser.import_cookies(cookies)
+    if payload.env is not None:
+        # `exclude_none` is what keeps "the browser has no `deviceMemory`"
+        # distinct from "the browser reports no memory": an absent field stays
+        # absent all the way to disk rather than becoming a null the collector
+        # has to second-guess.
+        snapshot = payload.env.model_dump(exclude_none=True)
+        if snapshot:
+            request.app.state.fingerprint.adopt(snapshot)
     # adopt() already clears the challenge flags and re-arms the alert. What it
     # cannot reach is the DATABASE side of the damage: the rules the challenge
     # switched off, which the user otherwise has to re-enable by hand one by
@@ -283,7 +299,7 @@ async def import_cookies(
     # Not "recovered" — nothing here has talked to the upstream. The state is
     # cleared and the next sweep will produce the actual evidence.
     log.info("cookies imported", extra={"resumed_monitors": len(resumed)})
-    return _state(session)
+    return _state(request)
 
 
 @router.delete("/cookies", response_model=SessionState, dependencies=[Depends(require_token)])
@@ -297,4 +313,4 @@ async def clear_cookies(request: Request) -> SessionState:
     session.established_at = None
     session.last_error = "credentials cleared"
     log.info("session cleared by request")
-    return _state(session)
+    return _state(request)

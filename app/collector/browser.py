@@ -19,6 +19,7 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from app.collector import base
 from app.collector.base import ChallengeError, ItemGoneError, ParseError, RawItem
+from app.collector.fingerprint import Fingerprint
 from app.collector.session import UpstreamSession
 from app.config import settings
 
@@ -45,17 +46,17 @@ SELECTORS: dict[str, str] = {
 
 BLOCKED_RESOURCES = {"image", "media", "font"}
 
-UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-)
-
 
 class BrowserCollector:
     """Owns the browser. Constructed and closed by the FastAPI lifespan."""
 
-    def __init__(self, session: UpstreamSession) -> None:
+    def __init__(self, session: UpstreamSession, fingerprint: Fingerprint | None = None) -> None:
         self._session = session
+        # The same object `MtopClient` reads, so the two paths cannot disagree
+        # about who is asking. Read once in `start()`: a context's user-agent
+        # and timezone are fixed at creation, so a snapshot imported later
+        # reaches this path on the next restart, off the persisted file.
+        self._fingerprint = fingerprint or Fingerprint()
         self._pw: Any = None
         self._browser: Browser | None = None
         self._ctx: BrowserContext | None = None
@@ -68,10 +69,7 @@ class BrowserCollector:
             args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
         )
         self._ctx = await self._browser.new_context(
-            viewport={"width": 1440, "height": 900},
-            user_agent=UA,
-            locale="zh-CN",
-            timezone_id="Asia/Shanghai",
+            **self._fingerprint.context_options(),
             storage_state=str(state_path) if state_path.exists() else None,
         )
         await self._ctx.route("**/*", self._block_heavy_resources)

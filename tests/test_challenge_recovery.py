@@ -21,6 +21,7 @@ from sqlmodel import Session, select
 
 from app import scheduler
 from app.collector.base import ChallengeError, CollectorError
+from app.collector.fingerprint import Fingerprint
 from app.collector.session import UpstreamSession
 from app.main import app
 from app.models import Monitor, MonitorChannel, NotifyChannel, NotifyLog, Seller, utcnow
@@ -259,6 +260,7 @@ def client(monkeypatch):
     monkeypatch.setattr(scheduler, "engine", engine)
     app.state.session = UpstreamSession()
     app.state.browser = StubBrowser()
+    app.state.fingerprint = Fingerprint()
     return TestClient(app), app.state.session, engine
 
 

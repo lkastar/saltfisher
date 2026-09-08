@@ -765,6 +765,7 @@ export interface components {
              * @default https://www.goofish.com
              */
             origin: string;
+            env?: components["schemas"]["EnvSnapshot"] | null;
         };
         /**
          * CycleResult
@@ -819,6 +820,48 @@ export interface components {
             p75?: number | null;
             /** P90 */
             p90?: number | null;
+        };
+        /**
+         * EnvSnapshot
+         * @description What the bookmarklet reads off the page it runs on.
+         *
+         *     Every field is optional and every one of them is genuinely absent
+         *     somewhere: `userAgentData` on Firefox and Safari, `deviceMemory` outside
+         *     Chromium. The bookmarklet omits what it cannot read instead of sending
+         *     `null`, so "absent" here means the browser did not offer it rather than
+         *     "the browser said it has none".
+         *
+         *     No probing: only values already sitting on `navigator`, `screen` and
+         *     `Intl`. Nothing here costs a request or draws a canvas.
+         */
+        EnvSnapshot: {
+            /** User Agent */
+            user_agent?: string | null;
+            /** Platform */
+            platform?: string | null;
+            /** Language */
+            language?: string | null;
+            /** Languages */
+            languages?: string[] | null;
+            /** Hardware Concurrency */
+            hardware_concurrency?: number | null;
+            /** Device Memory */
+            device_memory?: number | null;
+            /** Max Touch Points */
+            max_touch_points?: number | null;
+            ua_data?: components["schemas"]["UserAgentData"] | null;
+            /** Screen Width */
+            screen_width?: number | null;
+            /** Screen Height */
+            screen_height?: number | null;
+            /** Device Pixel Ratio */
+            device_pixel_ratio?: number | null;
+            /** Color Depth */
+            color_depth?: number | null;
+            /** Time Zone */
+            time_zone?: string | null;
+            /** Locale */
+            locale?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1547,6 +1590,10 @@ export interface components {
             proven: boolean;
             /** Last Success At */
             last_success_at: string | null;
+            /** Fingerprint */
+            fingerprint: string | null;
+            /** Fingerprint Applied */
+            fingerprint_applied: boolean;
         };
         /**
          * SupplyDay
@@ -1583,6 +1630,41 @@ export interface components {
             ok: boolean;
             /** Error */
             error?: string | null;
+        };
+        /**
+         * UserAgentBrand
+         * @description One entry of `navigator.userAgentData.brands`.
+         *
+         *     Reassembled into `sec-ch-ua` verbatim, GREASE padding included: the padding
+         *     is part of what a real Chromium sends.
+         */
+        UserAgentBrand: {
+            /** Brand */
+            brand: string;
+            /** Version */
+            version: string;
+        };
+        /**
+         * UserAgentData
+         * @description `navigator.userAgentData.toJSON()`. Chromium only.
+         *
+         *     Firefox and Safari have no such object, which is why the whole field is
+         *     optional rather than a set of defaults -- an invented `{brands: []}` would
+         *     be another thing the request claims that the browser never said.
+         */
+        UserAgentData: {
+            /**
+             * Brands
+             * @default []
+             */
+            brands: components["schemas"]["UserAgentBrand"][];
+            /**
+             * Mobile
+             * @default false
+             */
+            mobile: boolean;
+            /** Platform */
+            platform?: string | null;
         };
         /** ValidationError */
         ValidationError: {
