@@ -194,3 +194,22 @@ export function parseYuanToCents(input: string): number | null {
 export function shortTitle(title: string): string {
   return title.length > 18 ? `${title.slice(0, 18)}…` : title;
 }
+
+/** A one-line display title derived from a long stored one.
+ *
+ *  Seller-card-collected listings carry the full description AS the title —
+ *  no short title exists upstream — so the headline is derived here,
+ *  deterministically: first clause up to a strong delimiter, capped at 24
+ *  chars (plain slice is CJK-safe; every char is one code unit in the BMP
+ *  text this marketplace produces). Titles that already fit (≤ 32 chars)
+ *  pass through untouched. Not for list rows or aria-labels — that is
+ *  shortTitle's job.
+ */
+export function displayTitle(title: string): string {
+  if (title.length <= 32) return title;
+  const clause = (title.split(/[，,。、！!？?\n]/, 1)[0] ?? "").trim();
+  // A title that OPENS with a delimiter yields an empty clause; fall back to
+  // a plain prefix rather than an empty headline.
+  const head = clause || title.slice(0, 24).trim();
+  return head.length > 24 ? head.slice(0, 24) : head;
+}

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import {
@@ -18,7 +18,12 @@ import RemoteImage from "../components/RemoteImage";
 import SellerProfile from "../components/SellerProfile";
 import { ErrorState, Loading } from "../components/States";
 import { StatusPill } from "../components/StatusPill";
-import { formatDateTime, formatPrice, formatRelativeTime } from "../lib/format";
+import {
+  displayTitle,
+  formatDateTime,
+  formatPrice,
+  formatRelativeTime,
+} from "../lib/format";
 import { itemAdvice, scenarioReady } from "../lib/llm";
 
 const GOOFISH_ITEM = "https://www.goofish.com/item?id=";
@@ -156,6 +161,26 @@ export default function ItemDetailPage() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.item(itemId) }),
   });
 
+  // Auto-fetch the seller profile once when it is clearly unfetched: every
+  // field a profile fetch fills is null. The ref makes this fire-once per
+  // mount — a refetch or an errored auto-attempt never re-fires it (the
+  // manual 刷新画像 button stays for retries and stale profiles). An effect
+  // triggering a MUTATION is deliberate; the useEffect+fetch ban is about
+  // reads, which stay in TanStack Query.
+  const autoFetched = useRef(false);
+  const seller = item.data;
+  useEffect(() => {
+    if (autoFetched.current || !seller?.seller_id) return;
+    if (
+      seller.seller_credit_level == null &&
+      seller.seller_sold_count == null &&
+      seller.seller_is_shop == null
+    ) {
+      autoFetched.current = true;
+      refresh.mutate(seller.seller_id);
+    }
+  }, [seller, refresh]);
+
   if (item.isPending) return <Loading rows={6} />;
   if (item.isError) {
     return (
@@ -169,12 +194,13 @@ export default function ItemDetailPage() {
 
   const data = item.data;
   const cover = hero ?? data.cover_url ?? data.image_urls[0] ?? null;
-  // With the hero title clamped to two lines, a long title with no separate
-  // description would have no fully readable copy on the page — fall back to
-  // the title text. Short titles (<= 80 chars) fit the hero; repeating them
-  // in a card would just duplicate the headline. (prd round-2 item 4)
+  // Seller-card-collected items store the long description AS the title (no
+  // short title exists upstream), so the headline is derived: first clause,
+  // capped. Whenever displayTitle shortened it, the FULL text must stay
+  // reachable on the page — the description card carries it. (round-2)
+  const heroTitle = displayTitle(data.title);
   const descriptionBody =
-    data.description || (data.title.length > 80 ? data.title : null);
+    data.description || (heroTitle !== data.title ? data.title : null);
 
   return (
     <>
@@ -187,23 +213,13 @@ export default function ItemDetailPage() {
           rather than growing base.css a one-caller class. */}
       <header style={{ margin: "24px 0 16px" }}>
         <div className="hero-eyebrow">ITEM DETAIL · ID: {data.id}</div>
-        {/* Seller-card-collected items carry the long description AS the title
-            (no short title exists upstream), so the hero clamps to two lines;
-            the full text travels in title= and in the description card below.
-            (prd round-2 item 4) */}
+        {/* Clean one-line derived headline; the full stored title travels in
+            title= and, when shortened, in the description card below. */}
         <h1
           title={data.title}
-          style={{
-            fontSize: "clamp(22px, 2.6vw, 32px)",
-            lineHeight: 1.25,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-            wordBreak: "break-word",
-          }}
+          style={{ fontSize: "clamp(22px, 2.6vw, 32px)", lineHeight: 1.25 }}
         >
-          {data.title}
+          {heroTitle}
         </h1>
         <div
           style={{

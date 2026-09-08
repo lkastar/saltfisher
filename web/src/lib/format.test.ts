@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   apertureNote,
+  displayTitle,
   formatChangeRatio,
   formatDuration,
   formatPrice,
@@ -227,5 +228,29 @@ describe("shortTitle", () => {
   it("leaves a short title untouched, with no ellipsis", () => {
     expect(shortTitle("iPhone 15")).toBe("iPhone 15");
     expect(shortTitle("")).toBe("");
+  });
+});
+
+describe("displayTitle", () => {
+  it("passes a title that already fits through unchanged", () => {
+    // 32 chars is inside the pass-through window, delimiters and all.
+    const short = "全新国行 iPhone 15 Pro Max，原色钛金属";
+    expect(displayTitle(short)).toBe(short);
+    expect(displayTitle("")).toBe("");
+  });
+
+  it("cuts a long title at its first strong delimiter", () => {
+    const long = `出一台闲置的索尼 A7M4 相机，${"成色很新快门数少".repeat(5)}`;
+    expect(displayTitle(long)).toBe("出一台闲置的索尼 A7M4 相机");
+  });
+
+  it("caps a delimiter-free first clause at 24 chars", () => {
+    const clause = "0123456789012345678901234567890123456789";
+    expect(displayTitle(clause)).toBe(clause.slice(0, 24));
+  });
+
+  it("falls back to a prefix when the title opens with a delimiter", () => {
+    const weird = `，${"很长的描述文本".repeat(10)}`;
+    expect(displayTitle(weird)).toBe(weird.slice(0, 24).trim());
   });
 });
