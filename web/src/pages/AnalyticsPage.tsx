@@ -26,6 +26,7 @@ import {
   formatPrice,
   formatRelativeTime,
 } from "../lib/format";
+import { useReveal } from "../lib/fx";
 import { marketReading, scenarioReady,
   billingNote,
 } from "../lib/llm";
@@ -74,8 +75,11 @@ function Block({
   caption?: string;
   children: React.ReactNode;
 }) {
+  // Reveal on the stable wrapper only: pending/error/data all render through
+  // this same <section>, so the decorative fade never replays on data arrival.
+  const reveal = useReveal();
   return (
-    <section className="card">
+    <section className="card" data-reveal ref={reveal}>
       <div className="card-h">
         <h2>
           <Icon name={icon} size={15} />

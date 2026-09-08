@@ -37,8 +37,16 @@ import {
   parseUtc,
   parseYuanToCents,
 } from "../lib/format";
+import { useCountUp, useReveal } from "../lib/fx";
 import { sellerLabel } from "../lib/itemFilters";
 import { countSince, dailyCounts, daysAgoStart, windowCovers } from "../lib/overview";
+
+/** Decorative count-up for a KPI number. A leaf on purpose: the rAF loop in
+ *  useCountUp re-renders this one span ~40 times, not the whole page.
+ */
+function CountUp({ value }: { value: number }) {
+  return <>{useCountUp(value)}</>;
+}
 
 /** Mirrors the backend floor. It is an anti-ban rule, not a UI hint: polling
  *  faster is how the upstream session gets challenged.
@@ -415,6 +423,7 @@ function TasksSection({
   channels: Channel[];
 }) {
   const queryClient = useQueryClient();
+  const reveal = useReveal();
   const [creating, setCreating] = useState(false);
   const [confirming, setConfirming] = useState<number | null>(null);
 
@@ -438,7 +447,7 @@ function TasksSection({
 
   return (
     // scroll-margin keeps the sticky topbar from covering the anchor target.
-    <section className="card" id="tasks" style={{ scrollMarginTop: 72 }}>
+    <section className="card" id="tasks" style={{ scrollMarginTop: 72 }} data-reveal ref={reveal}>
       <div className="card-h">
         <h2>
           <Icon name="activity" size={15} />
@@ -605,6 +614,7 @@ function TasksSection({
 
 export default function OverviewPage() {
   const location = useLocation();
+  const reveal = useReveal();
   const monitors = useQuery({ ...monitorsOptions(), refetchInterval: POLL });
   const recent = useQuery({ ...itemsOptions(RECENT_ITEMS), refetchInterval: POLL });
   const logs = useQuery({ ...notifyLogsOptions(WINDOW_CAP), refetchInterval: POLL });
@@ -690,7 +700,7 @@ export default function OverviewPage() {
       />
 
       <section className="kpi-grid">
-        <div className="card kpi">
+        <div className="card kpi" data-reveal ref={reveal}>
           <div className="kpi-top">
             <span className="kpi-label">
               <Icon name="scan-search" size={13} />
@@ -709,7 +719,7 @@ export default function OverviewPage() {
             ) : null}
           </div>
           <span className="kpi-value">
-            {monitors.isPending ? "…" : monitors.isError ? "—" : enabledRules.length}
+            {monitors.isPending ? "…" : monitors.isError ? "—" : <CountUp value={enabledRules.length} />}
             {monitors.isSuccess ? <span className="unit">/ {rules.length} 启用</span> : null}
           </span>
           <span className="kpi-sub">
@@ -724,7 +734,7 @@ export default function OverviewPage() {
               pretending to be history. */}
         </div>
 
-        <div className="card kpi">
+        <div className="card kpi" data-reveal ref={reveal}>
           <div className="kpi-top">
             <span className="kpi-label">
               <Icon name="target" size={13} />
@@ -732,7 +742,16 @@ export default function OverviewPage() {
             </span>
           </div>
           <span className="kpi-value">
-            {recent.isPending ? "…" : recent.isError ? "—" : todayExact ? todayCount : `${todayCount}+`}
+            {recent.isPending ? (
+              "…"
+            ) : recent.isError ? (
+              "—"
+            ) : (
+              <>
+                <CountUp value={todayCount} />
+                {todayExact ? "" : "+"}
+              </>
+            )}
           </span>
           <span className="kpi-sub">
             {recent.isError
@@ -750,7 +769,7 @@ export default function OverviewPage() {
           ) : null}
         </div>
 
-        <div className="card kpi">
+        <div className="card kpi" data-reveal ref={reveal}>
           <div className="kpi-top">
             <span className="kpi-label">
               <Icon name="send" size={13} />
@@ -758,7 +777,16 @@ export default function OverviewPage() {
             </span>
           </div>
           <span className="kpi-value">
-            {logs.isPending ? "…" : logs.isError ? "—" : pushesExact ? pushes24.length : `${pushes24.length}+`}
+            {logs.isPending ? (
+              "…"
+            ) : logs.isError ? (
+              "—"
+            ) : (
+              <>
+                <CountUp value={pushes24.length} />
+                {pushesExact ? "" : "+"}
+              </>
+            )}
             {logs.isSuccess ? <span className="unit">次</span> : null}
           </span>
           <span className="kpi-sub">
@@ -784,7 +812,7 @@ export default function OverviewPage() {
         />
 
         <aside className="side-stack">
-          <section className="card">
+          <section className="card" data-reveal ref={reveal}>
             <div className="card-h">
               <h2>
                 <Icon name="zap" size={15} />
@@ -824,7 +852,7 @@ export default function OverviewPage() {
             ))}
           </section>
 
-          <section className="card">
+          <section className="card" data-reveal ref={reveal}>
             <div className="card-h">
               <h2>
                 <Icon name="bell" size={15} />

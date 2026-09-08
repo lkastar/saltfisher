@@ -1408,6 +1408,22 @@ button.btn-text[data-tone="danger"]:hover:not(:disabled) {
   }
 }
 
+/* Decorative reveal (lib/fx.ts adds .in on first intersection). Opacity and
+ * transform only -- no layout shift -- and far shorter than the prototype's
+ * 0.9s: a dashboard that fades in slowly reads as a slow dashboard. */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(10px);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+[data-reveal].in {
+  opacity: 1;
+  transform: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1415,5 +1431,13 @@ button.btn-text[data-tone="danger"]:hover:not(:disabled) {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  /* Belt and braces on top of fx.ts's own check: even if .in never arrives,
+   * nothing may sit invisible waiting for a motion cue. */
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
 }
