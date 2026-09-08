@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 
 import {
@@ -94,31 +94,84 @@ function AddByLink() {
 }
 
 
-function NoteEditor({ entry }: { entry: WatchEntry }) {
-  const queryClient = useQueryClient();
+/* The 意图备注 + 降价轮询 cells of one row in edit mode. Mounted only while
+ * this row is being edited, so draft state initializes fresh from the entry
+ * every time. Rendered as a <td> fragment inside the row (a <form> cannot
+ * wrap table cells), hence type="button" + a manual min-interval guard
+ * mirroring the min={60} attribute. */
+function RowEditor({
+  entry,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  entry: WatchEntry;
+  saving: boolean;
+  onSave: (body: Parameters<typeof updateWatch>[1]) => void;
+  onCancel: () => void;
+}) {
   const [note, setNote] = useState(entry.note ?? "");
-  const save = useMutation({
-    mutationFn: (value: string) => updateWatch(entry.item_id, { note: value }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.watchlist }),
-  });
-  const dirty = note !== (entry.note ?? "");
+  const [enabled, setEnabled] = useState(entry.price_watch_enabled);
+  const [intervalStr, setIntervalStr] = useState(String(entry.interval_seconds));
+  const seconds = Number(intervalStr);
+  const valid = Number.isInteger(seconds) && seconds >= MIN_INTERVAL;
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") onCancel();
+  };
 
   return (
-    <div style={{ display: "flex", gap: "var(--space-1)", alignItems: "center" }}>
-      <input
-        value={note}
-        onChange={(event) => setNote(event.target.value)}
-        maxLength={500}
-        placeholder="备注"
-        style={{ width: 140, fontSize: 12 }}
-        aria-label={`${shortTitle(entry.title)} 的备注`}
-      />
-      {dirty ? (
-        <button type="button" onClick={() => save.mutate(note)} disabled={save.isPending}>
-          保存
-        </button>
-      ) : null}
-    </div>
+    <>
+      <td onKeyDown={onKeyDown}>
+        <input
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          maxLength={500}
+          placeholder="备注"
+          autoFocus
+          style={{ width: 140, fontSize: 12 }}
+          aria-label={`${shortTitle(entry.title)} 的备注`}
+        />
+      </td>
+      <td onKeyDown={onKeyDown}>
+        <div
+          style={{ display: "flex", gap: "var(--space-1)", alignItems: "center", flexWrap: "wrap" }}
+        >
+          <label style={{ display: "flex", gap: "var(--space-1)", alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) => setEnabled(event.target.checked)}
+            />
+            监控
+          </label>
+          <input
+            type="number"
+            min={MIN_INTERVAL}
+            className="mono"
+            value={intervalStr}
+            onChange={(event) => setIntervalStr(event.target.value)}
+            style={{ width: 82, fontSize: 12 }}
+            aria-label={`${shortTitle(entry.title)} 的检查间隔（秒，下限 ${MIN_INTERVAL}）`}
+          />
+          <span className="dim mono" style={{ fontSize: 11 }}>
+            s
+          </span>
+          <button
+            type="button"
+            data-variant="primary"
+            disabled={saving || !valid}
+            onClick={() =>
+              onSave({ note, price_watch_enabled: enabled, interval_seconds: seconds })
+            }
+          >
+            保存
+          </button>
+          <button type="button" onClick={onCancel} disabled={saving}>
+            取消
+          </button>
+        </div>
+      </td>
+    </>
   );
 }
 
@@ -126,6 +179,7 @@ export default function WatchlistPage() {
   const queryClient = useQueryClient();
   const query = useQuery(watchlistOptions());
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: keys.watchlist });
   const patch = useMutation({
@@ -264,45 +318,63 @@ export default function WatchlistPage() {
                         <StatusPill status={entry.status} />
                       </td>
                       <td className="num">{entry.listed_days.toFixed(1)} 天</td>
-                      <td>
-                        <NoteEditor entry={entry} />
-                      </td>
-                      <td>
-                        <label
-                          style={{ display: "flex", gap: "var(--space-1)", alignItems: "center" }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={entry.price_watch_enabled}
-                            onChange={(event) =>
-                              patch.mutate({
-                                id: entry.item_id,
-                                body: { price_watch_enabled: event.target.checked },
-                              })
-                            }
-                          />
-                          <input
-                            type="number"
-                            min={MIN_INTERVAL}
-                            className="mono"
-                            value={entry.interval_seconds}
-                            onChange={(event) => {
-                              const seconds = Number(event.target.value);
-                              if (seconds >= MIN_INTERVAL) {
-                                patch.mutate({
-                                  id: entry.item_id,
-                                  body: { interval_seconds: seconds },
-                                });
-                              }
-                            }}
-                            style={{ width: 82, fontSize: 12 }}
-                            aria-label={`${shortTitle(entry.title)} 的检查间隔（秒，下限 ${MIN_INTERVAL}）`}
-                          />
-                          <span className="dim mono" style={{ fontSize: 11 }}>
-                            s
-                          </span>
-                        </label>
-                      </td>
+                      {editingId === entry.item_id ? (
+                        <RowEditor
+                          entry={entry}
+                          saving={patch.isPending}
+                          onSave={(body) =>
+                            patch.mutate(
+                              { id: entry.item_id, body },
+                              { onSuccess: () => setEditingId(null) },
+                            )
+                          }
+                          onCancel={() => setEditingId(null)}
+                        />
+                      ) : (
+                        <>
+                          <td>
+                            {entry.note ? (
+                              <span
+                                title={entry.note}
+                                style={{
+                                  fontSize: 12,
+                                  display: "inline-block",
+                                  maxWidth: 140,
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  verticalAlign: "bottom",
+                                }}
+                              >
+                                {entry.note}
+                              </span>
+                            ) : (
+                              <span className="dim" style={{ fontSize: 12 }}>
+                                未填写
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span
+                              className="mono"
+                              style={{ fontSize: 12, whiteSpace: "nowrap" }}
+                            >
+                              {entry.price_watch_enabled
+                                ? `${entry.interval_seconds}s`
+                                : "关"}
+                            </span>{" "}
+                            <button
+                              type="button"
+                              className="btn-text"
+                              onClick={() => setEditingId(entry.item_id)}
+                              aria-label={`编辑 ${shortTitle(entry.title)} 的备注与降价轮询`}
+                            >
+                              <Icon name="edit" size={13} />
+                              编辑
+                            </button>
+                          </td>
+                        </>
+                      )}
                       <td className="mono muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
                         {formatRelativeTime(entry.last_run_at)}
                         {entry.last_error ? (

@@ -153,6 +153,44 @@ select option {
   color: var(--text);
 }
 
+/* Customizable <select> (Chrome 135+). Without base-select, macOS Chrome
+ * anchors the native popup OVER the control, which reads as misaligned
+ * against our custom-styled selects. Progressive enhancement: the @supports
+ * guard means unsupporting browsers keep today's native popup untouched.
+ * Checked state keeps the UA checkmark (::checkmark) — words/glyph carry
+ * the meaning, the tint only accelerates it. */
+@supports selector(::picker(select)) {
+  select,
+  ::picker(select) {
+    appearance: base-select;
+  }
+
+  ::picker(select) {
+    background: var(--bg2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1);
+    color: var(--text);
+    margin-top: 2px;
+  }
+
+  select option {
+    background: transparent;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+  }
+
+  select option:hover,
+  select option:focus {
+    background: var(--acc-soft);
+  }
+
+  select option:checked {
+    background: var(--acc-soft);
+    font-weight: 600;
+  }
+}
+
 input[type="checkbox"] {
   min-height: 0;
   accent-color: var(--primary);
