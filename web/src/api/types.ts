@@ -245,6 +245,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/session/import-ticket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint Import Ticket
+         * @description Mint a single-use authorisation for exactly one cookie import.
+         *
+         *     It authorises nothing else: no other route reads the ticket header, so a
+         *     stolen ticket cannot read the panel, the items, or the LLM keys.
+         */
+        post: operations["mint_import_ticket_api_session_import_ticket_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/session": {
         parameters: {
             query?: never;
@@ -276,7 +299,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Import Cookies */
+        /**
+         * Import Cookies
+         * @description Accepts the bearer token, or a single-use import ticket instead.
+         *
+         *     The ticket is spent BEFORE the payload is looked at: it authorises one
+         *     attempt, not one success.
+         */
         post: operations["import_cookies_api_session_cookies_post"];
         /** Clear Cookies */
         delete: operations["clear_cookies_api_session_cookies_delete"];
@@ -795,6 +824,23 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * ImportTicket
+         * @description A single-use authorisation for one cookie import, and nothing else.
+         *
+         *     Handed to the bookmarklet instead of `SFD_API_TOKEN`, because that script
+         *     runs inside a page goofish controls and everything it sends is observable
+         *     from that page.
+         */
+        ImportTicket: {
+            /** Ticket */
+            ticket: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
         };
         /**
          * ItemPublic
@@ -2295,6 +2341,37 @@ export interface operations {
             };
         };
     };
+    mint_import_ticket_api_session_import_ticket_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportTicket"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     read_session_api_session_get: {
         parameters: {
             query?: never;
@@ -2330,7 +2407,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string;
+                "x-sfd-import-ticket"?: string;
             };
             path?: never;
             cookie?: never;

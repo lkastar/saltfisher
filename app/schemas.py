@@ -283,6 +283,18 @@ class CookieImport(SQLModel):
     origin: str = "https://www.goofish.com"
 
 
+class ImportTicket(SQLModel):
+    """A single-use authorisation for one cookie import, and nothing else.
+
+    Handed to the bookmarklet instead of `SFD_API_TOKEN`, because that script
+    runs inside a page goofish controls and everything it sends is observable
+    from that page.
+    """
+
+    ticket: str
+    expires_at: datetime
+
+
 class SessionState(SQLModel):
     """Session health. Carries cookie NAMES and never values."""
 

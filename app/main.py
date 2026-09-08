@@ -88,9 +88,15 @@ app.include_router(monitors.router, dependencies=[Depends(require_token)])
 app.include_router(channels.router, dependencies=[Depends(require_token)])
 app.include_router(watchlist.router, dependencies=[Depends(require_token)])
 app.include_router(items.router, dependencies=[Depends(require_token)])
-app.include_router(session_api.router, dependencies=[Depends(require_token)])
+# The one router that declares auth per route: `POST /api/session/cookies`
+# also accepts a one-time import ticket (see `api/session.py`).
+app.include_router(session_api.router)
 app.include_router(analytics_api.router, dependencies=[Depends(require_token)])
 app.include_router(llm_api.router, dependencies=[Depends(require_token)])
+
+# Route-scoped CORS for the bookmarklet, applied as middleware so the failure
+# responses carry it too. Everything else in the app stays same-origin only.
+app.middleware("http")(session_api.import_cors)
 
 
 @app.get("/api/health")

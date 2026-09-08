@@ -8,6 +8,7 @@ import {
   deleteLlmEndpoint,
   importCookies,
   keys,
+  mintImportTicket,
   llmDefaultPromptOptions,
   llmEndpointsOptions,
   llmModelsOptions,
@@ -22,6 +23,7 @@ import {
   type Scenario,
 } from "../api/queries";
 import { ErrorState, Loading } from "../components/States";
+import { buildBookmarklet } from "../lib/bookmarklet";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
 import { scenarioReady } from "../lib/llm";
 
@@ -760,6 +762,126 @@ function LlmSection() {
   );
 }
 
+/** The bookmarklet path: one click on a goofish tab instead of five devtools
+ *  steps.
+ *
+ *  What it hands out is a single-use ticket, never the panel token -- the
+ *  script executes inside a page goofish serves, and anything on that page can
+ *  read what it sends. Worst case the ticket is stolen and buys exactly one
+ *  cookie import.
+ *
+ *  It does not replace the devtools flow below. That one is guaranteed
+ *  complete (the request's own Cookie header, right domains, every field), and
+ *  it is what still works if the page's CSP refuses the bookmarklet's fetch.
+ */
+function BookmarkletBlock() {
+  const mint = useMutation({ mutationFn: mintImportTicket });
+  const script = mint.data ? buildBookmarklet(window.location.origin, mint.data.ticket) : "";
+  // An https goofish page cannot fetch a plain-http panel -- mixed content,
+  // blocked in the browser, nothing the backend can send fixes it. localhost
+  // and 127.0.0.1 are the exception browsers make. Detectable exactly, so the
+  // page says so up front instead of letting the click fail as a TypeError.
+  const blockedByMixedContent =
+    window.location.protocol === "http:" &&
+    !["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+
+  return (
+    <div
+      style={{
+        border: "1px dashed var(--border-strong)",
+        borderRadius: "var(--radius-sm)",
+        padding: "var(--space-3)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-2)",
+        fontSize: 12.5,
+      }}
+    >
+      <strong>快捷方式：书签脚本</strong>
+      <p className="muted" style={{ margin: 0 }}>
+        生成一个书签拖到书签栏，之后在<strong>已登录的闲鱼页面</strong>上点它，就会把
+        <span className="mono"> document.cookie </span>
+        直接送回面板，不用再走开发者工具。
+      </p>
+      {blockedByMixedContent ? (
+        <p className="muted" style={{ margin: 0 }}>
+          <strong>这台面板用不了书签脚本</strong>：它开在明文 http 的
+          <span className="mono"> {window.location.host} </span>
+          上，而闲鱼页面是 https——浏览器不允许 https 页面去 fetch http 地址，后端加什么头都
+          绕不过去。请用下面的开发者工具流程，或者给面板配上 https。
+        </p>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => mint.mutate()}
+        disabled={mint.isPending || blockedByMixedContent}
+        style={{ alignSelf: "flex-start" }}
+      >
+        {mint.isPending ? "生成中…" : mint.data ? "重新生成" : "生成书签"}
+      </button>
+      {mint.isError ? <ErrorState title="生成失败" error={mint.error} /> : null}
+      {mint.data ? (
+        <>
+          <p style={{ margin: 0 }}>
+            把下面这个链接<strong>拖到书签栏</strong>
+            （右键复制链接也行），然后到闲鱼标签页上点一下：
+          </p>
+          <a
+            /* React sanitises a `javascript:` href, so it is set on the DOM
+               node directly. Dragging needs a real anchor with a real href --
+               a copyable text box alone would mean hand-creating a bookmark. */
+            ref={(node) => node?.setAttribute("href", script)}
+            onClick={(event) => event.preventDefault()}
+            style={{
+              alignSelf: "flex-start",
+              padding: "4px 12px",
+              border: "1px solid var(--border-strong)",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--surface-2)",
+              cursor: "grab",
+            }}
+          >
+            导入闲鱼凭证
+          </a>
+          <p className="muted" style={{ margin: 0 }}>
+            这张票据<strong>只能用一次</strong>，
+            {formatDateTime(mint.data.expires_at)} 过期（约 10 分钟）。用过或过期后再点一次
+            「重新生成」换一张——旧书签会明确告诉你是过期还是已用过。票据本身是密钥，别贴给别人。
+          </p>
+          {/* Same rule as everywhere else: the import is not the result. And
+              the "unusable" this leaves behind is expected, not a failure --
+              without saying so here the page contradicts docs/operations.md. */}
+          <p style={{ margin: 0 }}>
+            导入成功只代表 cookie 收下了。<strong>去「监控任务」点一次「立即运行」</strong>
+            ，跑通了才算恢复。
+          </p>
+          <p className="muted" style={{ margin: 0 }}>
+            书签导入后上面会显示「会话不可用 ·<span className="mono"> no _m_h5_tk </span>
+            」，这是<strong>正常的</strong>：签名 token 只存在于 taobao 域，闲鱼页面上读不到，
+            由下一个周期的浏览器兜底去领。那个周期会慢一些、只看第 1 页，之后就恢复正常。
+          </p>
+          <details>
+            <summary className="muted">书签里是什么（可复制）</summary>
+            <textarea
+              readOnly
+              value={script}
+              rows={4}
+              onFocus={(event) => event.currentTarget.select()}
+              style={{
+                width: "100%",
+                marginTop: "var(--space-2)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                resize: "vertical",
+              }}
+            />
+          </details>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 /** Session health, credential import, credential removal, and the LLM
  *  configuration the PRD deferred until something could verify it.
  *
@@ -895,6 +1017,8 @@ export default function SettingsPage() {
           </>
         ) : null}
 
+        <BookmarkletBlock />
+
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -903,7 +1027,7 @@ export default function SettingsPage() {
           }}
           style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
         >
-          <label htmlFor="cookie-paste">导入 cookie</label>
+          <label htmlFor="cookie-paste">导入 cookie（开发者工具，最稳的一条路）</label>
           <textarea
             id="cookie-paste"
             value={paste}

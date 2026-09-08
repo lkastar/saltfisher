@@ -8,8 +8,11 @@ one place that can happen without an os.environ line above every import.
 
 import os
 
-os.environ.setdefault("SFD_API_TOKEN", "testtoken123")
-os.environ.setdefault("SFD_DATA_DIR", "data/test")
+# Assigned, not `setdefault`: a real SFD_API_TOKEN exported in the developer's
+# shell used to win here, and the whole suite then failed with 401s that look
+# like an auth regression and point nowhere near the cause. Tests own these two.
+os.environ["SFD_API_TOKEN"] = "testtoken123"
+os.environ["SFD_DATA_DIR"] = "data/test"
 
 from collections.abc import Iterator  # noqa: E402
 

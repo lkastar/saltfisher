@@ -193,7 +193,8 @@ web/src/
 完整契约以 OpenAPI 为准，运行后看 **`/docs`**（Swagger UI）或 `/openapi.json`。
 前端类型由它生成，所以文档与代码不可能不一致。
 
-19 条路径上 27 个操作，除 `/api/health` 外全部需要 `Authorization: Bearer <SFD_API_TOKEN>`：
+29 条路径上 40 个操作（2026-09-08 从 `app.openapi()` 数的）。除下面两条例外，全部需要
+`Authorization: Bearer <SFD_API_TOKEN>`：
 
 ```
 监控规则   GET/POST /api/monitors · GET/PATCH/DELETE /api/monitors/{id} · POST /api/monitors/{id}/run
@@ -201,10 +202,23 @@ web/src/
 收藏夹     GET/POST /api/watchlist · PATCH/DELETE /api/watchlist/{item_id}
 通知渠道   GET/POST /api/channels · PATCH/DELETE /api/channels/{id} · POST /api/channels/{id}/test
            GET /api/notify-logs
-采集会话   GET /api/session · POST/DELETE /api/session/cookies
-行情分析   GET /api/analytics/price-distribution · /price-drops · /supply-trend
+采集会话   GET /api/session · POST/DELETE /api/session/cookies · POST /api/session/import-ticket
+行情分析   GET /api/analytics/price-distribution · /price-drops · /supply-trend · /listing-duration
+LLM        GET/POST /api/llm/endpoints · PATCH/DELETE /api/llm/endpoints/{id}
+           GET /api/llm/endpoints/{id}/models · POST /api/llm/endpoints/{id}/test
+           GET/PUT /api/llm/scenarios/{scenario} · GET /api/llm/scenarios/{scenario}/default-prompt
+           POST /api/llm/analyze/market · POST /api/llm/analyze/item/{item_id}
 其它       GET /api/health（免认证，容器健康检查用） · GET /api/whoami
 ```
+
+两条例外：`GET /api/health` 免认证；`POST /api/session/cookies` 收 bearer token **或者**
+一张一次性导入票据（`X-Sfd-Import-Ticket`，由 `POST /api/session/import-ticket` 用 bearer
+token 换来，10 分钟、只能用一次、只开这一扇门）。票据存在于进程内存，不落库——重启即全部作废。
+
+它也是全应用**唯一**接受跨源调用的路由：`app/api/session.py` 的 `import_cors` 只给
+`*.goofish.com` 那几个源、且只给这条路径发 CORS 头。之所以写成中间件而不是在处理函数里加
+头，是因为最需要被读到的恰恰是失败响应——票据过期时若少了这个头，书签脚本只能显示一句
+「网络错误」。用不了 `CORSMiddleware`：那是整应用一档的配置，而这里要的是单路由白名单。
 
 三个行情端点都收 `days`，但**每个里它的含义不同**（这不是不一致，是各自的自然含义）：
 

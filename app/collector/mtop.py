@@ -172,6 +172,14 @@ class MtopClient:
         for attempt in (1, 2):
             token = sess.token
             if not token:
+                # Rotation cannot help here, and reading TokenStaleError's
+                # "recoverable without human help" as if it could is a mistake
+                # that has been made once already: rotation replaces a token
+                # that EXISTS, and with none at all there is nothing to sign,
+                # so the response that would carry a replacement never happens.
+                # A tokenless session is the browser path's job -- a real page
+                # load lets goofish's own JS mint one (pipeline.py routes on
+                # `session.usable` for exactly this).
                 raise ChallengeError("no _m_h5_tk: session not established")
             stamp = now_ms if attempt == 1 else str(int(time.time() * 1000))
             signed = {**params, "t": stamp, "sign": _sign(token, stamp, data)}

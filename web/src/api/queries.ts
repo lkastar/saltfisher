@@ -27,6 +27,7 @@ export type Item = Schemas["ItemPublic"];
 export type PricePoint = Schemas["PricePoint"];
 export type SessionState = Schemas["SessionState"];
 export type CookieImport = Schemas["CookieImport"];
+export type ImportTicket = Schemas["ImportTicket"];
 export type PriceDistribution = Schemas["PriceDistribution"];
 export type PriceBucket = Schemas["PriceBucket"];
 export type PriceQuantiles = Schemas["PriceQuantiles"];
@@ -327,6 +328,12 @@ export const importCookies = (body: CookieImport) =>
 
 export const clearCookies = () =>
   request<SessionState>("/api/session/cookies", { method: "DELETE" });
+
+/** Mints the single-use ticket the bookmarklet carries. Never `SFD_API_TOKEN`:
+ *  that script runs inside a page goofish serves.
+ */
+export const mintImportTicket = () =>
+  request<ImportTicket>("/api/session/import-ticket", { method: "POST" });
 
 export const createLlmEndpoint = (body: LlmEndpointCreate) =>
   request<LlmEndpoint>("/api/llm/endpoints", {
