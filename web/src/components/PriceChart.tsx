@@ -1,32 +1,26 @@
 import type { PricePoint } from "../api/queries";
-import { scale, stepPath } from "../lib/chart";
+import { bandPath, rollingBand, scale, smoothPath } from "../lib/chart";
 import { formatDateTime, formatPrice, formatRelativeTime, parseUtc } from "../lib/format";
 
-/** Price history as a step line, plus the same numbers as a table.
+/** Price history as the prototype's smoothed trend, plus the same numbers as
+ *  a table.
  *
- *  A STEP line, never a smooth curve: a snapshot means "this was the price
- *  from here until the next observation". Interpolating between two
- *  observations draws prices that never existed, which for a tool people buy
- *  things from is not a cosmetic problem.
+ *  Catmull-Rom smoothed line with a rolling min/max band (decision hycai
+ *  2026-09-08, superseding the earlier step-line rule). The curve passes
+ *  exactly through every observation but interpolates between them, so two
+ *  honest layers back it up: the band behind the line never leaves the
+ *  observed values, and the table below is the exact-values source.
  *
- *  Hand-rolled SVG rather than ECharts. M1 needs exactly one chart type, and
- *  ECharts is roughly four times the size of this entire bundle; drawn by hand
- *  it also reads the CSS tokens directly instead of carrying two theme
- *  objects. The table below is not decoration -- an SVG plot answers "when did
- *  it drop" far worse than a list of dates does, and it is what a screen
- *  reader gets.
- *
- *  ponytail: the old trigger here said "when a third chart type appears".
- *  Two more arrived in M2 (Histogram, DailyBars) and neither needed a library:
- *  both are rectangles on a linear axis sharing this file's `scale()`, about
- *  40 lines each. The accurate trigger is zoom or brushing, or geometry that
- *  is not rectangles-and-lines -- stacked areas, pies, anything needing a
- *  layout pass. Count of chart types is not the cost driver; interaction is.
+ *  Hand-rolled SVG rather than a chart library, still: a smooth line and a
+ *  band are one path element each, and the geometry lives as pure functions
+ *  in `lib/chart.ts` where it carries unit tests. The library trigger is zoom
+ *  or brushing, or geometry that is not rectangles-and-lines -- interaction is
+ *  the cost driver, not the count of chart types.
  */
 
 const W = 720;
 const H = 200;
-const PAD = { top: 12, right: 12, bottom: 24, left: 64 };
+const PAD = { top: 18, right: 14, bottom: 24, left: 64 };
 
 export default function PriceChart({ points }: { points: PricePoint[] }) {
   if (points.length === 0) {
@@ -53,13 +47,23 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
   }));
   // A single observation has no line; extend it flat so the chart is not an
   // empty box, which reads as "no data" rather than "one unchanged price".
-  const path =
+  const linePath =
     points.length === 1
-      ? `${stepPath(pixels)} L ${W - PAD.right} ${y(prices[0]!)}`
-      : stepPath(pixels);
+      ? `M ${PAD.left} ${y(prices[0]!)} L ${W - PAD.right} ${y(prices[0]!)}`
+      : smoothPath(pixels);
+
+  const band = rollingBand(prices);
+  const areaPath =
+    points.length < 2
+      ? null
+      : bandPath(
+          band.upper.map((v, i) => ({ x: pixels[i]!.x, y: y(v) })),
+          band.lower.map((v, i) => ({ x: pixels[i]!.x, y: y(v) })),
+        );
 
   const first = points[0]!;
   const last = points[points.length - 1]!;
+  const lastPixel = pixels[pixels.length - 1]!;
   const change = last.price_cents - first.price_cents;
 
   return (
@@ -73,7 +77,7 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
           <span
             className="mono"
             style={{
-              color: change < 0 ? "var(--success)" : "var(--danger)",
+              color: change < 0 ? "var(--green)" : "var(--red)",
               fontWeight: 600,
               fontSize: 13,
             }}
@@ -97,40 +101,34 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
           height={H}
           role="img"
           aria-label={`价格从 ${formatPrice(first.price_cents)} 变化到 ${formatPrice(last.price_cents)}，共 ${points.length} 次观测，详细数值见下方表格`}
-          style={{ display: "block", minWidth: 320 }}
+          style={{ display: "block", minWidth: 320, overflow: "visible" }}
         >
-          <line
-            x1={PAD.left}
-            y1={PAD.top}
-            x2={PAD.left}
-            y2={H - PAD.bottom}
-            stroke="var(--border)"
-          />
-          <line
-            x1={PAD.left}
-            y1={H - PAD.bottom}
-            x2={W - PAD.right}
-            y2={H - PAD.bottom}
-            stroke="var(--border)"
-          />
-          {[hiPrice, loPrice].map((price, i) => (
-            <text
-              key={i}
-              x={PAD.left - 8}
-              y={y(price) + 4}
-              textAnchor="end"
-              fontSize="11"
-              fill="var(--text-muted)"
-              fontFamily="var(--font-mono)"
-            >
-              {formatPrice(price)}
-            </text>
+          {[...new Set([hiPrice, loPrice])].map((price) => (
+            <g key={price}>
+              <line
+                x1={PAD.left}
+                y1={y(price)}
+                x2={W - PAD.right}
+                y2={y(price)}
+                stroke={price === loPrice ? "var(--line2)" : "var(--line)"}
+              />
+              <text
+                x={PAD.left - 8}
+                y={y(price) + 4}
+                textAnchor="end"
+                fontSize="11"
+                fill="var(--text3)"
+                fontFamily="var(--font-mono)"
+              >
+                {formatPrice(price)}
+              </text>
+            </g>
           ))}
           <text
             x={PAD.left}
             y={H - 8}
             fontSize="11"
-            fill="var(--text-muted)"
+            fill="var(--text3)"
             fontFamily="var(--font-mono)"
           >
             {formatDateTime(first.captured_at).slice(0, 10)}
@@ -140,34 +138,46 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
             y={H - 8}
             textAnchor="end"
             fontSize="11"
-            fill="var(--text-muted)"
+            fill="var(--text3)"
             fontFamily="var(--font-mono)"
           >
             {formatDateTime(last.captured_at).slice(0, 10)}
           </text>
+          {areaPath === null ? null : <path d={areaPath} fill="var(--chart-band)" stroke="none" />}
           <path
-            d={path}
+            d={linePath}
             fill="none"
-            stroke="var(--primary)"
-            strokeWidth="2"
-            strokeLinejoin="miter"
+            stroke="var(--acc)"
+            strokeWidth="1.8"
+            strokeLinecap="round"
           />
-          {points.map((point, i) => (
+          {pixels.map((pixel, i) => (
             <circle
               key={i}
-              cx={x(times[i]!)}
-              cy={y(point.price_cents)}
+              cx={pixel.x}
+              cy={pixel.y}
               r="3"
-              fill="var(--primary)"
+              fill="var(--chart-dot-fill)"
+              stroke="var(--acc)"
+              strokeWidth="1.6"
             />
           ))}
+          <circle
+            cx={lastPixel.x}
+            cy={lastPixel.y}
+            r="6.5"
+            fill="none"
+            stroke="var(--acc)"
+            strokeWidth="1"
+            opacity="0.5"
+          />
         </svg>
       </div>
 
       <div className="table-scroll">
         <table>
           <caption className="muted" style={{ captionSide: "top", textAlign: "left", padding: "var(--space-2)", fontSize: 12 }}>
-            每次观测的价格。图上是同一份数据。
+            每次观测的价格。曲线经过每个观测点，点与点之间是插值；精确数值以本表为准。
           </caption>
           <thead>
             <tr>
@@ -195,10 +205,10 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
                       style={{
                         color:
                           delta === null || delta === 0
-                            ? "var(--text-muted)"
+                            ? "var(--text3)"
                             : delta < 0
-                              ? "var(--success)"
-                              : "var(--danger)",
+                              ? "var(--green)"
+                              : "var(--red)",
                       }}
                     >
                       {delta === null

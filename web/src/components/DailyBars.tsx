@@ -81,7 +81,7 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
               patternTransform="rotate(45)"
               patternUnits="userSpaceOnUse"
             >
-              <line x1="0" y1="0" x2="0" y2="4" stroke="var(--danger)" strokeWidth="1.5" />
+              <line x1="0" y1="0" x2="0" y2="4" stroke="var(--red)" strokeWidth="1.5" />
             </pattern>
           </defs>
 
@@ -107,7 +107,7 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
             y1={PLOT.bottom}
             x2={PLOT.right}
             y2={PLOT.bottom}
-            stroke="var(--border)"
+            stroke="var(--line2)"
           />
           {[...new Set([peak, 0])].map((count) => (
             <text
@@ -120,7 +120,7 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
               y={scale(count, 0, Math.max(peak, 1), PLOT.bottom, PLOT.top) + 4}
               textAnchor="end"
               fontSize="11"
-              fill="var(--text-muted)"
+              fill="var(--text3)"
               fontFamily="var(--font-mono)"
             >
               {count}
@@ -156,7 +156,7 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
                 y={rect.y}
                 width={width}
                 height={rect.height}
-                fill="var(--primary)"
+                fill="var(--acc)"
               />
             );
           })}
@@ -169,7 +169,7 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
                 y={H - 10}
                 textAnchor="middle"
                 fontSize="11"
-                fill="var(--text-muted)"
+                fill="var(--text3)"
                 fontFamily="var(--font-mono)"
               >
                 {day.date.slice(5)}
@@ -188,12 +188,12 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
           margin: 0,
           padding: 0,
           fontSize: 12,
-          color: "var(--text-muted)",
+          color: "var(--text2)",
         }}
       >
         <li style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
           <span
-            style={{ width: 12, height: 12, background: "var(--primary)", display: "inline-block" }}
+            style={{ width: 12, height: 12, background: "var(--acc)", display: "inline-block" }}
           />
           有新增
         </li>
@@ -216,7 +216,7 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
               display: "inline-block",
               backgroundImage:
                 "repeating-linear-gradient(45deg, var(--border-strong) 0 1px, transparent 1px 6px)",
-              border: "1px solid var(--border)",
+              border: "1px solid var(--line)",
             }}
           />
           无采集记录（斜纹）
@@ -228,8 +228,8 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
               height: 12,
               display: "inline-block",
               backgroundImage:
-                "repeating-linear-gradient(45deg, var(--danger) 0 1.5px, transparent 1.5px 4px)",
-              border: "1px solid var(--border)",
+                "repeating-linear-gradient(45deg, var(--red) 0 1.5px, transparent 1.5px 4px)",
+              border: "1px solid var(--line)",
             }}
           />
           采集失败（密斜纹）

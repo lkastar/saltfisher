@@ -1,6 +1,31 @@
 import { describe, expect, it } from "vitest";
 
-import { bucketRects, dayTicks, scale, stepPath, type Pt } from "./chart";
+import {
+  bandPath,
+  bucketRects,
+  dayTicks,
+  rollingBand,
+  scale,
+  smoothPath,
+  sparkPaths,
+  stateColumns,
+  stepPath,
+  type Pt,
+  type TrendState,
+} from "./chart";
+
+/** Every point a path visits: the M pair, then the endpoint of each C
+ *  segment (its last coordinate pair). Control handles are skipped -- a
+ *  Catmull-Rom curve does not pass through those.
+ */
+function pathEndpoints(path: string): Pt[] {
+  const points: Pt[] = [];
+  for (const match of path.matchAll(/[MLC]([^MLCZ]+)/g)) {
+    const nums = match[1]!.trim().split(/[\s,]+/).map(Number);
+    points.push({ x: nums[nums.length - 2]!, y: nums[nums.length - 1]! });
+  }
+  return points;
+}
 
 describe("stepPath", () => {
   it("moves horizontally at the old value, then vertically", () => {
@@ -109,6 +134,155 @@ describe("bucketRects", () => {
 
   it("draws nothing for no buckets", () => {
     expect(bucketRects([], box)).toEqual([]);
+  });
+});
+
+describe("smoothPath", () => {
+  it("passes exactly through every control point", () => {
+    // Catmull-Rom interpolates BETWEEN observations; the observations
+    // themselves must land exactly, or the dots drawn on top of the line
+    // would sit beside it.
+    const points: Pt[] = [
+      { x: 0, y: 100 },
+      { x: 10, y: 80 },
+      { x: 25, y: 95 },
+      { x: 40, y: 60 },
+    ];
+    const visited = pathEndpoints(smoothPath(points));
+    expect(visited).toHaveLength(points.length);
+    points.forEach((p, i) => {
+      expect(visited[i]!.x).toBeCloseTo(p.x, 2);
+      expect(visited[i]!.y).toBeCloseTo(p.y, 2);
+    });
+  });
+
+  it("draws nothing for no data and a bare move for one point", () => {
+    expect(smoothPath([])).toBe("");
+    expect(smoothPath([{ x: 3, y: 7 }])).toBe("M 3 7");
+  });
+
+  it("two points reduce to a straight segment, endpoints exact", () => {
+    const visited = pathEndpoints(smoothPath([{ x: 0, y: 10 }, { x: 20, y: 30 }]));
+    expect(visited).toEqual([
+      { x: 0, y: 10 },
+      { x: 20, y: 30 },
+    ]);
+  });
+});
+
+describe("rollingBand", () => {
+  const values = [100, 80, 95, 60, 60, 120, 110];
+
+  it("envelops the series at every index", () => {
+    const { upper, lower } = rollingBand(values);
+    values.forEach((v, i) => {
+      expect(lower[i]!).toBeLessThanOrEqual(v);
+      expect(upper[i]!).toBeGreaterThanOrEqual(v);
+    });
+  });
+
+  it("never leaves the observed min/max", () => {
+    // The band is the honest layer behind the smoothed line: unlike the
+    // curve, it must not contain a price that never existed.
+    const { upper, lower } = rollingBand(values);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    for (const v of [...upper, ...lower]) {
+      expect(v).toBeGreaterThanOrEqual(min);
+      expect(v).toBeLessThanOrEqual(max);
+    }
+  });
+
+  it("clips the window at the ends instead of reading outside", () => {
+    const { upper, lower } = rollingBand([1, 2, 3, 4, 5], 2);
+    expect(upper[0]).toBe(3); // indices 0..2 only
+    expect(lower[4]).toBe(3); // indices 2..4 only
+  });
+
+  it("is empty for an empty series", () => {
+    expect(rollingBand([])).toEqual({ upper: [], lower: [] });
+  });
+});
+
+describe("bandPath", () => {
+  it("goes out along the upper edge and back along the lower, closed", () => {
+    const upper: Pt[] = [
+      { x: 0, y: 10 },
+      { x: 50, y: 5 },
+      { x: 100, y: 12 },
+    ];
+    const lower: Pt[] = [
+      { x: 0, y: 40 },
+      { x: 50, y: 45 },
+      { x: 100, y: 38 },
+    ];
+    const path = bandPath(upper, lower);
+    expect(path.startsWith("M 0 10")).toBe(true);
+    expect(path.endsWith("Z")).toBe(true);
+    // The return leg starts at the LAST lower point: the loop must not cross
+    // itself, which it would if lower were traced in x order.
+    expect(path).toContain("L 100 38");
+    const visited = pathEndpoints(path);
+    expect(visited).toEqual([...upper, ...[...lower].reverse()]);
+  });
+
+  it("draws nothing when either edge is missing", () => {
+    expect(bandPath([], [{ x: 0, y: 0 }])).toBe("");
+    expect(bandPath([{ x: 0, y: 0 }], [])).toBe("");
+  });
+});
+
+describe("stateColumns", () => {
+  const box = { left: 100, right: 200, top: 10, bottom: 90 };
+
+  it("marks idle and fail points with full-height columns centred on them", () => {
+    const states: TrendState[] = ["ok", "idle", "ok", "ok", "fail", "ok"];
+    const columns = stateColumns(states, box, 10);
+    expect(columns).toEqual([
+      // index 1 of 0..5 -> x = 100 + 100 * 1/5 = 120, centred: 115
+      { x: 115, y: 10, width: 10, height: 80, state: "idle" },
+      // index 4 -> x = 180, centred: 175
+      { x: 175, y: 10, width: 10, height: 80, state: "fail" },
+    ]);
+  });
+
+  it("draws nothing when every point is ok", () => {
+    expect(stateColumns(["ok", "ok"], box)).toEqual([]);
+  });
+
+  it("centres a lone point instead of dividing by zero", () => {
+    const columns = stateColumns(["fail"], box, 10);
+    expect(columns[0]!.x).toBe(145); // centre 150, half-width 5
+  });
+});
+
+describe("sparkPaths", () => {
+  it("handles 0, 1 and 2 points without NaN", () => {
+    for (const values of [[], [7], [7, 9]]) {
+      const { line, area } = sparkPaths(values, 160, 26);
+      expect(line).not.toMatch(/NaN/);
+      expect(area).not.toMatch(/NaN/);
+    }
+    expect(sparkPaths([], 160, 26)).toEqual({ line: "", area: "", end: null });
+    // A lone value is a centred point with no area under it.
+    const lone = sparkPaths([7], 160, 26);
+    expect(lone.end?.x).toBe(80);
+    expect(lone.area).toBe("");
+  });
+
+  it("survives a flat series instead of dividing by zero", () => {
+    const { line } = sparkPaths([5, 5, 5], 160, 26);
+    expect(line).not.toMatch(/NaN/);
+    // Flat means one y for every point.
+    const ys = new Set(pathEndpoints(line).map((p) => p.y));
+    expect(ys.size).toBe(1);
+  });
+
+  it("closes the area to the bottom edge under the line's endpoints", () => {
+    const { line, area, end } = sparkPaths([3, 8, 5], 160, 26);
+    expect(area.startsWith(line)).toBe(true);
+    expect(area).toContain(`L ${end!.x} 26`);
+    expect(area.endsWith("L 2 26 Z")).toBe(true);
   });
 });
 

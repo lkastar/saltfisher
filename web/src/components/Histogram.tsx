@@ -65,7 +65,7 @@ export default function Histogram({ buckets, format, label, median }: HistogramP
             y1={PLOT.bottom}
             x2={PLOT.right}
             y2={PLOT.bottom}
-            stroke="var(--border)"
+            stroke="var(--line2)"
           />
           {[...new Set([peak, 0])].map((count) => (
             <text
@@ -74,7 +74,7 @@ export default function Histogram({ buckets, format, label, median }: HistogramP
               y={scale(count, 0, peak, PLOT.bottom, PLOT.top) + 4}
               textAnchor="end"
               fontSize="11"
-              fill="var(--text-muted)"
+              fill="var(--text3)"
               fontFamily="var(--font-mono)"
             >
               {count}
@@ -87,7 +87,7 @@ export default function Histogram({ buckets, format, label, median }: HistogramP
               y={rect.y}
               width={Math.max(rect.width - 1, 1)}
               height={rect.height}
-              fill="var(--primary)"
+              fill="var(--acc)"
             />
           ))}
           {medianX === null || median === null ? null : (
@@ -97,16 +97,16 @@ export default function Histogram({ buckets, format, label, median }: HistogramP
                 y1={PLOT.top - 4}
                 x2={medianX}
                 y2={PLOT.bottom}
-                stroke="var(--text)"
+                stroke="var(--text3)"
                 strokeWidth="1"
-                strokeDasharray="4 3"
+                strokeDasharray="5 4"
               />
               <text
                 x={medianX}
                 y={PLOT.top - 7}
                 textAnchor="middle"
                 fontSize="11"
-                fill="var(--text)"
+                fill="var(--text2)"
                 fontFamily="var(--font-mono)"
               >
                 中位 {format(median)}
