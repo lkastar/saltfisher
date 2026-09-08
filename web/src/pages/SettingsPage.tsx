@@ -816,7 +816,10 @@ function BookmarkletBlock() {
           <strong>这台面板用不了书签脚本</strong>：它开在明文 http 的
           <span className="mono"> {window.location.host} </span>
           上，而闲鱼页面是 https——浏览器不允许 https 页面去 fetch http 地址，后端加什么头都
-          绕不过去。请用下面的开发者工具流程，或者给面板配上 https。
+          绕不过去。请用下面的开发者工具流程，或者给面板配上 https。仓库里的
+          <span className="mono"> extension/ </span>
+          扩展不在页面里发请求，所以不受这一条限制（但 Chrome 的本地网络访问限制是否管得到
+          扩展还没有定论，见 docs/operations.md）。
         </p>
       ) : null}
       <button

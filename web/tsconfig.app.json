@@ -6,6 +6,11 @@
     "module": "esnext",
     "types": ["vite/client"],
     "allowArbitraryExtensions": true,
+    /* The extension under `extension/` is plain unpacked JS with no build
+       step, and its pure logic is tested from here so the project keeps one
+       test command. Type-checking that JS is not the goal; being able to
+       import it from a .ts test is. */
+    "allowJs": true,
     "skipLibCheck": true,
 
     /* Bundler mode */
