@@ -5,11 +5,14 @@ Upstream dicts, Playwright handles and raw JSON never escape their module —
 otherwise every consumer grows its own field-name guesses.
 """
 
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from app.config import settings
+
+log = logging.getLogger(__name__)
 
 
 class CollectorError(Exception):
@@ -175,6 +178,24 @@ SELLER_FIELD_MAP: dict[str, tuple[str, ...]] = {
     "account_age_days": ("accountAgeDays", "registerDays"),
     "numeric_id": ("numericId", "sellerId", "userId"),
 }
+
+# A seller-listing card (`cardType: 1003`) is a THIRD shape, not a search row:
+# it has no sellerDO, no area and no timestamp field (observed 2026-09-08 on a
+# real seller page, see the seller-listing probe). Its own map rather than
+# entries added to ITEM_FIELD_MAP, because that map's candidates would resolve
+# `id` and `price` to keys whose meaning here was never observed -- and an id
+# guessed wrong writes one listing's price onto another listing's row.
+SELLER_LISTING_FIELD_MAP: dict[str, tuple[str, ...]] = {
+    "item_id": ("itemId",),
+    "title": ("title",),
+    "price": ("soldPrice", "price"),
+    "cover_url": ("picUrl",),
+    "publish_time": ("postInfo",),
+}
+
+# The only `itemStatus` this endpoint has ever been OBSERVED to return, and we
+# ask it for the 在售 group, so every card should carry it.
+ON_SALE_ITEM_STATUS = "0"
 
 
 def pick(payload: dict[str, Any], candidates: tuple[str, ...], *, scalar_only: bool = False) -> Any:
@@ -352,6 +373,69 @@ def _as_count(raw: Any) -> int | None:
         return raw
     digits = "".join(c for c in str(raw) if c.isdigit())
     return int(digits) if digits else None
+
+
+def normalize_seller_listing(
+    payload: dict[str, Any], *, seller_id: str, seller_nick: str, source: str
+) -> RawItem:
+    """One seller-listing card -> RawItem. The seller is INJECTED, not parsed.
+
+    The card carries no seller id in either id space. The one it belongs to is
+    not a guess though — it is the seller whose list we asked for — and it must
+    be the OPAQUE canonical `Seller.id` that every `Item.seller_id` points at,
+    never the numeric userId this API takes as input. Passing the numeric form
+    here creates a second seller row for the same person, which is the bug
+    `8f10a77` removed.
+
+    Absent fields stay None instead of being invented: region, publish time and
+    the seller's avatar are simply not in this payload. The missing-data policy
+    in `filters` (conservative pass, plus a label from `describe_unverified`)
+    is what handles them, and it needs None to do it.
+    """
+    missing: list[str] = []
+
+    def get(field_name: str) -> Any:
+        # scalar_only throughout: every field here is a single value, so a list
+        # or dict means the payload moved rather than that this is the field.
+        value = pick(payload, SELLER_LISTING_FIELD_MAP[field_name], scalar_only=True)
+        if value is None:
+            missing.append(field_name)
+        return value
+
+    item_id = get("item_id")
+    title = get("title")
+    price = get("price")
+    if item_id is None or title is None or price is None:
+        raise ParseError(f"seller listing card lacks required fields: {sorted(missing)}")
+
+    status = payload.get("itemStatus")
+    if status is not None and str(status) != ON_SALE_ITEM_STATUS:
+        # Loud on purpose, and deliberately NOT a mapping. `0` is the only
+        # value ever observed here and we asked for the on-sale group, so
+        # another one is a finding to go and read, not a branch to guess at.
+        # The item stays `on_sale` because group membership is the thing that
+        # was actually observed.
+        log.warning(
+            "unobserved itemStatus in the on-sale group; record it before mapping it",
+            extra={"item_id": str(item_id), "item_status": status},
+        )
+
+    cover = get("cover_url")
+    return RawItem(
+        item_id=str(item_id),
+        title=str(title),
+        price_cents=parse_price_cents(price),
+        seller_id=seller_id,
+        seller_nick=seller_nick,
+        source=source,
+        cover_url=str(cover) if cover is not None else None,
+        # The card's one photo, same as a search row gives. `imageInfos` sits
+        # in the payload but the probe recorded only its key, so reading it
+        # would be a guess for no gain over the cover.
+        image_urls=(str(cover),) if cover is not None else (),
+        publish_time=parse_timestamp(get("publish_time")),
+        missing_fields=tuple(sorted(set(missing))),
+    )
 
 
 def normalize_seller(payload: dict[str, Any], seller_id: str, source: str) -> RawSeller:

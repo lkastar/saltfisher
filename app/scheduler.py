@@ -26,6 +26,7 @@ from app.collector.base import (
     ItemGoneError,
     RawItem,
     RawSeller,
+    SearchResult,
     TransientCollectorError,
 )
 from app.collector.filters import RuleFilters
@@ -33,7 +34,7 @@ from app.collector.pipeline import CHALLENGE_REASON_PREFIX, Pipeline
 from app.collector.session import UpstreamSession
 from app.config import SEARCH_ROWS, settings
 from app.db import engine
-from app.models import CollectRun, Monitor, NotifyChannel, Seller, Watchlist, utcnow
+from app.models import CollectRun, Item, Monitor, NotifyChannel, Seller, Watchlist, utcnow
 from app.notify import (
     channels_for_monitor,
     deliver,
@@ -121,6 +122,117 @@ def _sync_load_monitor(monitor_id: int) -> Monitor | None:
 def _sync_fresh_sellers(seller_ids: list[str]) -> frozenset[str]:
     with Session(engine) as session:
         return fresh_seller_ids(session, seller_ids)
+
+
+@dataclass(frozen=True, slots=True)
+class SellerTarget:
+    """Everything a seller rule needs before it can collect, read in one go.
+
+    `numeric_id` is the id the listing API takes and `seller_id` the opaque one
+    every Item points at; `known_item_id` is the listing the first mapping
+    between them has to be read from.
+    """
+
+    seller_id: str
+    nick: str
+    numeric_id: str | None
+    known_item_id: str | None
+
+
+def _sync_seller_target(seller_id: str) -> SellerTarget | None:
+    with Session(engine) as session:
+        seller = session.get(Seller, seller_id)
+        if seller is None:
+            return None
+        # Newest first: an old listing is likelier to have been deleted, and a
+        # deleted one cannot answer with a sellerDO.
+        known_item_id = session.exec(
+            select(col(Item.id))
+            .where(col(Item.seller_id) == seller_id)
+            .order_by(col(Item.last_seen_at).desc())
+        ).first()
+        return SellerTarget(
+            seller_id=seller_id,
+            nick=seller.nick,
+            numeric_id=seller.numeric_id,
+            known_item_id=known_item_id,
+        )
+
+
+def _sync_store_numeric_id(seller_id: str, numeric_id: str) -> None:
+    """Keep the resolved mapping, so it costs one request per seller ever."""
+    with Session(engine) as session:
+        seller = session.get(Seller, seller_id)
+        if seller is None:
+            return
+        seller.numeric_id = numeric_id
+        session.commit()
+
+
+async def resolve_numeric_id(pipeline: Pipeline, target: SellerTarget) -> str:
+    """The numeric userId the seller-listing API takes, resolved once and stored.
+
+    Orchestrated here and not in `collector/`, which may not touch the database
+    (spec/backend/directory-structure.md). Same shape as `_sync_fresh_sellers`:
+    the database half runs in a thread, and the value is handed to the
+    collection layer as a plain argument.
+
+    Failure is a plain CollectorError carrying words a human can act on, which
+    is what puts it in `last_error` and marks the run `ok=False`. Not silently
+    skipped: a rule that never runs and never says why is the failure the
+    health columns exist to prevent.
+    """
+    if target.numeric_id:
+        return target.numeric_id
+    if target.seller_id.isdigit():
+        # Two rows in the real database are keyed on the numeric id itself,
+        # written by the detail path before `8f10a77` re-keyed profiles onto
+        # the opaque token. For those the mapping is already in hand, and
+        # spending an upstream request to rediscover it would be buying
+        # information we are holding.
+        await asyncio.to_thread(_sync_store_numeric_id, target.seller_id, target.seller_id)
+        return target.seller_id
+    if target.known_item_id is None:
+        raise CollectorError(
+            f"seller {target.nick} has no stored listing, and the numeric id this rule "
+            "needs is only readable from a listing's sellerDO. Collect one of their "
+            "listings first (a keyword rule, or paste one of their links into the "
+            "watchlist), then this rule starts working."
+        )
+    # The auxiliary route on purpose: a challenge on the DETAIL endpoint must
+    # not mark the shared session dead, which is the live-data bug
+    # collector-guidelines.md records. It also never raises, so the reason
+    # reaches `last_error` as text rather than as a class.
+    seller, reason = await pipeline.collect_seller_via_item(target.known_item_id)
+    numeric_id = None if seller is None else seller.numeric_id
+    if not numeric_id:
+        raise CollectorError(
+            f"could not read the numeric id for seller {target.nick} from listing "
+            f"{target.known_item_id}: {reason or 'the response carried no sellerDO.sellerId'}"
+        )
+    await asyncio.to_thread(_sync_store_numeric_id, target.seller_id, numeric_id)
+    log.info(
+        "resolved a seller's numeric id",
+        extra={"seller_id": target.seller_id, "numeric_id": numeric_id},
+    )
+    return numeric_id
+
+
+async def collect_for_seller_rule(pipeline: Pipeline, monitor: Monitor) -> SearchResult:
+    """The seller half of a cycle: resolve the id, then read the on-sale list."""
+    assert monitor.seller_id is not None
+    target = await asyncio.to_thread(_sync_seller_target, monitor.seller_id)
+    if target is None:
+        raise CollectorError(
+            f"rule {monitor.id} watches seller {monitor.seller_id}, which is not in the database"
+        )
+    numeric_id = await resolve_numeric_id(pipeline, target)
+    return await pipeline.collect_seller_listings(
+        numeric_id,
+        seller_id=target.seller_id,
+        seller_nick=target.nick,
+        pages=settings.search_pages,
+    )
 
 
 def _sync_persist_cycle(
@@ -360,21 +472,21 @@ async def run_monitor_cycle(pipeline: Pipeline, monitor: Monitor) -> CycleOutcom
     re-announces everything after a restart.
     """
     assert monitor.id is not None
-    if monitor.keyword is None:
-        # A seller rule (P5/T2a gave the schema its seller_id; the collection
-        # path is T2b). Raised rather than silently skipped: a rule that never
-        # runs and never says why is the failure the health columns exist to
-        # prevent, and CollectorError routes to last_error like any other
-        # collection failure.
-        raise CollectorError(
-            f"monitor {monitor.id} watches a seller; seller collection is not implemented yet"
-        )
+    # Which target this rule has is the routing decision, and there is nothing
+    # else to check: models._RULE_TARGET_CHECK enforces exactly one of the two.
+    # For a seller rule, "newly listed" means "newly present in his on-sale
+    # list", so everything after this point -- screening, the hit ledger,
+    # baseline silence, backoff -- is shared with a keyword rule unchanged.
+    #
     # settings.search_pages is read here, not inside the pipeline: this is the
     # one place that owns how many upstream requests a cycle is worth, and the
     # manual-run endpoint reaches the upstream through this same function.
-    result = await pipeline.collect_search(
-        monitor.keyword, rows=SEARCH_ROWS, pages=settings.search_pages
-    )
+    if monitor.keyword is None:
+        result = await collect_for_seller_rule(pipeline, monitor)
+    else:
+        result = await pipeline.collect_search(
+            monitor.keyword, rows=SEARCH_ROWS, pages=settings.search_pages
+        )
     items = list(result.items)
     # Which sellers we already have a fresh profile for, so screening does not
     # re-buy one. One query, off the event loop, before any upstream request.

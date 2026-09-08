@@ -192,6 +192,94 @@ class Pipeline:
             fetched = page
         return SearchResult(items=tuple(merged.values()), pages=fetched)
 
+    async def collect_seller_listings(
+        self, numeric_id: str, *, seller_id: str, seller_nick: str, pages: int = 1
+    ) -> SearchResult:
+        """A seller's on-sale listings across `pages` pages, deduped by item_id.
+
+        Same return shape as `collect_search` on purpose, so `CollectRun.pages`
+        keeps meaning one thing: pages that WIDENED the aperture, not pages
+        requested.
+
+        **A challenged or unestablished session fails outright — there is no
+        browser fallback and pretending otherwise would be a lie.**
+        `browser.search()` drives the mobile SEARCH url; a seller's page has a
+        different DOM that has never been looked at, so there is nothing here
+        to degrade to. An honest failure lands in `last_error` where the user
+        can see it; a silent "collected 0 listings" reads as a seller who has
+        stopped posting.
+        """
+        if not self._session.usable:
+            # Establish one first, rather than only reporting its absence.
+            #
+            # A keyword rule heals this for free as a side effect: `usable` is
+            # false, so `collect_search` takes the browser route, a real page
+            # load happens, and `_adopt_session` hands the token back. A seller
+            # rule has no such route -- so on a deployment whose rules are ALL
+            # seller rules, reporting the absence would mean backing off, failing
+            # five times, auto-disabling with a generic message, and never once
+            # telling the user to re-import. `ensure_session` existed for exactly
+            # this and had no callers at all until now.
+            if not await self.ensure_session():
+                # Its contract: False means risk control wants a human. Raising
+                # the challenge class is what routes this to the notification
+                # and the "needs verification" disable rather than to backoff.
+                raise ChallengeError(
+                    "cannot establish a session for a seller rule: needs verification"
+                )
+        if not self._session.usable:
+            raise CollectorError(
+                "seller listings need a live session and have no browser route: "
+                "import a cookie session, or let a keyword rule establish one"
+            )
+
+        merged: dict[str, RawItem] = {}
+        fetched = 0
+        for page in range(1, pages + 1):
+            if page > 1:
+                await asyncio.sleep(random.uniform(*INTER_PAGE_PAUSE))
+            try:
+                items, next_page = await self._mtop.seller_listings(
+                    numeric_id,
+                    page=page,
+                    now_ms=_now_ms(),
+                    seller_id=seller_id,
+                    seller_nick=seller_nick,
+                )
+            except (TransientCollectorError, ChallengeError):
+                raise
+            except CollectorError as exc:
+                if page == 1:
+                    raise
+                # Later pages behave like search's: keep what page 1 got and
+                # report the short aperture, because collapsing the cycle to
+                # zero would draw "page 2 failed" as "nothing on sale".
+                log.warning(
+                    "seller listing page failed, keeping the pages already fetched",
+                    extra={"seller_id": seller_id, "page": page, "err": str(exc)},
+                )
+                return SearchResult(
+                    items=tuple(merged.values()), pages=fetched, partial_error=str(exc)
+                )
+            if not items:
+                break
+            before = len(merged)
+            for item in items:
+                merged.setdefault(item.item_id, item)
+            if len(merged) == before:
+                # Same guard as the search path, for the same measured risk: a
+                # `pageNumber` that is ignored makes every page page one, which
+                # is silent, expensive, and would overstate `pages`.
+                log.info(
+                    "seller listing page added nothing, stopping early",
+                    extra={"seller_id": seller_id, "page": page, "have": len(merged)},
+                )
+                break
+            fetched = page
+            if not next_page:
+                break
+        return SearchResult(items=tuple(merged.values()), pages=fetched)
+
     async def collect_item(self, item_id: str) -> tuple[RawItem, RawSeller | None]:
         """Item detail and its seller profile — one request, both answers.
 

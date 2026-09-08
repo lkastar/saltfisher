@@ -1,0 +1,114 @@
+{
+  "api": "mtop.idle.web.xyh.item.list",
+  "v": "1.0",
+  "ret": [
+    "SUCCESS::调用成功"
+  ],
+  "traceId": "21040d1f17575000000000000000000",
+  "data": {
+    "cardList": [
+      {
+        "cardType": 1003,
+        "cardData": {
+          "id": "card-1080376910394",
+          "title": "索尼 WH-1000XM4 头戴式降噪耳机",
+          "auctionType": "b",
+          "categoryId": 50012082,
+          "itemStatus": 0,
+          "detailUrl": "https://h5.m.goofish.com/item?id=1080376910394",
+          "priceInfo": {
+            "price": 750,
+            "preText": "¥"
+          },
+          "picInfo": {
+            "picUrl": "https://cdn/xm4-1.jpg",
+            "width": 800,
+            "height": 800,
+            "hasVideo": false
+          },
+          "detailParams": {
+            "itemId": "1080376910394",
+            "title": "索尼 WH-1000XM4 头戴式降噪耳机 95新 无拆修",
+            "soldPrice": "750",
+            "picUrl": "https://cdn/xm4-1.jpg",
+            "picWidth": "800",
+            "picHeight": "800",
+            "imageInfos": [],
+            "postInfo": "3天前发布"
+          },
+          "itemLabelDataVO": {},
+          "trackParams": {}
+        }
+      },
+      {
+        "cardType": 1003,
+        "cardData": {
+          "id": "card-1080376910395",
+          "title": "iPad Air 5 64G 深空灰",
+          "itemStatus": 0,
+          "detailUrl": "https://h5.m.goofish.com/item?id=1080376910395",
+          "priceInfo": {
+            "price": 2450,
+            "preText": "¥"
+          },
+          "picInfo": {
+            "picUrl": "https://cdn/ipad-1.jpg",
+            "width": 800,
+            "height": 800,
+            "hasVideo": true
+          },
+          "detailParams": {
+            "itemId": "1080376910395",
+            "title": "iPad Air 5 64G 深空灰 国行 包邮",
+            "soldPrice": "2,450.00",
+            "picUrl": "https://cdn/ipad-1.jpg",
+            "imageInfos": [],
+            "postInfo": ""
+          }
+        }
+      },
+      {
+        "cardType": 1003,
+        "cardData": {
+          "id": "card-1080376910396",
+          "title": "Anker 65W 氮化镓充电器 全新未拆封",
+          "itemStatus": 0,
+          "priceInfo": {
+            "price": "89",
+            "preText": "¥"
+          },
+          "picInfo": {
+            "picUrl": "https://cdn/anker-1.jpg"
+          },
+          "detailParams": {
+            "itemId": "1080376910396",
+            "imageInfos": []
+          }
+        }
+      },
+      {
+        "cardType": 1003,
+        "cardData": {
+          "id": "card-1080376910397",
+          "title": "小米体脂秤 2",
+          "itemStatus": 0,
+          "priceInfo": {
+            "price": 45,
+            "preText": "¥"
+          },
+          "detailParams": {
+            "itemId": "1080376910397"
+          }
+        }
+      }
+    ],
+    "totalCount": 0,
+    "nextPage": false,
+    "serverTime": "1757500000000",
+    "topItem": {},
+    "itemTopicList": [],
+    "needDecryptKeys": [],
+    "needDecryptKeysV2": [],
+    "serverDecryptKeys": []
+  }
+}

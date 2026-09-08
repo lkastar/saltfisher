@@ -32,6 +32,21 @@ APP_KEY = "12574478"
 BASE_URL = "https://h5api.m.goofish.com/h5"
 SEARCH_API = "mtop.taobao.idlemtopsearch.pc.search"
 ITEM_API = "mtop.taobao.idle.pc.detail"
+# A seller's own listing list. Measured 2026-09-08 by watching what a real
+# seller page sends: our APP_KEY above reaches it, so there is no per-API key
+# selection here. It takes the NUMERIC userId; the opaque token search returns
+# is answered FAIL_BIZ_BAD_REQUEST::解析参数失败.
+SELLER_LISTING_API = "mtop.idle.web.xyh.item.list"
+# The page's own value, not the 30 we ask search for. Matching the request the
+# real page makes is the safer bet in front of risk control, and a seller's
+# on-sale list is usually shorter than one page anyway (在售 4 / 已售出 75 on
+# the seller measured).
+SELLER_PAGE_SIZE = 20
+# The listing groups are named in Chinese and passed as a literal. Fragile by
+# nature, and only ONE seller has been observed, so a rule that suddenly
+# collects nothing is worth checking here first.
+ON_SALE_GROUP = "在售"
+_SELLER_CARD_TYPE = 1003
 # No separate seller endpoint exists in our path: the item detail response
 # carries a richer `sellerDO` than a profile page would, and the three other
 # candidate API names all returned FAIL_SYS_API_NOT_FOUNDED (verified
@@ -278,6 +293,66 @@ class MtopClient:
             raise ParseError(f"{SEARCH_API}: {len(rows_out)} rows, none parseable")
         return items
 
+    async def seller_listings(
+        self, numeric_id: str, page: int, now_ms: str, *, seller_id: str, seller_nick: str
+    ) -> tuple[list[RawItem], bool]:
+        """One page of a seller's ON-SALE listings, and whether more follow.
+
+        `numeric_id` is the numeric userId. `seller_id` is the opaque canonical
+        id the items get stamped with — the payload carries neither, and the
+        two must not be confused (see `base.normalize_seller_listing`).
+
+        No `groupId`: measured 2026-09-08, the response is identical without
+        it, which keeps a cycle at ONE request instead of fetching the group
+        list first.
+
+        **`totalCount` is not read, and that is the load-bearing line here.**
+        Measured on a live seller: `totalCount=0` while `cardList` held 4 real
+        listings and the page itself said 在售 4. Paging on that field collects
+        nothing and reports no error, so the only termination signals are the
+        cards actually parsed and `nextPage`.
+        """
+        data = await self._call(
+            SELLER_LISTING_API,
+            {
+                "needGroupInfo": False,
+                "pageNumber": page,
+                "userId": str(numeric_id),
+                "pageSize": SELLER_PAGE_SIZE,
+                "groupName": ON_SALE_GROUP,
+                "defaultGroup": True,
+            },
+            now_ms,
+        )
+        cards = data.get("cardList")
+        if not isinstance(cards, list):
+            # An absent list is a changed shape, not an empty shelf. Returning
+            # [] here would be written to analytics as "this seller has nothing
+            # on sale", which is the fake zero the never-return-[] rule exists
+            # to prevent.
+            raise ParseError(f"{SELLER_LISTING_API}: no cardList in {sorted(data)}")
+        items: list[RawItem] = []
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            if card.get("cardType") != _SELLER_CARD_TYPE:
+                log.info("skipping card type", extra={"card_type": card.get("cardType")})
+                continue
+            try:
+                items.append(
+                    base.normalize_seller_listing(
+                        flatten_seller_card(card.get("cardData") or {}),
+                        seller_id=seller_id,
+                        seller_nick=seller_nick,
+                        source="mtop",
+                    )
+                )
+            except ParseError as exc:
+                log.warning("skipping unparseable card", extra={"err": str(exc)})
+        if cards and not items:
+            raise ParseError(f"{SELLER_LISTING_API}: {len(cards)} cards, none parseable")
+        return items, bool(data.get("nextPage"))
+
     async def fetch_item(self, item_id: str, now_ms: str) -> tuple[RawItem, RawSeller | None]:
         """Item detail plus its seller profile, in ONE call.
 
@@ -375,6 +450,38 @@ def flatten_search_row(row: dict[str, Any]) -> dict[str, Any]:
     reviews, rate = _seller_reputation(ex)
     flat["seller_review_count"] = reviews
     flat["seller_positive_rate"] = rate
+    return {k: v for k, v in flat.items() if v not in (None, "")}
+
+
+def flatten_seller_card(card_data: dict[str, Any]) -> dict[str, Any]:
+    """`cardData` of a `cardType: 1003` card -> SELLER_LISTING_FIELD_MAP's keys.
+
+    Observed nesting (2026-09-08):
+
+        cardData.detailParams.itemId / title / soldPrice / postInfo
+        cardData.priceInfo.price      the displayed price, `preText` is the ¥
+        cardData.picInfo.picUrl       the cover
+
+    Explicit paths, not a blind merge, for the same reason `flatten_search_row`
+    uses them: `cardData.id` was recorded as a key and never as a value we
+    understand, so it is not offered as an item-id candidate at all.
+    """
+    detail = card_data.get("detailParams") or {}
+    price_info = card_data.get("priceInfo") or {}
+    pic_info = card_data.get("picInfo") or {}
+    flat: dict[str, Any] = {
+        "itemId": detail.get("itemId"),
+        "title": card_data.get("title") or detail.get("title"),
+        "soldPrice": detail.get("soldPrice"),
+        "price": price_info.get("price"),
+        "picUrl": pic_info.get("picUrl") or detail.get("picUrl"),
+        # Shape UNVERIFIED: the probe recorded this key and not its contents.
+        # `parse_timestamp` answers None for anything that is not an epoch or
+        # an ISO string, so a human label like 「3天前」 degrades to "publish
+        # time unknown" rather than becoming a fabricated timestamp.
+        "postInfo": detail.get("postInfo"),
+        "itemStatus": card_data.get("itemStatus"),
+    }
     return {k: v for k, v in flat.items() if v not in (None, "")}
 
 
