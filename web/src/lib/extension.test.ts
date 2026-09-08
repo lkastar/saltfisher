@@ -13,7 +13,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { describeReport, flattenCookies } from "../../../extension/lib/cookies.js";
-import { isLocalAddress, normalisePanelOrigin } from "../../../extension/lib/panel.js";
+import { addressSpace, normalisePanelOrigin } from "../../../extension/lib/panel.js";
 import { readEnvSnapshot } from "../../../extension/lib/env.js";
 
 /** Every file that ships in the unpacked extension, as text. */
@@ -168,28 +168,30 @@ describe("normalisePanelOrigin", () => {
   });
 });
 
-describe("isLocalAddress", () => {
-  it("recognises loopback and the private blocks", () => {
-    for (const host of [
-      "localhost",
-      "panel.localhost",
-      "127.0.0.1",
-      "10.0.0.5",
-      "192.168.1.10",
-      "172.16.0.1",
-      "172.31.255.254",
-      "[::1]",
-      "[fd00::1]",
-    ]) {
-      expect(isLocalAddress(host), host).toBe(true);
+describe("addressSpace", () => {
+  it("calls loopback loopback, not local", () => {
+    // The bug this replaces, hit for real on 2026-09-08 against
+    // http://127.0.0.1:8000 -- the address a self-hosted panel actually runs
+    // on. `targetAddressSpace` is an assertion, and Chrome refuses a mismatch:
+    //   Request had a target IP address space of `local` yet the resource is
+    //   in address space `loopback`
+    // A two-state model of a three-state API does not degrade, it blocks.
+    for (const host of ["localhost", "panel.localhost", "127.0.0.1", "127.1.2.3", "[::1]"]) {
+      expect(addressSpace(host), host).toBe("loopback");
     }
   });
 
-  it("does not claim a public address is local", () => {
-    // `targetAddressSpace: "local"` is an assertion about the target. Claiming
-    // it for a public panel would make a working fetch fail.
+  it("calls the private blocks local", () => {
+    for (const host of ["10.0.0.5", "192.168.1.10", "172.16.0.1", "172.31.255.254", "[fd00::1]"]) {
+      expect(addressSpace(host), host).toBe("local");
+    }
+  });
+
+  it("asserts nothing about a public address", () => {
+    // Claiming either value for a public panel would be false in the other
+    // direction and would break a fetch that works today.
     for (const host of ["panel.example", "172.32.0.1", "11.0.0.1", "203.0.113.9", ""]) {
-      expect(isLocalAddress(host), host).toBe(false);
+      expect(addressSpace(host), host).toBeNull();
     }
   });
 });
@@ -464,10 +466,19 @@ describe("background service worker", () => {
     });
   });
 
-  it("states the local address space only for a local panel", async () => {
-    const local = await loadBackground();
-    await local.send({ type: "import", tabId: 1 });
-    expect(local.calls[0]!.init.targetAddressSpace).toBe("local");
+  it("states the address space the panel is actually in", async () => {
+    // 127.0.0.1 is the address a self-hosted panel runs on, and it is
+    // `loopback`, not `local`. Declaring `local` here is what made every
+    // import after the first one fail with a bare "Failed to fetch".
+    const loopback = await loadBackground({
+      stored: { panelOrigin: "http://127.0.0.1:8000", apiToken: "tok" },
+    });
+    await loopback.send({ type: "import", tabId: 1 });
+    expect(loopback.calls[0]!.init.targetAddressSpace).toBe("loopback");
+
+    const lan = await loadBackground();
+    await lan.send({ type: "import", tabId: 1 });
+    expect(lan.calls[0]!.init.targetAddressSpace).toBe("local");
 
     const public_ = await loadBackground({
       stored: { panelOrigin: "https://panel.example", apiToken: "tok" },

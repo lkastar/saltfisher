@@ -72,7 +72,7 @@ docker compose up -d --build   # 改了代码后重建
 |---|---|---|---|
 | 开发者工具粘贴 | 无 | 看你复制的那个请求 | 可以（人肉搬运） |
 | 书签脚本 | 拖一个书签到书签栏 | **不行** | **不行**（混合内容，浏览器拦死） |
-| Chrome 扩展 | 装 unpacked 扩展 | **可以** | **预期**可以，实测为准（见下） |
+| Chrome 扩展 | 装 unpacked 扩展 | **可以** | 本机 loopback 可以（实测）；局域网**预期**可以，见下 |
 
 **开发者工具那条永远是兜底**：另外两条出任何问题都退回它。下面两节讲另外两条。
 
@@ -190,12 +190,27 @@ host 权限没生效（**重新加载 unpacked 扩展会把运行时授予的权
 「读取你的浏览记录」。这里不需要——面板本来就从 `navigator.userAgentData.brands` 重建那几个头
 （`app/collector/fingerprint.py`）。
 
-#### 局域网 / 明文 http：预期可以，实测为准
+#### Local Network Access：扩展**确实**受限（2026-09-08 实测）
 
-Chrome 正在推 Local Network Access（文档里说 Chrome 142 落地），限制向本地网络地址发请求，
-但**官方文档没有说明扩展是否受此限制**。所以这里只做防御：请求带上
-`targetAddressSpace: "local"`（不认这个选项的旧版本会忽略它），被拦下时弹窗会说人话并让你退回
-开发者工具流程。**不要**把「扩展可以访问局域网面板」当成保证——自己试一次为准。
+Chrome 的 Local Network Access 限制向本地网络地址发请求，而**扩展不豁免**。官方文档没写这
+一点，是实测撞出来的。两条结论，第二条是坑：
+
+**一、地址空间有三个，不是两个**：`public`、`local`（RFC 1918 与 IPv6 unique-local）、
+`loopback`（`127.0.0.0/8`、`::1`、以及解析到它们的名字）。
+
+**二、`targetAddressSpace` 是断言，不是提示。** 声明错了 Chrome **直接拒绝**，不是忽略也不是
+降级：
+
+```
+blocked by CORS policy: Request had a target IP address space of `local`
+yet the resource is in address space `loopback`
+```
+
+第一版把 `127.0.0.1` 当成 `local` 声明了——而那正是自托管面板真实跑的地址，所以这个错会
+100% 命中真实用户，症状是弹窗只说一句 `Failed to fetch`。现在 `extension/lib/panel.js` 的
+`addressSpace()` 按三态分类，公网地址则**一个断言都不发**（往那个方向声明同样是假话）。
+
+局域网明文 http 面板仍然是「预期可以，实测为准」——自己试一次。
 
 #### 它往哪儿发
 

@@ -14,7 +14,7 @@
 
 import { flattenCookies } from "./lib/cookies.js";
 import { readEnvSnapshot } from "./lib/env.js";
-import { IMPORT_PATH, isLocalAddress, normalisePanelOrigin } from "./lib/panel.js";
+import { addressSpace, IMPORT_PATH, normalisePanelOrigin } from "./lib/panel.js";
 
 // The two domains in `host_permissions`, and the whole reason there are two:
 // `_m_h5_tk` is only ever set on taobao. `chrome.cookies.getAll` matches
@@ -101,10 +101,14 @@ async function runImport(message) {
     body,
   };
   // Chrome is rolling out Local Network Access and the docs do not say whether
-  // extensions are subject to it. Stating the expectation costs nothing --
-  // builds that do not know the option ignore it -- and it is only true for a
-  // private address, so it is set only for one.
-  if (isLocalAddress(new URL(url).hostname)) init.targetAddressSpace = "local";
+  // extensions are subject to it. Stating the expectation costs nothing on a
+  // build that does not know the option -- but stating it WRONG is fatal:
+  // it is an assertion, and a mismatch is refused outright ("target IP
+  // address space of `local` yet the resource is in address space
+  // `loopback`"). Hence a three-way classifier, and no assertion at all when
+  // the host is neither.
+  const space = addressSpace(new URL(url).hostname);
+  if (space) init.targetAddressSpace = space;
 
   let response;
   try {

@@ -38,34 +38,43 @@ export function normalisePanelOrigin(input) {
   }
 }
 
-// Loopback and the three RFC 1918 blocks, plus IPv6 loopback and unique-local.
-// This is the set Chrome's Local Network Access proposal calls "local"; the
-// docs do not say whether extensions are subject to it, so the fetch states an
-// expectation for these hosts and nothing more.
-const LOCAL_PATTERNS = [
-  /^localhost$/,
-  /\.localhost$/,
-  /^127\./,
+// Chrome's Local Network Access has THREE address spaces, not two:
+// `public`, `local` (the RFC 1918 blocks and IPv6 unique-local) and
+// `loopback` (127.0.0.0/8, ::1, and the names that resolve to them).
+//
+// Getting that wrong is not a no-op, which is the whole reason this is a
+// classifier and not a boolean. `targetAddressSpace` is an ASSERTION about
+// the target, so declaring `local` for a loopback panel is a false claim and
+// Chrome refuses the request outright:
+//
+//   blocked by CORS policy: Request had a target IP address space of `local`
+//   yet the resource is in address space `loopback`
+//
+// Measured 2026-09-08 against http://127.0.0.1:8000, which is exactly the
+// address a self-hosted panel runs on.
+const LOOPBACK_PATTERNS = [/^localhost$/, /\.localhost$/, /^127\./, /^::1$/];
+const PRIVATE_PATTERNS = [
   /^10\./,
   /^192\.168\./,
   /^172\.(1[6-9]|2\d|3[01])\./,
-  /^::1$/,
   /^f[cd][0-9a-f]{2}:/,
 ];
 
 /**
- * Whether an address is one Local Network Access would care about.
+ * Which address space a host is in, as `targetAddressSpace` names them.
  *
- * Gated rather than always-on: `targetAddressSpace: "local"` is an assertion
- * about the target, and asserting it for a panel on a public https host would
- * be a claim that is false. Chrome builds that do not know the option ignore
- * it either way.
+ * Returns null for anything else, and the caller then sends no assertion at
+ * all -- claiming `local` for a public host would be false in the other
+ * direction. Chrome builds that do not know the option ignore it either way.
  *
  * @param {string} hostname as `URL.hostname` gives it, IPv6 still bracketed
+ * @returns {"loopback" | "local" | null}
  */
-export function isLocalAddress(hostname) {
+export function addressSpace(hostname) {
   const host = String(hostname || "")
     .toLowerCase()
     .replace(/^\[|\]$/g, "");
-  return LOCAL_PATTERNS.some((pattern) => pattern.test(host));
+  if (LOOPBACK_PATTERNS.some((p) => p.test(host))) return "loopback";
+  if (PRIVATE_PATTERNS.some((p) => p.test(host))) return "local";
+  return null;
 }
