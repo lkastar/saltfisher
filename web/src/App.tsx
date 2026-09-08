@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, Route, Routes } from "react-router";
 
 import { clearToken, getToken } from "./api/client";
+import { Icon } from "./components/Icon";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import ChannelsPage from "./pages/ChannelsPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
@@ -19,6 +20,29 @@ const NAV = [
   { to: "/channels", label: "通知渠道" },
   { to: "/settings", label: "设置" },
 ];
+
+function ThemeToggle() {
+  const [theme, setTheme] = useState<"dark" | "light">(() =>
+    document.documentElement.dataset.theme === "light" ? "light" : "dark",
+  );
+  const label = theme === "light" ? "切换至深色模式" : "切换至浅色模式";
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      style={{ display: "inline-flex", alignItems: "center" }}
+      onClick={() => {
+        const next = theme === "light" ? "dark" : "light";
+        document.documentElement.dataset.theme = next;
+        localStorage.setItem("sfd-theme", next);
+        setTheme(next);
+      }}
+    >
+      <Icon name={theme === "light" ? "moon" : "sun"} />
+    </button>
+  );
+}
 
 function AppShell() {
   return (
@@ -56,6 +80,7 @@ function AppShell() {
             </NavLink>
           ))}
         </nav>
+        <ThemeToggle />
         <button
           type="button"
           onClick={() => {

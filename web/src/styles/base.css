@@ -18,8 +18,16 @@ body {
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  transition:
+    background-color 0.3s var(--ease),
+    color 0.3s var(--ease);
+}
+
+::selection {
+  background: var(--acc);
+  color: #fff;
 }
 
 h1,
@@ -41,12 +49,13 @@ h2 {
 }
 
 a {
-  color: var(--primary);
+  color: var(--acc2);
   text-decoration: none;
+  transition: color 0.2s;
 }
 
 a:hover {
-  text-decoration: underline;
+  color: var(--acc);
 }
 
 /* Never removed. A keyboard user with no focus ring cannot use this app. */
@@ -65,17 +74,20 @@ button {
   white-space: nowrap;
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-sm);
+  /* --border-strong, not the prototype's --line2: control outlines keep the
+   * 3:1 WCAG 1.4.11 floor. See tokens.css header. */
   border: 1px solid var(--border-strong);
-  background: var(--surface);
+  background: var(--surface-2);
   color: var(--text);
   cursor: pointer;
-  transition:
-    background-color 180ms ease,
-    border-color 180ms ease;
+  transition: all 0.25s var(--ease);
 }
 
 button:hover:not(:disabled) {
-  background: var(--surface-2);
+  border-color: var(--acc);
+  color: var(--acc2);
+  background: var(--acc-soft);
+  box-shadow: 0 0 16px var(--acc-glow);
 }
 
 button:disabled {
@@ -91,13 +103,23 @@ button[data-variant="primary"] {
 }
 
 button[data-variant="primary"]:hover:not(:disabled) {
-  filter: brightness(1.08);
+  filter: brightness(1.1);
   background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-on);
 }
 
 button[data-variant="danger"] {
   color: var(--danger);
   border-color: var(--danger);
+}
+
+button[data-variant="danger"]:hover:not(:disabled) {
+  filter: brightness(1.1);
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+  box-shadow: none;
 }
 
 input,
@@ -108,6 +130,21 @@ textarea {
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text);
+  transition:
+    border-color 0.25s,
+    box-shadow 0.25s;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+
+select option {
   background: var(--surface);
   color: var(--text);
 }
@@ -156,20 +193,30 @@ thead th {
   position: sticky;
   top: 0;
   background: var(--surface);
-  color: var(--text-muted);
+  font-family: var(--font-mono);
+  color: var(--text3);
   text-align: left;
-  font-weight: 600;
-  font-size: 11.5px;
-  letter-spacing: 0.04em;
+  font-weight: 500;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
   white-space: nowrap;
   padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line2);
 }
 
 tbody td {
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+}
+
+tbody tr {
+  transition: background 0.2s var(--ease);
+}
+
+tbody tr:hover {
+  background: var(--surface-2);
 }
 
 tbody tr:last-child td {
@@ -191,10 +238,11 @@ tbody tr:last-child td {
 .pill {
   display: inline-block;
   font-size: 11.5px;
-  font-weight: 600;
-  padding: 1px 7px;
+  font-weight: 500;
+  padding: 1px 9px;
   border-radius: 999px;
-  border: 1px solid currentColor;
+  /* Prototype pills border with a ~30%-alpha of their own colour. */
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
   white-space: nowrap;
 }
 

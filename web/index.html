@@ -9,6 +9,12 @@
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='13'%3E%F0%9F%90%9F%3C/text%3E%3C/svg%3E"
     />
     <title>咸鱼监控</title>
+    <!-- Theme before first paint: dark is the :root default, light is opt-in.
+         Inline so there is no flash of the wrong theme. -->
+    <script>
+      if (localStorage.getItem("sfd-theme") === "light")
+        document.documentElement.dataset.theme = "light";
+    </script>
   </head>
   <body>
     <div id="root"></div>
