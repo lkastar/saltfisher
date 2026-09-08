@@ -956,6 +956,29 @@ button.btn-text:hover:not(:disabled) {
   color: var(--acc);
 }
 
+/* ---------- inline cell edit (watchlist 备注 / 降价轮询) ---------- */
+
+/* Value + icon-only edit button on one baseline; in edit mode the input and
+ * the ✓/✕ buttons share the same single nowrap line — a too-narrow cell is
+ * absorbed by .table-scroll, never wrapped onto a second ragged line. */
+.cell-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* The edit pencil stays dim until the row is hovered, but never disappears,
+ * and keyboard focus reveals it fully without the hover. */
+.cell-edit .row-edit-btn {
+  opacity: 0.3;
+  transition: opacity 0.15s;
+}
+tr:hover .cell-edit .row-edit-btn,
+.cell-edit .row-edit-btn:focus-visible {
+  opacity: 1;
+}
+
 /* ---------- filterbar (ItemsPage, later AnalyticsPage) ---------- */
 
 .filterbar {

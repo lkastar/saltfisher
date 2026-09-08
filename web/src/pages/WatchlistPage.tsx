@@ -94,84 +94,121 @@ function AddByLink() {
 }
 
 
-/* The 意图备注 + 降价轮询 cells of one row in edit mode. Mounted only while
- * this row is being edited, so draft state initializes fresh from the entry
- * every time. Rendered as a <td> fragment inside the row (a <form> cannot
- * wrap table cells), hence type="button" + a manual min-interval guard
- * mirroring the min={60} attribute. */
-function RowEditor({
-  entry,
-  saving,
-  onSave,
-  onCancel,
-}: {
+/* 意图备注 and 降价轮询 edit independently, one cell at a time. Editors are
+ * mounted only while their cell edits, so draft state initializes fresh from
+ * the entry. They live inside a <td> (no <form>), hence type="button" + a
+ * manual min-interval guard mirroring the min={60} attribute. All controls sit
+ * on one nowrap line (.cell-edit); a too-narrow cell scrolls in .table-scroll
+ * instead of wrapping. */
+type CellEditorProps = {
   entry: WatchEntry;
   saving: boolean;
   onSave: (body: Parameters<typeof updateWatch>[1]) => void;
   onCancel: () => void;
+};
+
+/* Icon-only 保存/取消 pair shared by both cell editors. */
+function EditActions({
+  saving,
+  valid,
+  onSave,
+  onCancel,
+}: {
+  saving: boolean;
+  valid: boolean;
+  onSave: () => void;
+  onCancel: () => void;
 }) {
+  return (
+    <>
+      <button
+        type="button"
+        className="btn-text"
+        aria-label="保存"
+        disabled={saving || !valid}
+        onClick={onSave}
+      >
+        <Icon name="check" size={14} />
+      </button>
+      <button
+        type="button"
+        className="btn-text"
+        aria-label="取消"
+        disabled={saving}
+        onClick={onCancel}
+      >
+        <Icon name="x" size={14} />
+      </button>
+    </>
+  );
+}
+
+function NoteEditor({ entry, saving, onSave, onCancel }: CellEditorProps) {
   const [note, setNote] = useState(entry.note ?? "");
+  const save = () => onSave({ note });
+  return (
+    <span
+      className="cell-edit"
+      onKeyDown={(event: KeyboardEvent) => {
+        if (event.key === "Escape") onCancel();
+      }}
+    >
+      <input
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !saving) save();
+        }}
+        maxLength={500}
+        placeholder="备注"
+        autoFocus
+        style={{ width: 180, fontSize: 12, minHeight: 26, padding: "2px 8px" }}
+        aria-label={`${shortTitle(entry.title)} 的备注`}
+      />
+      <EditActions saving={saving} valid onSave={save} onCancel={onCancel} />
+    </span>
+  );
+}
+
+function IntervalEditor({ entry, saving, onSave, onCancel }: CellEditorProps) {
   const [enabled, setEnabled] = useState(entry.price_watch_enabled);
   const [intervalStr, setIntervalStr] = useState(String(entry.interval_seconds));
   const seconds = Number(intervalStr);
   const valid = Number.isInteger(seconds) && seconds >= MIN_INTERVAL;
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") onCancel();
-  };
-
+  const save = () => onSave({ price_watch_enabled: enabled, interval_seconds: seconds });
   return (
-    <>
-      <td onKeyDown={onKeyDown}>
+    <span
+      className="cell-edit"
+      onKeyDown={(event: KeyboardEvent) => {
+        if (event.key === "Escape") onCancel();
+      }}
+    >
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12 }}>
         <input
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          maxLength={500}
-          placeholder="备注"
-          autoFocus
-          style={{ width: 140, fontSize: 12 }}
-          aria-label={`${shortTitle(entry.title)} 的备注`}
+          type="checkbox"
+          checked={enabled}
+          onChange={(event) => setEnabled(event.target.checked)}
         />
-      </td>
-      <td onKeyDown={onKeyDown}>
-        <div
-          style={{ display: "flex", gap: "var(--space-1)", alignItems: "center", flexWrap: "wrap" }}
-        >
-          <label style={{ display: "flex", gap: "var(--space-1)", alignItems: "center" }}>
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(event) => setEnabled(event.target.checked)}
-            />
-            监控
-          </label>
-          <input
-            type="number"
-            min={MIN_INTERVAL}
-            className="mono"
-            value={intervalStr}
-            onChange={(event) => setIntervalStr(event.target.value)}
-            style={{ width: 82, fontSize: 12 }}
-            aria-label={`${shortTitle(entry.title)} 的检查间隔（秒，下限 ${MIN_INTERVAL}）`}
-          />
-          <span className="dim mono" style={{ fontSize: 11 }}>
-            s
-          </span>
-          <button
-            type="button"
-            data-variant="primary"
-            disabled={saving || !valid}
-            onClick={() =>
-              onSave({ note, price_watch_enabled: enabled, interval_seconds: seconds })
-            }
-          >
-            保存
-          </button>
-          <button type="button" onClick={onCancel} disabled={saving}>
-            取消
-          </button>
-        </div>
-      </td>
-    </>
+        监控
+      </label>
+      <input
+        type="number"
+        min={MIN_INTERVAL}
+        className="mono"
+        value={intervalStr}
+        onChange={(event) => setIntervalStr(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !saving && valid) save();
+        }}
+        autoFocus
+        style={{ width: 72, fontSize: 12, minHeight: 26, padding: "2px 8px" }}
+        aria-label={`${shortTitle(entry.title)} 的检查间隔（秒，下限 ${MIN_INTERVAL}）`}
+      />
+      <span className="dim mono" style={{ fontSize: 11 }}>
+        s
+      </span>
+      <EditActions saving={saving} valid={valid} onSave={save} onCancel={onCancel} />
+    </span>
   );
 }
 
@@ -179,7 +216,9 @@ export default function WatchlistPage() {
   const queryClient = useQueryClient();
   const query = useQuery(watchlistOptions());
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ id: string; field: "note" | "interval" } | null>(
+    null,
+  );
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: keys.watchlist });
   const patch = useMutation({
@@ -318,32 +357,29 @@ export default function WatchlistPage() {
                         <StatusPill status={entry.status} />
                       </td>
                       <td className="num">{entry.listed_days.toFixed(1)} 天</td>
-                      {editingId === entry.item_id ? (
-                        <RowEditor
-                          entry={entry}
-                          saving={patch.isPending}
-                          onSave={(body) =>
-                            patch.mutate(
-                              { id: entry.item_id, body },
-                              { onSuccess: () => setEditingId(null) },
-                            )
-                          }
-                          onCancel={() => setEditingId(null)}
-                        />
-                      ) : (
-                        <>
-                          <td>
+                      <td>
+                        {editing?.id === entry.item_id && editing.field === "note" ? (
+                          <NoteEditor
+                            entry={entry}
+                            saving={patch.isPending}
+                            onSave={(body) =>
+                              patch.mutate(
+                                { id: entry.item_id, body },
+                                { onSuccess: () => setEditing(null) },
+                              )
+                            }
+                            onCancel={() => setEditing(null)}
+                          />
+                        ) : (
+                          <span className="cell-edit">
                             {entry.note ? (
                               <span
                                 title={entry.note}
                                 style={{
                                   fontSize: 12,
-                                  display: "inline-block",
                                   maxWidth: 140,
-                                  whiteSpace: "nowrap",
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
-                                  verticalAlign: "bottom",
                                 }}
                               >
                                 {entry.note}
@@ -353,28 +389,50 @@ export default function WatchlistPage() {
                                 未填写
                               </span>
                             )}
-                          </td>
-                          <td>
-                            <span
-                              className="mono"
-                              style={{ fontSize: 12, whiteSpace: "nowrap" }}
+                            <button
+                              type="button"
+                              className="btn-text row-edit-btn"
+                              onClick={() => setEditing({ id: entry.item_id, field: "note" })}
+                              aria-label={`编辑备注：${shortTitle(entry.title)}`}
                             >
+                              <Icon name="edit" size={13} />
+                            </button>
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {editing?.id === entry.item_id && editing.field === "interval" ? (
+                          <IntervalEditor
+                            entry={entry}
+                            saving={patch.isPending}
+                            onSave={(body) =>
+                              patch.mutate(
+                                { id: entry.item_id, body },
+                                { onSuccess: () => setEditing(null) },
+                              )
+                            }
+                            onCancel={() => setEditing(null)}
+                          />
+                        ) : (
+                          <span className="cell-edit">
+                            <span className="mono" style={{ fontSize: 12 }}>
                               {entry.price_watch_enabled
                                 ? `${entry.interval_seconds}s`
                                 : "关"}
-                            </span>{" "}
+                            </span>
                             <button
                               type="button"
-                              className="btn-text"
-                              onClick={() => setEditingId(entry.item_id)}
-                              aria-label={`编辑 ${shortTitle(entry.title)} 的备注与降价轮询`}
+                              className="btn-text row-edit-btn"
+                              onClick={() =>
+                                setEditing({ id: entry.item_id, field: "interval" })
+                              }
+                              aria-label={`编辑降价轮询：${shortTitle(entry.title)}`}
                             >
                               <Icon name="edit" size={13} />
-                              编辑
                             </button>
-                          </td>
-                        </>
-                      )}
+                          </span>
+                        )}
+                      </td>
                       <td className="mono muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
                         {formatRelativeTime(entry.last_run_at)}
                         {entry.last_error ? (
