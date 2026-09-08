@@ -290,7 +290,13 @@ describe("readEnvSnapshot", () => {
 type ImportResult = {
   ok: boolean;
   error?: string;
-  report?: { names: string[]; duplicates: number; conflicts: number; envCaptured: boolean };
+  report?: {
+    names: string[];
+    duplicates: number;
+    conflicts: number;
+    envCaptured: boolean;
+    envError?: string;
+  };
 };
 
 type Harness = {
@@ -316,7 +322,10 @@ async function loadBackground(
     stored?: Record<string, unknown>;
     cookies?: Record<string, ReturnType<typeof cookie>[]>;
     env?: Record<string, unknown> | Error;
+    granted?: boolean;
     respond?: () => Promise<Response> | Response;
+    /** Answers the `/api/health` probe the fetch-failure path makes. */
+    healthy?: boolean;
   } = {},
 ): Promise<Harness> {
   const listeners: ((m: unknown, s: unknown, r: (v: ImportResult) => void) => unknown)[] = [];
@@ -333,6 +342,11 @@ async function loadBackground(
         get: async () => options.stored ?? { panelOrigin: "http://192.168.1.10:8000", apiToken: "tok" },
       },
     },
+    permissions: {
+      // Granted unless a test says otherwise. The real one can go missing
+      // between two clicks, which is the whole reason background.js checks it.
+      contains: async () => options.granted ?? true,
+    },
     cookies: { getAll: async ({ domain }: { domain: string }) => cookieJar[domain] ?? [] },
     scripting: {
       executeScript: async () => {
@@ -346,6 +360,12 @@ async function loadBackground(
   globals.chrome = chrome;
   globals.fetch = vi.fn(async (url: string, init: RequestInit) => {
     calls.push({ url, init });
+    // The health probe is a separate request with its own answer: the whole
+    // point of it is to behave differently from the import.
+    if (url.endsWith("/api/health")) {
+      if (options.healthy) return new Response("{}", { status: 200 });
+      throw new TypeError("Failed to fetch");
+    }
     return options.respond
       ? await options.respond()
       : new Response(JSON.stringify(PANEL_REPLY), {
@@ -468,6 +488,95 @@ describe("background service worker", () => {
     expect(result.error).toContain("开发者工具");
   });
 
+  it("says the host permission is missing instead of failing opaquely", async () => {
+    // The failure this replaces: a runtime-granted optional permission can be
+    // gone by the next click (reloading an unpacked extension drops it), and
+    // without it Chrome sends an ordinary cross-origin request instead of a
+    // privileged one. The panel then gets a preflight it answers 405 -- no
+    // OPTIONS route, and the extension origin is not in
+    // ALLOWED_IMPORT_ORIGINS -- so fetch reports a bare "Failed to fetch" and
+    // the user goes looking at a panel that is running fine. Hit for real on
+    // 2026-09-08: the first import worked, every one after it did not.
+    const { send, calls } = await loadBackground({ granted: false });
+    const result = await send({ type: "import", tabId: 1 });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("权限");
+    expect(result.error).toContain("允许");
+    // And it costs no request at all: checked before the cookies are read.
+    expect(calls).toHaveLength(0);
+  });
+
+  it("separates a dead panel from a blocked request", async () => {
+    // /api/health needs no auth and no custom header, so it is CORS-simple:
+    // if it answers while the import does not, the panel is up and this one
+    // request is what got stopped. Saying "面板没在跑" there sends the user to
+    // restart a server that is already running.
+    const blocked = await loadBackground({
+      healthy: true,
+      respond: () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    const stopped = await blocked.send({ type: "import", tabId: 1 });
+    expect(stopped.error).toContain("活着");
+    expect(stopped.error).not.toContain("面板没在跑");
+
+    const down = await loadBackground({
+      healthy: false,
+      respond: () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    const dead = await down.send({ type: "import", tabId: 1 });
+    expect(dead.error).toContain("面板没在跑");
+    expect(dead.error).not.toContain("活着");
+  });
+
+  it("says WHY the environment snapshot is missing, not just that it is", async () => {
+    // Silent by nature: the cookies come from the cookie store whatever tab is
+    // active, so the import reports success while the panel quietly keeps its
+    // built-in identity. On the first real run the click happened on the
+    // panel's own tab -- a different host from goofish, so injection had no
+    // permission -- and nothing on screen said the snapshot had been dropped.
+    const { send } = await loadBackground({ env: new Error("no access") });
+    const result = await send({ type: "import", tabId: 1 });
+    expect(result.ok).toBe(true);
+    const report = result.report;
+    if (!report) throw new Error("a successful import must carry a report");
+    expect(report.envCaptured).toBe(false);
+    expect(report.envError).toContain("闲鱼");
+    expect(describeReport(report)).toContain("闲鱼标签页");
+  });
+
+  it("names the localhost/IPv6 trap instead of blaming the panel", async () => {
+    // The cause that looks exactly like "the panel is down" while the panel is
+    // up and answering curl: `localhost` resolves to ::1 first and uvicorn's
+    // default bind is IPv4 only, so fetch hits a closed port. Hit for real on
+    // 2026-09-08. A message that says "面板没在跑" here sends the user to
+    // restart a server that is already running.
+    const { send } = await loadBackground({
+      stored: { panelOrigin: "http://localhost:8000", apiToken: "t" },
+      respond: () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    const result = await send({ type: "import", tabId: 1 });
+    expect(result.error).toContain("127.0.0.1");
+    expect(result.error).not.toContain("面板没在跑");
+  });
+
+  it("still blames the usual suspects for a non-localhost panel", async () => {
+    const { send } = await loadBackground({
+      stored: { panelOrigin: "http://192.168.1.10:8000", apiToken: "t" },
+      respond: () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    const result = await send({ type: "import", tabId: 1 });
+    expect(result.error).toContain("面板没在跑");
+    expect(result.error).not.toContain("127.0.0.1");
+  });
+
   it("forwards the panel's own refusal instead of a bare status", async () => {
     const { send } = await loadBackground({
       respond: () =>
@@ -575,14 +684,34 @@ describe("manifest", () => {
 });
 
 describe("outbound destinations", () => {
-  it("has exactly one network call site in the whole extension", () => {
+  it("has only the network call sites enumerated here", () => {
     // By pattern, not by name: any way of reaching the network counts, so a
-    // second one has to show up here even if it points somewhere innocent.
+    // new one has to show up here even if it points somewhere innocent.
+    // Enumerated rather than counted -- the count changed once already, when
+    // the /api/health probe was added to tell "panel is down" apart from
+    // "this request was blocked", and a count would have had to be bumped
+    // without anyone re-reading where the call goes.
     const sinks = /\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|EventSource|importScripts|\bimport\s*\(/g;
     const found = Object.entries(SOURCES).flatMap(([key, source]) =>
       [...source.matchAll(sinks)].map((m) => `${shortPath(key)}: ${m[0]}`),
     );
-    expect(found).toEqual(["extension/background.js: fetch("]);
+    expect(found).toEqual([
+      "extension/background.js: fetch(", // the import POST
+      "extension/background.js: fetch(", // the /api/health reachability probe
+    ]);
+  });
+
+  it("builds every network destination out of the stored panel origin", () => {
+    // The invariant the call-site count was only ever standing in for. Both
+    // fetches must be template literals rooted at `origin`, which is whatever
+    // `normalisePanelOrigin` made of what the user typed -- so neither one can
+    // be pointed anywhere else without this failing.
+    const [, source = ""] =
+      Object.entries(SOURCES).find(([k]) => shortPath(k) === "extension/background.js") ?? [];
+    const targets = [...source.matchAll(/fetch\(\s*([^,)]+)/g)].map((m) => m[1]?.trim());
+    expect(targets).toEqual(["url", "`${origin}/api/health`"]);
+    // ...and `url` itself is the same origin plus the shared path constant.
+    expect(source).toContain("const url = `${origin}${IMPORT_PATH}`");
   });
 
   it("builds that one call's URL out of the stored panel origin and nothing else", () => {
@@ -620,6 +749,13 @@ describe("outbound destinations", () => {
       // The `placeholder` attribute of the panel-address field. Markup, shown
       // to the user, never fetched.
       "extension/popup.html: http://192.168.1.10:8000",
+      // Inside an error message, telling the user where to go reload the
+      // extension when its host permission has gone missing. Prose in a
+      // string literal -- and unfetchable by an extension anyway. Listed here
+      // rather than exempted by pattern: the audit deliberately does not
+      // strip string literals, because that is where a real destination would
+      // hide.
+      "extension/background.js: chrome://extensions",
     ].sort());
   });
 

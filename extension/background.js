@@ -48,6 +48,23 @@ async function runImport(message) {
     return { ok: false, error: "还没设置 API token（面板的 SFD_API_TOKEN），填好后点「保存」。" };
   }
 
+  // Checked HERE rather than trusted from the popup, because this is the
+  // process that needs it. A runtime-granted optional permission can be gone
+  // by the next click -- reloading an unpacked extension drops it -- and the
+  // symptom is brutally misleading: without the permission Chrome stops
+  // treating this as a privileged extension request and sends an ordinary
+  // cross-origin one, so the panel gets a preflight it answers 405 (no
+  // OPTIONS route, and the extension origin is not in ALLOWED_IMPORT_ORIGINS)
+  // and fetch reports a bare "Failed to fetch". Measured 2026-09-08.
+  if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) {
+    return {
+      ok: false,
+      error:
+        `没有访问 ${origin} 的权限。再点一次「导入」，在 Chrome 的弹框里选「允许」。` +
+        `（重新加载扩展会把这个权限清掉，所以它可能昨天还是好的。）`,
+    };
+  }
+
   const collected = [];
   for (const domain of COOKIE_DOMAINS) {
     collected.push(...(await chrome.cookies.getAll({ domain })));
@@ -60,7 +77,7 @@ async function runImport(message) {
     };
   }
 
-  const env = await readTabEnv(message.tabId);
+  const { env, envError } = await readTabEnv(message.tabId);
   const body = JSON.stringify({
     cookie_header: flat.header,
     // Omitted rather than defaulted when the active tab has none to give:
@@ -93,11 +110,36 @@ async function runImport(message) {
   try {
     response = await fetch(url, init);
   } catch (error) {
+    // One extra request to tell two very different problems apart. `/api/health`
+    // needs no auth and no custom header, so it is a CORS-simple request: if it
+    // answers, the panel is reachable and the import request specifically is
+    // what got stopped; if it does not, nothing is getting through.
+    const reachable = await fetch(`${origin}/api/health`)
+      .then((r) => r.ok)
+      .catch(() => false);
+    if (reachable) {
+      return {
+        ok: false,
+        error:
+          `面板在 ${origin} 上活着（/api/health 通了），但导入请求被拦下了（${error}）。` +
+          `多半是扩展的 host 权限没生效——在 chrome://extensions 里重新加载本扩展，` +
+          `再点一次「导入」并允许。还不行就走面板设置页的开发者工具流程。`,
+      };
+    }
     return {
       ok: false,
       error:
-        `连不上 ${origin}（${error}）。面板没在跑、地址写错、或者 Chrome 的本地网络访问` +
-        `限制拦下了这次请求，都会这样。改用面板设置页的开发者工具流程——那条路不受这些限制。`,
+        `连不上 ${origin}（${error}）。` +
+        // Named first because it is the one cause that looks like "the panel
+        // is down" while the panel is up: `localhost` resolves to ::1 before
+        // 127.0.0.1 on macOS, and uvicorn's default bind is IPv4 only, so the
+        // fetch hits a closed IPv6 port. curl hides it by falling back; fetch
+        // does not. Measured 2026-09-08.
+        (/^https?:\/\/localhost(:|$)/.test(origin)
+          ? "先把地址换成 127.0.0.1 再试一次——localhost 会先解析到 IPv6 的 ::1，" +
+            "而面板默认只监听 IPv4，这种情况下面板明明在跑也连不上。"
+          : "面板没在跑、地址写错、或者 Chrome 的本地网络访问限制拦下了这次请求，都会这样。") +
+        `改用面板设置页的开发者工具流程——那条路不受这些限制。`,
     };
   }
 
@@ -118,30 +160,42 @@ async function runImport(message) {
       duplicates: flat.duplicates,
       conflicts: flat.conflicts,
       envCaptured: env !== undefined,
+      envError,
     },
   };
 }
 
 /**
- * Read the page's environment, or nothing.
+ * Read the page's environment, or say why not.
  *
  * Injected into the tab rather than read off the popup's own window because
  * the point of the snapshot is to describe the browser the cookies came from
- * as the page itself reports it. A tab we have no host permission for throws,
- * and that costs the snapshot only.
+ * as the page itself reports it.
+ *
+ * Losing it must never cost the cookies -- those are why the user clicked --
+ * but it must not be silent either. Injection needs host permission for THE
+ * ACTIVE TAB, and clicking this from the panel's own tab is the easy way to
+ * have none: the panel is a different host from goofish. The cookies still
+ * arrive from the cookie store, so the import reports success while the
+ * fingerprint quietly stays at its built-in defaults. That happened on the
+ * first real run, 2026-09-08, and looked like nothing at all.
  *
  * @param {number | undefined} tabId
+ * @returns {Promise<{env?: Record<string, unknown>, envError?: string}>}
  */
 async function readTabEnv(tabId) {
-  if (typeof tabId !== "number") return undefined;
+  if (typeof tabId !== "number") {
+    return { envError: "没有活动标签页可读" };
+  }
   try {
     const [injected] = await chrome.scripting.executeScript({
       target: { tabId },
       func: readEnvSnapshot,
     });
     const env = injected?.result;
-    return env && Object.keys(env).length > 0 ? env : undefined;
+    if (env && Object.keys(env).length > 0) return { env };
+    return { envError: "这个页面没给出任何环境信息" };
   } catch {
-    return undefined;
+    return { envError: "读不了当前标签页——请在闲鱼页面上点「导入」" };
   }
 }

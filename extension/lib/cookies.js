@@ -84,7 +84,8 @@ export function flattenCookies(cookies) {
  * `header` off the flatten result, so there is no cookie value in this
  * function's reach to leak by accident.
  *
- * @param {{names: string[], duplicates: number, conflicts: number, envCaptured: boolean}} report
+ * @param {{names: string[], duplicates: number, conflicts: number,
+ *          envCaptured: boolean, envError?: string}} report
  */
 export function describeReport(report) {
   const lines = [`面板收下了 ${report.names.length} 个 cookie。`];
@@ -108,7 +109,14 @@ export function describeReport(report) {
   }
 
   if (!report.envCaptured) {
-    lines.push("没读到环境快照（当前标签页不是闲鱼页面），面板继续用它内置的那份默认身份。");
+    // The reason, not just the fact. This one is silent by nature: the cookies
+    // arrive from the cookie store whatever the active tab is, so the import
+    // reports success while the panel keeps its built-in identity and nothing
+    // on screen says the snapshot was dropped.
+    lines.push(
+      `没读到环境快照${report.envError ? `（${report.envError}）` : ""}，` +
+        `面板继续用它内置的那份默认身份。要带上环境信息，请切到已登录的闲鱼标签页再点「导入」。`,
+    );
   }
 
   // Same rule as the bookmarklet and docs/operations.md: the import is not the
