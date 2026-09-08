@@ -18,7 +18,7 @@ import random
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.collector.base import (
     ChallengeError,
@@ -29,11 +29,11 @@ from app.collector.base import (
     TransientCollectorError,
 )
 from app.collector.filters import RuleFilters
-from app.collector.pipeline import Pipeline
+from app.collector.pipeline import CHALLENGE_REASON_PREFIX, Pipeline
 from app.collector.session import UpstreamSession
 from app.config import SEARCH_ROWS, settings
 from app.db import engine
-from app.models import CollectRun, Monitor, NotifyChannel, Watchlist, utcnow
+from app.models import CollectRun, Monitor, NotifyChannel, Seller, Watchlist, utcnow
 from app.notify import (
     channels_for_monitor,
     deliver,
@@ -645,6 +645,14 @@ def resume_challenge_disabled() -> list[int]:
     `update_monitor` does for a manual re-enable -- leaving the streak intact
     would re-trip the auto-disable on the first hiccup.
 
+    It also clears the seller profiles the same challenge poisoned. A failed
+    profile fetch stamps `fetched_at` so the next cycle does not re-buy a
+    request that just failed, but that stamp is read against the seven-day
+    profile TTL: without this, one risk-control episode would suppress profile
+    collection for a week on every seller screened during it, and it would come
+    back silently. Scoped to the challenge reason -- a seller-specific failure
+    is genuinely sticky and must keep its stamp.
+
     It deliberately does NOT run a cycle. Every resumed rule firing at once is
     precisely the request burst that gets a fresh session re-flagged, and the
     normal sweep picks them up within one tick anyway, serialised through
@@ -662,9 +670,20 @@ def resume_challenge_disabled() -> list[int]:
             monitor.last_error = None
             if monitor.id is not None:
                 resumed.append(monitor.id)
+        cleared = session.exec(
+            select(Seller).where(col(Seller.fetch_error).startswith(CHALLENGE_REASON_PREFIX))
+        ).all()
+        for seller in cleared:
+            seller.fetch_error = None
+            # Back to "never fetched", which is what it actually is. Leaving
+            # the stamp would keep the seller inside `fresh_seller_ids`.
+            seller.fetched_at = None
         session.commit()
-    if resumed:
-        log.info("resumed rules disabled by a challenge", extra={"monitor_ids": resumed})
+    if resumed or cleared:
+        log.info(
+            "resumed what the challenge stopped",
+            extra={"monitor_ids": resumed, "sellers_cleared": len(cleared)},
+        )
     return resumed
 
 

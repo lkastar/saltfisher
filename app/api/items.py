@@ -70,7 +70,6 @@ def _public(
         # read as "zero reviews", which is a warning sign rather than a gap.
         seller_is_shop=seller.is_shop if seller else None,
         seller_credit_level=seller.credit_level if seller else None,
-        seller_credit_score=seller.credit_score if seller else None,
         seller_review_count=seller.review_count if seller else None,
         seller_positive_rate=seller.positive_rate if seller else None,
         seller_sold_count=seller.sold_count if seller else None,
@@ -90,6 +89,7 @@ def _public(
 def list_items(
     session: SessionDep,
     monitor_id: int | None = None,
+    seller_id: str | None = None,
     min_price_cents: Annotated[int | None, Query(ge=0)] = None,
     max_price_cents: Annotated[int | None, Query(ge=0)] = None,
     status: Status | None = None,
@@ -121,6 +121,10 @@ def list_items(
         stmt = stmt.where(
             col(Item.id).in_(select(MonitorHit.item_id).where(MonitorHit.monitor_id == monitor_id))
         )
+    if seller_id is not None:
+        # A plain equality on an already-indexed column: no extra query, and no
+        # per-row lookup, so the query count stays flat with the row count.
+        stmt = stmt.where(Item.seller_id == seller_id)
     if status is not None:
         stmt = stmt.where(Item.status == status)
     if min_price_cents is not None:

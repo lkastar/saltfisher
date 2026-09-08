@@ -303,7 +303,6 @@ def _seller_section(seller: Seller | None, item: Item) -> str:
             ("昵称", seller.nick),
             ("是否商家", _yes_no(seller.is_shop)),
             ("信用等级", _num(seller.credit_level)),
-            ("信用分", _num(seller.credit_score)),
             ("评价数", _num(seller.review_count)),
             ("好评率", f"{seller.positive_rate}%" if seller.positive_rate is not None else None),
             ("已售件数", _num(seller.sold_count)),

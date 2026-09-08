@@ -58,7 +58,7 @@ def test_upstream_ids_are_strings():
 
 def test_seller_profile_fields_are_optional():
     """None ("not fetched") must be distinguishable from 0."""
-    for name in ("is_shop", "credit_level", "credit_score", "verified", "sold_count"):
+    for name in ("is_shop", "credit_level", "verified", "sold_count"):
         assert type(None) in models.Seller.model_fields[name].annotation.__args__, name
     assert Seller(id="s1", nick="x").credit_level is None
 

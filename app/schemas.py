@@ -240,7 +240,6 @@ class ItemPublic(SQLModel):
     seller_avatar_url: str | None
     seller_is_shop: bool | None
     seller_credit_level: int | None
-    seller_credit_score: int | None
     seller_review_count: int | None
     seller_positive_rate: float | None
     seller_sold_count: int | None

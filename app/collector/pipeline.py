@@ -42,6 +42,13 @@ def _now_ms() -> str:
     return str(int(time.time() * 1000))
 
 
+# A profile missing because the SESSION was challenged, as opposed to
+# anything about this seller. Re-importing credentials clears these, so the
+# profile is fetched again on the next cycle instead of sitting out the full
+# profile TTL -- see `scheduler.resume_challenge_disabled`.
+CHALLENGE_REASON_PREFIX = "challenged:"
+
+
 @dataclass(frozen=True, slots=True)
 class Candidate:
     """One item with its filter verdict and any waived checks attached."""
@@ -50,10 +57,14 @@ class Candidate:
     outcome: FilterOutcome
     # The profile fetched while screening, so the cycle can store what it
     # already paid a request for. It used to be consumed by the filter and
-    # dropped: 249 seller rows, `fetched_at` on 6 of them, `credit_score` on
-    # none -- every cycle bought this data and threw it away, which is the
-    # request amplification the pacing rules exist to prevent.
+    # dropped: 249 seller rows with `fetched_at` on 6 of them -- every cycle
+    # bought this data and threw it away, which is the request amplification
+    # the pacing rules exist to prevent.
     seller: RawSeller | None = None
+    # Why the profile is missing, when it is. Written to `Seller.fetch_error`
+    # so "this seller's profile is empty" has an answer; None means it was
+    # never asked for, which is not a failure.
+    seller_error: str | None = None
 
     @property
     def passed(self) -> bool:
@@ -200,7 +211,7 @@ class Pipeline:
                 )
         return await self._browser.fetch_item(item_id), None
 
-    async def collect_seller_via_item(self, item_id: str) -> RawSeller | None:
+    async def collect_seller_via_item(self, item_id: str) -> tuple[RawSeller | None, str | None]:
         """Seller profile, obtained by fetching the item's detail page.
 
         There is no standalone seller endpoint in our path (three candidate
@@ -209,20 +220,32 @@ class Pipeline:
         avoids the opaque-vs-numeric seller id mismatch: the caller already
         knows which seller row this item points at.
 
-        Returns None rather than raising when unavailable — an unfetchable
-        profile is a normal state, and the filter policy waives seller checks
-        rather than dropping the item, so a None here must not abort the cycle.
+        Returns `(None, reason)` rather than raising when unavailable — an
+        unfetchable profile is a normal state, and the filter policy waives
+        seller checks rather than dropping the item, so a failure here must not
+        abort the cycle. The reason is returned instead of only logged because
+        a log line does not answer "why is this seller's profile empty" three
+        days later; `Seller.fetch_error` does.
+
+        The reason is the exception TYPE plus the upstream's own short words (a
+        ret envelope or an API name), the same material `notify.challenge_body`
+        forwards. Never a cookie, a token, or a response body — `store` also
+        truncates, so an interstitial page cannot land in the column.
         """
         try:
             _, seller = await self.collect_item(item_id)
-        except ChallengeError:
+        except ChallengeError as exc:
             # An auxiliary lookup must not decide the session is dead.
             log.warning("seller profile unavailable: session challenged")
-            return None
+            return None, f"{CHALLENGE_REASON_PREFIX} {exc}"
         except CollectorError as exc:
             log.warning("seller profile unavailable", extra={"item_id": item_id, "err": str(exc)})
-            return None
-        return seller
+            return None, f"{type(exc).__name__}: {exc}"
+        if seller is None:
+            # The browser answered. It scrapes the search DOM and has no
+            # profile to give, which is a gap rather than a failure.
+            return None, "no profile on the browser route"
+        return seller, None
 
     async def ensure_session(self) -> bool:
         """Establish or refresh the upstream session via the browser.
@@ -264,6 +287,7 @@ class Pipeline:
         candidates: list[Candidate] = []
         for item in items:
             seller: RawSeller | None = None
+            seller_error: str | None = None
             outcome = filters.apply_local(item, rule)
             if not outcome.passed:
                 log.debug(
@@ -274,7 +298,7 @@ class Pipeline:
                 continue
             if outcome.needs_seller_profile:
                 if fetch_seller and item.seller_id not in fresh_sellers:
-                    seller = await self.collect_seller_via_item(item.item_id)
+                    seller, seller_error = await self.collect_seller_via_item(item.item_id)
                     outcome = filters.apply_seller(seller, rule, outcome)
                 elif fetch_seller:
                     # Profile already stored and still inside the TTL. The
@@ -285,7 +309,9 @@ class Pipeline:
                     # Still honour whatever the row itself revealed rather than
                     # waving everything through as compliant.
                     outcome = filters.apply_seller_from_item(item, rule, outcome)
-            candidates.append(Candidate(item=item, outcome=outcome, seller=seller))
+            candidates.append(
+                Candidate(item=item, outcome=outcome, seller=seller, seller_error=seller_error)
+            )
         log.info(
             "screened",
             extra={"in": len(items), "passed": sum(1 for c in candidates if c.passed)},

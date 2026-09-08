@@ -23,7 +23,7 @@ from app import scheduler
 from app.collector.base import ChallengeError, CollectorError
 from app.collector.session import UpstreamSession
 from app.main import app
-from app.models import Monitor, MonitorChannel, NotifyChannel, NotifyLog
+from app.models import Monitor, MonitorChannel, NotifyChannel, NotifyLog, Seller, utcnow
 from app.notify.base import Notification, challenge_body
 from app.notify.email import _html_body, _plain_body
 from app.notify.telegram import render
@@ -369,6 +369,56 @@ async def test_import_resumes_only_the_rules_the_challenge_disabled(client):
     assert state["five failures"][0] is False
     assert state["by hand"][0] is False
     assert state["healthy"][0] is True
+
+
+async def test_import_un_poisons_the_sellers_the_challenge_stamped(client):
+    """A challenge poisons seller profiles for a WEEK if nobody clears them.
+
+    A failed profile fetch stamps `fetched_at` so the next cycle does not
+    re-buy a request that just failed. But that stamp is read against the
+    seven-day profile TTL, so without this the sellers screened during one
+    risk-control episode go a week with no profile, silently -- and the whole
+    point of `fresh_seller_ids` was to stop paying for profiles we already
+    have, not to stop collecting them.
+
+    Scoped to the challenge reason: a seller-specific failure is genuinely
+    sticky and keeps its stamp.
+    """
+    from app.collector.pipeline import CHALLENGE_REASON_PREFIX
+
+    stamped = utcnow()
+    with Session(client[2]) as s:
+        s.add_all(
+            [
+                Seller(
+                    id="challenged-seller",
+                    nick="甲",
+                    fetch_error=f"{CHALLENGE_REASON_PREFIX} RGV587_ERROR",
+                    fetched_at=stamped,
+                ),
+                Seller(
+                    id="its-own-fault",
+                    nick="乙",
+                    fetch_error="ItemGoneError: FAIL_BIZ_ITEM_DEL_NOT_FOUND",
+                    fetched_at=stamped,
+                ),
+                # A real profile. Importing cookies must not throw it away.
+                Seller(id="fine", nick="丙", credit_level=5, fetched_at=stamped),
+            ]
+        )
+        s.commit()
+
+    client[0].post("/api/session/cookies", json={"cookie_header": REAL_PASTE}, headers=AUTH)
+
+    with Session(client[2]) as s:
+        rows = {x.id: (x.fetch_error, x.fetched_at, x.credit_level) for x in s.exec(select(Seller))}
+    assert rows["challenged-seller"][:2] == (None, None), "must be askable again next cycle"
+    assert rows["its-own-fault"] == (
+        "ItemGoneError: FAIL_BIZ_ITEM_DEL_NOT_FOUND",
+        stamped,
+        None,
+    ), "a seller-specific failure is sticky and keeps its stamp"
+    assert rows["fine"] == (None, stamped, 5), "a good profile is untouched"
 
 
 async def test_import_does_not_kick_off_a_collection_sweep(client, monkeypatch):

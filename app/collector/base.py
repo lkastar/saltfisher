@@ -110,7 +110,6 @@ class RawSeller:
     avatar_url: str | None = None
     is_shop: bool | None = None
     credit_level: int | None = None
-    credit_score: int | None = None
     verified: bool | None = None
     sold_count: int | None = None
     reply_rate: float | None = None
@@ -162,7 +161,6 @@ SELLER_FIELD_MAP: dict[str, tuple[str, ...]] = {
     "avatar_url": ("avatar", "portrait", "userAvatar"),
     "is_shop": ("isShop", "shopFlag", "idleShop"),
     "credit_level": ("creditLevel", "level", "sesameLevel"),
-    "credit_score": ("creditScore", "score", "sesameScore"),
     "verified": ("realNameVerified", "verified", "certified"),
     "sold_count": ("soldCount", "sellCount", "dealCount"),
     "reply_rate": ("replyRate", "responseRate"),
@@ -390,7 +388,6 @@ def normalize_seller(payload: dict[str, Any], seller_id: str, source: str) -> Ra
         avatar_url=(lambda a: str(a) if a is not None else None)(get("avatar_url")),
         is_shop=as_bool(get("is_shop")),
         credit_level=as_int(get("credit_level")),
-        credit_score=as_int(get("credit_score")),
         verified=as_bool(get("verified")),
         sold_count=as_int(get("sold_count")),
         reply_rate=as_float(get("reply_rate")),

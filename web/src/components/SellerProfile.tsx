@@ -12,7 +12,6 @@ type Profile = {
   seller_nick: string;
   seller_is_shop?: boolean | null;
   seller_credit_level?: number | null;
-  seller_credit_score?: number | null;
   seller_review_count?: number | null;
   seller_positive_rate?: number | null;
   seller_sold_count?: number | null;

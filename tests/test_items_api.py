@@ -239,6 +239,55 @@ def test_query_count_does_not_grow_with_rows(client):
     assert few == many, f"{few} queries for 3 rows vs {many} for 30"
 
 
+def test_filtering_by_seller_narrows_to_that_seller(client):
+    """The column has been indexed since M1; the query parameter was missing,
+    so "everything this seller listed" was not askable at all."""
+    c, engine = client
+    seed(engine, count=3)
+    with Session(engine) as s:
+        s.add(Seller(id="s2", nick="小顾数码"))
+        s.commit()
+        s.add(
+            Item(
+                id="other",
+                title="苹果15游戏机",
+                seller_id="s2",
+                seller_nick="小顾数码",
+                first_seen_at=T0,
+                last_seen_at=T0,
+            )
+        )
+        s.commit()
+
+    assert [i["id"] for i in c.get("/api/items?seller_id=s2", headers=AUTH).json()] == ["other"]
+    assert len(c.get("/api/items?seller_id=s1", headers=AUTH).json()) == 3
+    assert c.get("/api/items?seller_id=nobody", headers=AUTH).json() == []
+
+
+def test_seller_filter_query_count_does_not_grow_with_rows(client):
+    """EQUALITY again, not a bound: the filter must stay one WHERE clause on an
+    indexed column rather than growing a lookup per row."""
+    c, engine = client
+    seed(engine, count=30)
+
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        c.get("/api/items?seller_id=s1&limit=3", headers=AUTH)
+        few = len(statements)
+        statements.clear()
+        c.get("/api/items?seller_id=s1&limit=30", headers=AUTH)
+        many = len(statements)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    assert few == many, f"{few} queries for 3 rows vs {many} for 30"
+
+
 def test_query_count_stays_flat_with_hit_fields(client):
     c, engine = client
     seed(engine, count=30)

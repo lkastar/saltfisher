@@ -121,13 +121,13 @@ def upsert_seller_profile(session: Session, raw: RawSeller) -> None:
         "avatar_url",
         "is_shop",
         "credit_level",
-        "credit_score",
         "verified",
         "sold_count",
         "reply_rate",
         "review_count",
         "positive_rate",
         "account_age_days",
+        "listing_count",
     ):
         value = getattr(raw, field_name)
         # None means "not available from this source"; it must not overwrite a
@@ -136,6 +136,34 @@ def upsert_seller_profile(session: Session, raw: RawSeller) -> None:
             setattr(seller, field_name, value)
     seller.fetched_at = utcnow()
     seller.fetch_error = None
+
+
+# The upstream's own words, truncated — same reasoning and same ceiling as
+# `notify.base.MAX_DETAIL_CHARS`: a ret envelope is short, and anything longer
+# is a risk-control interstitial page that has no business in a column read by
+# a human asking "why is this profile empty".
+MAX_FETCH_ERROR_CHARS = 200
+
+
+def record_seller_fetch_error(
+    session: Session, seller_id: str, reason: str, *, now: datetime | None = None
+) -> None:
+    """Why this seller's profile is missing, and that we already asked.
+
+    `fetched_at` moves on failure too, deliberately. Leaving it NULL keeps the
+    seller outside `fresh_seller_ids`, so every following cycle re-asks a
+    question that just failed — one extra upstream request per candidate per
+    cycle, which is exactly the amplification the pacing rules exist to stop. A
+    failed attempt still means "this cycle asked".
+
+    Truncation happens here rather than at the call site so no future caller can
+    route around it.
+    """
+    seller = session.get(Seller, seller_id)
+    if seller is None:
+        return
+    seller.fetch_error = reason[:MAX_FETCH_ERROR_CHARS]
+    seller.fetched_at = now or utcnow()
 
 
 def upsert_item(session: Session, raw: RawItem, *, now: datetime | None = None) -> Item:
@@ -441,6 +469,10 @@ def persist_cycle(
 
     for candidate in candidates:
         if candidate.seller is None:
+            if candidate.seller_error is not None:
+                record_seller_fetch_error(
+                    session, candidate.item.seller_id, candidate.seller_error, now=now
+                )
             continue
         # Keyed on the id the ITEM points at: search rows and detail payloads
         # use different id spaces for the same seller, and writing the detail

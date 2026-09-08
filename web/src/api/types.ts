@@ -893,8 +893,6 @@ export interface components {
             seller_is_shop: boolean | null;
             /** Seller Credit Level */
             seller_credit_level: number | null;
-            /** Seller Credit Score */
-            seller_credit_score: number | null;
             /** Seller Review Count */
             seller_review_count: number | null;
             /** Seller Positive Rate */
@@ -2236,6 +2234,7 @@ export interface operations {
         parameters: {
             query?: {
                 monitor_id?: number | null;
+                seller_id?: string | null;
                 min_price_cents?: number | null;
                 max_price_cents?: number | null;
                 status?: ("on_sale" | "sold" | "removed") | null;

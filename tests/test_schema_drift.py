@@ -116,6 +116,59 @@ def test_a_pre_paging_run_log_gains_its_pages_column():
         assert row.pages is None
 
 
+def test_a_pre_p5_seller_table_gains_its_listing_count_column():
+    """P5 gave `Seller` the `listing_count` column its value had been parsed
+    into and dropped from since M1 (`sellerDO.itemCount`). Additive and
+    nullable, so startup handles it — and NULL is the honest value for a seller
+    whose profile was fetched before the column existed, because nobody stored
+    the count then.
+    """
+    from tests.conftest import memory_engine
+
+    engine = memory_engine()
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE seller DROP COLUMN listing_count"))
+        conn.execute(
+            text("INSERT INTO seller (id, nick, credit_level) VALUES ('s1', '小顾数码', 5)")
+        )
+
+    applied = add_missing_columns(engine)
+
+    assert any("seller" in ddl and "listing_count" in ddl for ddl in applied)
+    with Session(engine) as s:
+        seller = s.get(Seller, "s1")
+        assert seller.credit_level == 5
+        # Not fetched, not zero listings.
+        assert seller.listing_count is None
+
+
+def test_a_leftover_credit_score_column_is_harmless():
+    """P5 deleted `Seller.credit_score` (goofish gives a LEVEL, never a score —
+    see `test_detail_shape`), and `add_missing_columns` only ever adds, so the
+    dead column stays behind on every already-deployed database.
+
+    That is the stated reason no migration script was written, so it is
+    asserted rather than assumed: SQLModel selects the columns it knows by
+    name, so an extra one is invisible.
+    """
+    from tests.conftest import memory_engine
+
+    engine = memory_engine()
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE seller ADD COLUMN credit_score INTEGER"))
+        conn.execute(
+            text(
+                "INSERT INTO seller (id, nick, credit_level, credit_score) VALUES ('s1', 'x', 5, 7)"
+            )
+        )
+
+    assert add_missing_columns(engine) == []
+    with Session(engine) as s:
+        (seller,) = s.exec(select(Seller)).all()
+        assert seller.credit_level == 5
+        assert not hasattr(seller, "credit_score")
+
+
 def test_a_pre_paging_ledger_gains_its_last_hit_at_column():
     """The other column P3 added, and the one that actually bit: reading the
     real database before startup had run gave `no such column:

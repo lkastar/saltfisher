@@ -210,7 +210,11 @@ async def test_the_browser_route_has_no_seller_profile(usable_session):
 async def test_seller_profile_returns_none_when_both_paths_fail(usable_session):
     mtop = StubMtop(raises=CollectorError("nope"))
     browser = StubBrowser(raises=CollectorError("nope"))
-    assert await Pipeline(mtop, browser, usable_session).collect_seller_via_item("i1") is None
+    seller, reason = await Pipeline(mtop, browser, usable_session).collect_seller_via_item("i1")
+    assert seller is None
+    # The reason travels with the failure. Only logging it means "why is this
+    # seller's profile empty" has no answer once the log has rotated.
+    assert reason is not None and "nope" in reason
 
 
 async def test_a_challenged_profile_lookup_does_not_kill_the_session(usable_session):
@@ -223,14 +227,18 @@ async def test_a_challenged_profile_lookup_does_not_kill_the_session(usable_sess
     """
     mtop = StubMtop(raises=ChallengeError("FAIL_SYS_USER_VALIDATE"))
     browser = StubBrowser(raises=CollectorError("no browser session"))
-    assert await Pipeline(mtop, browser, usable_session).collect_seller_via_item("i1") is None
+    seller, reason = await Pipeline(mtop, browser, usable_session).collect_seller_via_item("i1")
+    assert seller is None
+    assert reason is not None and "FAIL_SYS_USER_VALIDATE" in reason
     assert usable_session.usable
 
 
 async def test_seller_profile_is_absent_when_only_the_browser_answers(usable_session):
     mtop = StubMtop(raises=CollectorError("nope"))
     browser = StubBrowser()
-    assert await Pipeline(mtop, browser, usable_session).collect_seller_via_item("i1") is None
+    seller, reason = await Pipeline(mtop, browser, usable_session).collect_seller_via_item("i1")
+    assert seller is None
+    assert reason == "no profile on the browser route"
 
 
 # --------------------------------------------------------------------------- #
@@ -312,11 +320,11 @@ async def test_screen_can_skip_profile_fetching_entirely(usable_session):
 async def test_a_profile_fetched_while_screening_reaches_the_candidate(usable_session):
     """The fetch used to be consumed by the filter and dropped.
 
-    Measured on the real database before this: 249 seller rows, `fetched_at`
-    on 6 of them, `credit_score` on none -- every cycle bought a profile per
-    candidate and threw it away, so FR-3b's dataset stayed empty while the
-    request count stayed high. Carrying it on the Candidate is what lets
-    `persist_cycle` store what was already paid for.
+    Measured on the real database before this: 249 seller rows with
+    `fetched_at` on 6 of them -- every cycle bought a profile per candidate and
+    threw it away, so FR-3b's dataset stayed empty while the request count
+    stayed high. Carrying it on the Candidate is what lets `persist_cycle`
+    store what was already paid for.
     """
     mtop = StubMtop()
     pipeline = Pipeline(mtop, StubBrowser(), usable_session)

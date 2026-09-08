@@ -109,7 +109,6 @@ class Seller(SQLModel, table=True):
     # collecting an item, before the seller page has ever been fetched.
     is_shop: bool | None = None
     credit_level: int | None = None
-    credit_score: int | None = None
     verified: bool | None = None
     sold_count: int | None = None
     reply_rate: float | None = None
@@ -118,6 +117,11 @@ class Seller(SQLModel, table=True):
     review_count: int | None = None
     positive_rate: float | None = None
     account_age_days: int | None = None
+    # On-sale listings the seller has. Parsed out of `sellerDO.itemCount`
+    # since M1 and dropped on the floor until P5 because the column was
+    # missing -- 189 live listings is not a personal seller, and that
+    # discriminates better than the shop label does.
+    listing_count: int | None = None
     fetched_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
     fetch_error: str | None = None
 

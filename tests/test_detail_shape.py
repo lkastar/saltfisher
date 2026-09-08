@@ -168,6 +168,27 @@ def test_every_seller_judgement_field_is_populated(seller):
     assert seller.review_count == 61, "40 good + 1 bad + 20 default"
 
 
+def test_the_upstream_gives_a_seller_LEVEL_and_never_a_SCORE(payload):
+    """Why `Seller.credit_score` was DELETED in P5 rather than repaired.
+
+    `SELLER_FIELD_MAP` used to look for `creditScore` / `score` / `sesameScore`
+    and found none of the three, so the column was NULL on all 253 rows of the
+    real database while `credit_level` was populated on every row whose profile
+    had actually been fetched. The whole credit block upstream is one key:
+
+        sellerDO.idleFishCreditTag.trackParams == {"sellerLevel": "5"}
+
+    goofish hands out a LEVEL, not a score. Anyone reading `sellerLevel` and
+    reaching for a `credit_score` column again should read this test first —
+    the rationale also lives in `spec/backend/collector-guidelines.md`.
+    """
+    assert payload["sellerDO"]["idleFishCreditTag"]["trackParams"] == {"sellerLevel": "5"}
+    blob = json.dumps(payload["sellerDO"], ensure_ascii=False)
+    for candidate in ("creditScore", "sesameScore", '"score"'):
+        assert candidate not in blob, candidate
+    assert "credit_score" not in base.SELLER_FIELD_MAP
+
+
 def test_percent_strings_are_parsed_as_numbers(payload):
     assert payload["sellerDO"]["newGoodRatioRate"] == "97%"
     assert payload["sellerDO"]["replyRatio24h"] == "100%"
