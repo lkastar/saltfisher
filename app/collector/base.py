@@ -5,6 +5,7 @@ Upstream dicts, Playwright handles and raw JSON never escape their module —
 otherwise every consumer grows its own field-name guesses.
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -190,8 +191,22 @@ SELLER_LISTING_FIELD_MAP: dict[str, tuple[str, ...]] = {
     "title": ("title",),
     "price": ("soldPrice", "price"),
     "cover_url": ("picUrl",),
-    "publish_time": ("postInfo",),
+    # `postInfo` is the SHIPPING label, not the posting time. Measured
+    # 2026-09-08 on two different sellers: both cards carried
+    # `postInfo: "包邮"`. The name reads like "post info" in the publishing
+    # sense and means 邮 as in postage -- it was wired to `publish_time` on
+    # that inference until the value was actually looked at. This endpoint
+    # offers no posting time at all.
+    "free_shipping_fact": ("postInfo",),
+    # The full photo list, as a JSON STRING. Note the detail endpoint uses the
+    # same key for an already-parsed list -- one name, two shapes.
+    "image_infos": ("imageInfos",),
 }
+
+# The only value ever seen in `postInfo`. Anything else means "not stated",
+# never "not free": a seller who does not pay postage may simply leave the
+# label off, and `free_shipping=False` is a claim we have no evidence for.
+FREE_SHIPPING_LABEL = "包邮"
 
 # The only `itemStatus` this endpoint has ever been OBSERVED to return, and we
 # ask it for the 在售 group, so every card should carry it.
@@ -421,6 +436,7 @@ def normalize_seller_listing(
         )
 
     cover = get("cover_url")
+    shipping = get("free_shipping_fact")
     return RawItem(
         item_id=str(item_id),
         title=str(title),
@@ -429,13 +445,38 @@ def normalize_seller_listing(
         seller_nick=seller_nick,
         source=source,
         cover_url=str(cover) if cover is not None else None,
-        # The card's one photo, same as a search row gives. `imageInfos` sits
-        # in the payload but the probe recorded only its key, so reading it
-        # would be a guess for no gain over the cover.
-        image_urls=(str(cover),) if cover is not None else (),
-        publish_time=parse_timestamp(get("publish_time")),
+        image_urls=_seller_card_images(get("image_infos"), cover),
+        # No posting time in this payload -- see the field map. Left None so the
+        # published-within filter waives itself and says 发布时间未知, rather
+        # than reading the shipping label as a date.
+        publish_time=None,
+        # Positive only. The label's presence is evidence; its absence is not.
+        free_shipping_fact=True if shipping == FREE_SHIPPING_LABEL else None,
         missing_fields=tuple(sorted(set(missing))),
     )
+
+
+def _seller_card_images(raw: Any, cover: Any) -> tuple[str, ...]:
+    """`detailParams.imageInfos` -> photo urls, cover first.
+
+    A JSON string on this endpoint, measured on two sellers: a list of
+    `{url, major, type, widthSize, heightSize, videoCover, videoId?}`. The
+    `major` one is the cover. Unparseable or absent falls back to the cover
+    alone, which is what a search row gives -- losing the gallery must never
+    cost the listing.
+    """
+    urls: list[str] = []
+    if isinstance(raw, str) and raw:
+        try:
+            infos = json.loads(raw)
+        except ValueError:
+            log.warning("imageInfos did not parse as json", extra={"head": raw[:80]})
+            infos = []
+        if isinstance(infos, list):
+            urls = [str(i["url"]) for i in infos if isinstance(i, dict) and i.get("url")]
+    if cover is not None and str(cover) not in urls:
+        urls.insert(0, str(cover))
+    return tuple(dict.fromkeys(urls))
 
 
 def normalize_seller(payload: dict[str, Any], seller_id: str, source: str) -> RawSeller:

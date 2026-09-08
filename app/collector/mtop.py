@@ -458,7 +458,7 @@ def flatten_seller_card(card_data: dict[str, Any]) -> dict[str, Any]:
 
     Observed nesting (2026-09-08):
 
-        cardData.detailParams.itemId / title / soldPrice / postInfo
+        cardData.detailParams.itemId / title / soldPrice / postInfo / imageInfos
         cardData.priceInfo.price      the displayed price, `preText` is the ¥
         cardData.picInfo.picUrl       the cover
 
@@ -475,11 +475,11 @@ def flatten_seller_card(card_data: dict[str, Any]) -> dict[str, Any]:
         "soldPrice": detail.get("soldPrice"),
         "price": price_info.get("price"),
         "picUrl": pic_info.get("picUrl") or detail.get("picUrl"),
-        # Shape UNVERIFIED: the probe recorded this key and not its contents.
-        # `parse_timestamp` answers None for anything that is not an epoch or
-        # an ISO string, so a human label like 「3天前」 degrades to "publish
-        # time unknown" rather than becoming a fabricated timestamp.
+        # Measured 2026-09-08 on two sellers: `postInfo` is "包邮", the SHIPPING
+        # label -- not a posting time, which this endpoint does not carry at
+        # all. `imageInfos` is a JSON string holding the whole gallery.
         "postInfo": detail.get("postInfo"),
+        "imageInfos": detail.get("imageInfos"),
         "itemStatus": card_data.get("itemStatus"),
     }
     return {k: v for k, v in flat.items() if v not in (None, "")}

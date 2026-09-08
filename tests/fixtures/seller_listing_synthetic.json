@@ -33,8 +33,8 @@
             "picUrl": "https://cdn/xm4-1.jpg",
             "picWidth": "800",
             "picHeight": "800",
-            "imageInfos": [],
-            "postInfo": "3天前发布"
+            "imageInfos": "[{\"heightSize\": 1364, \"major\": true, \"type\": 0, \"url\": \"https://cdn/xm4-1.jpg\", \"videoCover\": false, \"widthSize\": 1080}, {\"heightSize\": 1376, \"major\": false, \"type\": 0, \"url\": \"https://cdn/xm4-2.jpg\", \"videoCover\": false, \"widthSize\": 1080}, {\"heightSize\": 1408, \"major\": false, \"type\": 0, \"url\": \"https://cdn/xm4-3.jpg\", \"videoCover\": false, \"widthSize\": 1080}]",
+            "postInfo": "包邮"
           },
           "itemLabelDataVO": {},
           "trackParams": {}
@@ -62,8 +62,8 @@
             "title": "iPad Air 5 64G 深空灰 国行 包邮",
             "soldPrice": "2,450.00",
             "picUrl": "https://cdn/ipad-1.jpg",
-            "imageInfos": [],
-            "postInfo": ""
+            "imageInfos": "[{\"url\": \"https://cdn/other-1.jpg\", \"major\": true}]",
+            "postInfo": "运费待议"
           }
         }
       },
@@ -82,7 +82,7 @@
           },
           "detailParams": {
             "itemId": "1080376910396",
-            "imageInfos": []
+            "imageInfos": "[{broken"
           }
         }
       },

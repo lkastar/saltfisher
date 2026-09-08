@@ -113,23 +113,42 @@ def test_the_seller_is_injected_as_the_opaque_canonical_id(payload):
 
 
 def test_absent_fields_stay_none_instead_of_being_invented(payload):
-    """Region and the seller's avatar are not in this payload at all.
+    """Region, the avatar and the posting time are not in this payload at all.
 
-    `postInfo` is different and worth being precise about: the probe recorded
-    its KEY and its TYPE (string), never its value — so whether it is a
-    timestamp or a label like 「3天前发布」 is **unmeasured**. It is wired as the
-    single `publish_time` candidate through `parse_timestamp`, which answers
-    None for anything that is not an epoch or ISO string. The fixture carries a
-    label, which is the likely case, and this pins the honest outcome:
-    "publish time unknown" plus the yellow label, rather than a guess.
+    Publish time deserves the note: `postInfo` was wired as its only candidate
+    on the strength of the NAME, before anyone looked at the value. Measured
+    2026-09-08 on two different sellers, it is `"包邮"` — the shipping label,
+    邮 as in postage. This endpoint carries no posting time whatsoever, so the
+    field is None and the published-within filter waives itself.
     """
     item = normalize(cards(payload)[0])
     assert item.region is None
     assert item.seller_avatar_url is None
-    assert item.publish_time is None
+    assert item.publish_time is None, "postInfo is postage, not posting"
     assert item.want_count is None and item.view_count is None
-    # Detail-only facts stay unknown as well: this is a list page.
-    assert item.condition_fact is None and item.free_shipping_fact is None
+    assert item.condition_fact is None, "a list page states no condition"
+
+
+def test_the_shipping_label_is_read_as_shipping(payload):
+    """The other half of the same mistake: while `postInfo` was being read as a
+    date, the free-shipping fact it actually carries was thrown away — and
+    free_shipping is a filter the rules already support.
+    """
+    free, negotiable, _, bare = cards(payload)
+    assert normalize(free).free_shipping_fact is True
+    # Positive only. A seller who does not pay postage may simply omit the
+    # label, so anything else is "not stated" -- False would be a claim.
+    assert normalize(negotiable).free_shipping_fact is None
+    assert normalize(bare).free_shipping_fact is None
+
+
+def test_the_filter_can_now_act_on_free_shipping(payload):
+    """Worth pinning end to end: before this, a rule asking for 包邮 got the
+    yellow waiver on every seller-rule hit."""
+    item = normalize(cards(payload)[0])
+    outcome = filters.apply_local(item, RuleFilters(free_shipping=True))
+    assert outcome.passed
+    assert "包邮未知" not in filters.describe_unverified(outcome.unverified)
 
 
 def test_the_yellow_label_logic_catches_the_missing_fields(payload):
@@ -142,12 +161,43 @@ def test_the_yellow_label_logic_catches_the_missing_fields(payload):
     assert set(filters.describe_unverified(outcome.unverified)) == {"地区未知", "发布时间未知"}
 
 
-def test_the_cover_is_the_only_photo_this_payload_offers(payload):
-    """`detailParams.imageInfos` sits in the payload, but the probe recorded
-    only its key — so the cover is what we have, exactly as on a search row."""
+def test_the_whole_gallery_comes_back_not_just_the_cover(payload):
+    """`imageInfos` is a JSON STRING here — measured on two sellers, a list of
+    `{url, major, type, widthSize, heightSize, videoCover}`. Note the detail
+    endpoint uses the same key for an already-parsed list: one name, two
+    shapes, which is why this has its own parser.
+    """
     item = normalize(cards(payload)[0])
     assert item.cover_url == "https://cdn/xm4-1.jpg"
-    assert item.image_urls == (item.cover_url,)
+    assert item.image_urls == (
+        "https://cdn/xm4-1.jpg",
+        "https://cdn/xm4-2.jpg",
+        "https://cdn/xm4-3.jpg",
+    ), "the cover leads and is not repeated"
+
+
+def test_a_gallery_that_does_not_parse_still_leaves_the_listing(payload, caplog):
+    """Losing the photos must never cost the listing. Card 2's imageInfos is
+    malformed on purpose."""
+    with caplog.at_level(logging.WARNING, logger="app.collector.base"):
+        item = normalize(cards(payload)[2])
+    assert item.item_id, "the listing survives"
+    assert item.image_urls == ("https://cdn/anker-1.jpg",), "degrades to the cover alone"
+    assert any("imageInfos" in r.message for r in caplog.records)
+
+
+def test_the_cover_leads_a_gallery_it_is_not_part_of(payload):
+    """Card 1's cover is not in its gallery. Both belong in `image_urls`, and
+    the cover first -- everything downstream treats index 0 as the thumbnail.
+    """
+    item = normalize(cards(payload)[1])
+    assert item.image_urls == ("https://cdn/ipad-1.jpg", "https://cdn/other-1.jpg")
+
+
+def test_a_card_with_no_photo_at_all_is_still_a_listing(payload):
+    item = normalize(cards(payload)[3])
+    assert item.cover_url is None and item.image_urls == ()
+    assert "cover_url" in item.missing_fields
 
 
 def test_a_card_without_a_cover_still_parses(payload):
