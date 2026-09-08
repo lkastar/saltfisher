@@ -142,8 +142,7 @@ function AppShell() {
           <Route path="/items/:itemId" element={<ItemDetailPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
-          {/* Channel CRUD is unreachable until step 7 merges it into the
-              settings page; ChannelsPage.tsx stays on disk for that merge. */}
+          {/* Channel CRUD lives in the settings page's 通知渠道 section. */}
           <Route path="/channels" element={<Navigate to="/settings#channels" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<p className="muted">没有这个页面。</p>} />

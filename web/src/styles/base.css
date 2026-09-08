@@ -1156,6 +1156,138 @@ button.btn-text[data-tone="danger"]:hover:not(:disabled) {
   opacity: 0.7;
 }
 
+/* ---------- settings: anchor nav, sections, inner cards ---------- */
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+.settings-col {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  min-width: 0;
+}
+
+.anchor-nav {
+  position: sticky;
+  top: 84px; /* below the 58px topbar */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.anchor-nav a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text2);
+  border-left: 2px solid var(--line);
+  transition: all 0.25s var(--ease);
+}
+
+.anchor-nav a:hover {
+  color: var(--text);
+}
+
+/* Active carries weight + border, never colour alone. */
+.anchor-nav a.active {
+  color: var(--acc2);
+  border-left-color: var(--acc);
+  background: linear-gradient(90deg, var(--acc-soft), transparent);
+  font-weight: 600;
+}
+
+/* Mono sub-heading inside a settings card (会话详情, 最近发送记录…). */
+.sub-h {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin: 18px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Nested card (one channel, one LLM endpoint) inside a section card. */
+.inner-card {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inner-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.inner-h .name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.inner-h .built {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.channel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.actions-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Bookmarklet drop-zone. Left-aligned unlike the prototype: the real block
+ * carries paragraphs of ticket/mixed-content guidance, not one caption. */
+.bookmarklet {
+  border: 1.5px dashed var(--line2);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--acc-soft);
+  font-size: 12.5px;
+  transition: border-color 0.3s;
+}
+
+.bookmarklet:hover {
+  border-color: var(--acc);
+}
+
+/* "已设置 (永不回显)" — the value itself never reaches the DOM. */
+.secret-state {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--green);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ---------- ticker (Ticker.tsx) ---------- */
 
 .ticker-wrap {
@@ -1242,6 +1374,23 @@ button.btn-text[data-tone="danger"]:hover:not(:disabled) {
   .main-nav {
     gap: 0;
     overflow-x: auto;
+  }
+
+  .settings-grid,
+  .channel-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .anchor-nav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .anchor-nav a {
+    border-left: none;
+    border-bottom: 2px solid var(--line);
+    white-space: nowrap;
   }
 
   /* Labels collapse to icons; links keep their aria-label. */

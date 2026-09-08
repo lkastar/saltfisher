@@ -1,46 +1,85 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router";
 
-import { clearToken } from "../api/client";
+import { ApiError, clearToken } from "../api/client";
 import {
+  channelsOptions,
   clearCookies,
+  createChannel,
   createLlmEndpoint,
+  deleteChannel,
   deleteLlmEndpoint,
   importCookies,
   keys,
-  mintImportTicket,
   llmDefaultPromptOptions,
   llmEndpointsOptions,
   llmModelsOptions,
   llmScenarioOptions,
+  mintImportTicket,
+  notifyLogsOptions,
   saveLlmScenario,
   sessionOptions,
+  testChannel,
   testLlmEndpoint,
+  updateChannel,
   updateLlmEndpoint,
+  type Channel,
+  type ChannelCreate,
   type LlmEndpoint,
   type LlmEndpointUpdate,
   type LlmScenarioConfig,
   type Scenario,
 } from "../api/queries";
-import { ErrorState, Loading } from "../components/States";
+import { Icon, type IconName } from "../components/Icon";
+import { PageHero } from "../components/PageHero";
+import { Empty, ErrorState, Loading } from "../components/States";
 import { buildBookmarklet } from "../lib/bookmarklet";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
 import { scenarioReady } from "../lib/llm";
 
-const CARD: React.CSSProperties = {
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius)",
-  background: "var(--surface)",
-  padding: "var(--space-4)",
+/* One settings page, five anchored sections (design.md: Settings + Channels
+ * merge). The anchor-nav mirrors the prototype's scroll-spy; /channels
+ * redirects to /settings#channels and the hash-scroll effect lands on the
+ * section, same approach as the overview's #tasks. */
+
+const SECTIONS: { id: string; label: string; icon: IconName }[] = [
+  { id: "session", label: "采集会话", icon: "cookie" },
+  { id: "channels", label: "通知渠道", icon: "send" },
+  { id: "llm", label: "LLM 端点", icon: "cpu" },
+  { id: "ai", label: "AI 场景", icon: "sparkles" },
+  { id: "access", label: "面板访问", icon: "key" },
+];
+
+/** Which section the viewport is on, for the anchor-nav active state. The
+ *  observed elements are the five stable section cards (loading/error states
+ *  render INSIDE them, so every id exists at mount). Band matches the
+ *  prototype's scroll-spy. */
+function useAnchorSpy(): string {
+  const [active, setActive] = useState("session");
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActive(entry.target.id);
+        }
+      },
+      { rootMargin: "-30% 0px -60% 0px" },
+    );
+    for (const { id } of SECTIONS) {
+      const el = document.getElementById(id);
+      if (el) io.observe(el);
+    }
+    return () => io.disconnect();
+  }, []);
+  return active;
+}
+
+/** Section cards stack their children with flex gap. */
+const COL: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-3)",
-};
-
-const FIELD: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-1)",
 };
 
 const CHECKBOX: React.CSSProperties = {
@@ -50,7 +89,372 @@ const CHECKBOX: React.CSSProperties = {
   fontSize: 13,
 };
 
-/* ---------- LLM endpoints (FR-P4-2) ----------
+/* ============================== 通知渠道 ==============================
+ * Folded in from the former ChannelsPage (step 7). The backend redacts
+ * secrets before they leave the process; this page adds a second layer by
+ * never putting one in the DOM at all -- no `value=` on a secret input, and
+ * the card shows only whether one exists. Verification greps the rendered
+ * page, so "the backend redacts it" is not enough on its own. */
+
+function isSet(config: Record<string, unknown>, key: string): boolean {
+  const value = config[key];
+  return value !== undefined && value !== null && value !== "";
+}
+
+function SecretState({ configured }: { configured: boolean }) {
+  // Never the value, only whether one exists.
+  return configured ? (
+    <span className="secret-state">
+      <Icon name="lock" size={11} />
+      已设置（永不回显）
+    </span>
+  ) : (
+    <span className="dim">未设置</span>
+  );
+}
+
+function ChannelForm({ onDone }: { onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const [kind, setKind] = useState<ChannelCreate["kind"]>("email");
+  const create = useMutation({
+    mutationFn: createChannel,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.channels });
+      onDone();
+    },
+  });
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const text = (key: string) => String(form.get(key) ?? "").trim();
+
+    const config: Record<string, unknown> =
+      kind === "email"
+        ? {
+            smtp_host: text("smtp_host"),
+            smtp_port: Number(text("smtp_port") || 587),
+            username: text("username"),
+            password: text("password"),
+            from_addr: text("from_addr"),
+            to_addrs: text("to_addrs")
+              .split(/[,\s;]+/)
+              .filter(Boolean),
+            use_ssl: text("use_ssl") === "on",
+            use_starttls: text("use_starttls") === "on",
+          }
+        : { bot_token: text("bot_token"), chat_id: text("chat_id") };
+
+    create.mutate({ kind, label: text("label"), config, enabled: true });
+  }
+
+  const fieldError = (name: string): string | undefined =>
+    create.error instanceof ApiError ? create.error.fields[name] : undefined;
+
+  return (
+    <form
+      onSubmit={submit}
+      className="inner-card"
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+        gap: "14px 18px",
+      }}
+    >
+      <label className="field">
+        <span className="field-label">类型</span>
+        <select value={kind} onChange={(e) => setKind(e.target.value as ChannelCreate["kind"])}>
+          <option value="email">邮件</option>
+          <option value="telegram">Telegram</option>
+        </select>
+      </label>
+
+      <label className="field">
+        <span className="field-label">名称</span>
+        <input name="label" required maxLength={60} placeholder="给自己看的备注" />
+      </label>
+
+      {kind === "email" ? (
+        <>
+          <label className="field">
+            <span className="field-label">SMTP 主机</span>
+            <input name="smtp_host" required placeholder="smtp-relay.brevo.com" />
+          </label>
+          <label className="field">
+            <span className="field-label">端口</span>
+            <input name="smtp_port" type="number" min={1} max={65535} defaultValue={587} />
+          </label>
+          <label className="field">
+            <span className="field-label">用户名</span>
+            <input name="username" required />
+          </label>
+          <label className="field">
+            <span className="field-label">密码 / SMTP key</span>
+            <input name="password" type="password" autoComplete="new-password" />
+            <span className="muted" style={{ fontSize: 11 }}>
+              多数服务商的 SMTP key 与 API key 不是一个东西，填错会得到 535
+            </span>
+          </label>
+          <label className="field">
+            <span className="field-label">发件地址</span>
+            <input name="from_addr" required placeholder="bot@example.com" />
+            <span className="muted" style={{ fontSize: 11 }}>
+              域名需通过发信认证，否则会被静默丢弃
+            </span>
+          </label>
+          <label className="field">
+            <span className="field-label">收件地址（逗号分隔）</span>
+            <input name="to_addrs" required />
+          </label>
+          <label style={CHECKBOX}>
+            <input name="use_starttls" type="checkbox" defaultChecked />
+            STARTTLS（587 端口）
+          </label>
+          <label style={CHECKBOX}>
+            <input name="use_ssl" type="checkbox" />
+            直接 SSL（465 端口）
+          </label>
+        </>
+      ) : (
+        <>
+          <label className="field">
+            <span className="field-label">Bot Token</span>
+            <input name="bot_token" type="password" autoComplete="new-password" required />
+          </label>
+          <label className="field">
+            <span className="field-label">Chat ID</span>
+            <input name="chat_id" required />
+          </label>
+        </>
+      )}
+
+      <div style={{ gridColumn: "1 / -1", display: "flex", gap: "var(--space-2)" }}>
+        <button type="submit" data-variant="primary" disabled={create.isPending}>
+          {create.isPending ? "创建中…" : "创建渠道"}
+        </button>
+        <button type="button" onClick={onDone}>
+          取消
+        </button>
+      </div>
+
+      {create.isError ? (
+        <div style={{ gridColumn: "1 / -1" }}>
+          <ErrorState title="创建失败" error={fieldError("config") ?? create.error} />
+        </div>
+      ) : null}
+    </form>
+  );
+}
+
+function ChannelCard({ channel }: { channel: Channel }) {
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: keys.channels });
+
+  const test = useMutation({
+    mutationFn: () => testChannel(channel.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.notifyLogs }),
+  });
+  const toggle = useMutation({
+    mutationFn: (enabled: boolean) => updateChannel(channel.id, { enabled }),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({ mutationFn: () => deleteChannel(channel.id), onSuccess: invalidate });
+
+  const config = channel.config as Record<string, unknown>;
+  const secretKey = channel.kind === "email" ? "password" : "bot_token";
+
+  return (
+    <article className="inner-card">
+      <header className="inner-h">
+        <span className="name">{channel.label}</span>
+        {/* Kind tone follows the prototype (email green, telegram accent);
+            已停用 renders as a neutral pill -- the word carries it, and --warn
+            stays reserved for collector degradation. */}
+        <span
+          className="pill"
+          data-tone={channel.enabled ? (channel.kind === "email" ? "success" : "acc") : undefined}
+        >
+          <Icon name={channel.kind === "email" ? "mail" : "message-square"} size={11} />
+          {channel.kind === "email" ? "邮件 SMTP" : "Telegram"}
+          {channel.enabled ? "" : " · 已停用"}
+        </span>
+        <span className="built">建于 {formatDateTime(channel.created_at)}</span>
+      </header>
+
+      <dl className="dl">
+        {Object.entries(config)
+          .filter(([key]) => key !== secretKey)
+          .map(([key, value]) => (
+            <div key={key} style={{ display: "contents" }}>
+              <dt>{key}</dt>
+              <dd>{Array.isArray(value) ? value.join("、") : String(value)}</dd>
+            </div>
+          ))}
+        <div style={{ display: "contents" }}>
+          <dt>{secretKey}</dt>
+          <dd>
+            <SecretState configured={isSet(config, secretKey)} />
+          </dd>
+        </div>
+      </dl>
+
+      <div className="actions-row">
+        <button type="button" onClick={() => test.mutate()} disabled={test.isPending}>
+          <Icon name="send" size={13} />
+          {test.isPending ? "发送中…" : "测试发送"}
+        </button>
+        <button
+          type="button"
+          onClick={() => toggle.mutate(!channel.enabled)}
+          disabled={toggle.isPending}
+        >
+          <Icon name={channel.enabled ? "pause" : "play"} size={13} />
+          {channel.enabled ? "停用" : "启用"}
+        </button>
+        {confirming ? (
+          <>
+            <button
+              type="button"
+              data-variant="danger"
+              onClick={() => remove.mutate()}
+              disabled={remove.isPending}
+            >
+              确认删除
+            </button>
+            <button type="button" onClick={() => setConfirming(false)}>
+              取消
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="btn-text"
+            data-tone="danger"
+            onClick={() => setConfirming(true)}
+          >
+            <Icon name="trash-2" size={13} />
+            删除
+          </button>
+        )}
+      </div>
+
+      {test.data ? (
+        test.data.ok ? (
+          <p style={{ margin: 0, fontSize: 12.5, color: "var(--success)" }}>
+            已交给服务器。
+            <span className="muted">
+              注意：SMTP 回 250 只代表对方接收了，不代表送进了收件箱——去邮箱确认一次。
+            </span>
+          </p>
+        ) : (
+          <ErrorState title="测试发送失败" error={test.data.error ?? "未知错误"} />
+        )
+      ) : null}
+      {test.isError ? <ErrorState title="测试发送失败" error={test.error} /> : null}
+      {remove.isError ? <ErrorState title="删除失败" error={remove.error} /> : null}
+    </article>
+  );
+}
+
+function ChannelsSection() {
+  const channels = useQuery(channelsOptions());
+  const logs = useQuery(notifyLogsOptions());
+  const [creating, setCreating] = useState(false);
+
+  return (
+    <section className="card" id="channels" style={COL}>
+      <div className="card-h">
+        <h2>
+          <Icon name="send" size={15} />
+          通知渠道
+        </h2>
+        <div className="actions">
+          {!creating ? (
+            <button type="button" data-variant="primary" onClick={() => setCreating(true)}>
+              <Icon name="plus" size={13} />
+              新建渠道
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {creating ? <ChannelForm onDone={() => setCreating(false)} /> : null}
+
+      {channels.isPending ? <Loading rows={3} /> : null}
+      {channels.isError ? (
+        <ErrorState
+          title="拉取渠道失败"
+          error={channels.error}
+          onRetry={() => void channels.refetch()}
+        />
+      ) : null}
+      {channels.data?.length === 0 && !creating ? (
+        <Empty message="还没有通知渠道。命中和降价都是通过渠道推送出去的，没有渠道就只能来这里看。" />
+      ) : null}
+
+      {channels.data && channels.data.length > 0 ? (
+        <div className="channel-grid">
+          {channels.data.map((channel) => (
+            <ChannelCard key={channel.id} channel={channel} />
+          ))}
+        </div>
+      ) : null}
+
+      <div className="sub-h">
+        <Icon name="history" size={12} />
+        最近发送记录
+      </div>
+      {logs.isPending ? <Loading rows={2} /> : null}
+      {logs.isError ? <ErrorState title="拉取发送记录失败" error={logs.error} /> : null}
+      {logs.data?.length === 0 ? (
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          还没有发送过。
+        </p>
+      ) : null}
+      {logs.data && logs.data.length > 0 ? (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>渠道</th>
+                <th style={{ textAlign: "right" }}>商品数</th>
+                <th>结果</th>
+                <th>错误</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.data.map((log) => (
+                <tr key={log.id}>
+                  <td className="mono" style={{ fontSize: 12 }}>
+                    {formatRelativeTime(log.sent_at)}
+                  </td>
+                  <td>{log.kind}</td>
+                  <td className="num">{log.item_count}</td>
+                  <td>
+                    <span className="pill" data-tone={log.ok ? "success" : "danger"}>
+                      {log.ok ? "成功" : "失败"}
+                    </span>
+                  </td>
+                  <td className="muted" style={{ wordBreak: "break-word", maxWidth: 320 }}>
+                    {log.error ?? "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      <p className="dim" style={{ margin: 0, fontSize: 11.5 }}>
+        密钥永不回显：页面上只显示「已设置 / 未设置」，要更换就重建渠道。
+      </p>
+    </section>
+  );
+}
+
+/* ============================== LLM 端点 (FR-P4-2) ==============================
  *
  * The api_key never enters the DOM in any form: no `value`, no
  * `defaultValue`, no masked placeholder standing in for one, and no React
@@ -95,11 +499,14 @@ function ModelPicker({
   const found = models.data?.models ?? [];
 
   return (
-    <div style={FIELD}>
-      <label htmlFor={inputId}>模型</label>
+    <div className="field">
+      <label className="field-label" htmlFor={inputId}>
+        模型
+      </label>
       <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
         <input
           id={inputId}
+          className="mono"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           maxLength={200}
@@ -114,6 +521,7 @@ function ModelPicker({
           }}
           disabled={endpointId === null || models.isFetching}
         >
+          <Icon name="refresh-cw" size={13} />
           {models.isFetching ? "拉取中…" : "拉取模型列表"}
         </button>
       </div>
@@ -133,8 +541,9 @@ function ModelPicker({
             <button
               key={name}
               type="button"
+              className="mono"
               onClick={() => onChange(name)}
-              style={{ fontSize: 11.5, minHeight: 26, padding: "1px 8px" }}
+              style={{ fontSize: 11.5, minHeight: 26, padding: "1px 8px", borderRadius: 999 }}
             >
               {name}
             </button>
@@ -206,17 +615,17 @@ function EndpointForm({
   return (
     <form
       onSubmit={submit}
+      className="inner-card"
       style={{
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-        gap: "var(--space-3)",
-        border: "1px solid var(--border-strong)",
-        borderRadius: "var(--radius)",
-        padding: "var(--space-3)",
+        gap: "14px 18px",
       }}
     >
-      <div style={FIELD}>
-        <label htmlFor={`${prefix}-label`}>名称</label>
+      <div className="field">
+        <label className="field-label" htmlFor={`${prefix}-label`}>
+          端点备注名
+        </label>
         <input
           id={`${prefix}-label`}
           name="label"
@@ -227,10 +636,13 @@ function EndpointForm({
         />
       </div>
 
-      <div style={FIELD}>
-        <label htmlFor={`${prefix}-url`}>Base URL</label>
+      <div className="field">
+        <label className="field-label" htmlFor={`${prefix}-url`}>
+          Base URL
+        </label>
         <input
           id={`${prefix}-url`}
+          className="mono"
           name="base_url"
           required
           maxLength={500}
@@ -244,8 +656,10 @@ function EndpointForm({
         </span>
       </div>
 
-      <div style={FIELD}>
-        <label htmlFor={`${prefix}-wire`}>协议格式</label>
+      <div className="field">
+        <label className="field-label" htmlFor={`${prefix}-wire`}>
+          协议格式
+        </label>
         <select
           id={`${prefix}-wire`}
           name="wire_format"
@@ -259,8 +673,10 @@ function EndpointForm({
         </span>
       </div>
 
-      <div style={FIELD}>
-        <label htmlFor={`${prefix}-key`}>API Key</label>
+      <div className="field">
+        <label className="field-label" htmlFor={`${prefix}-key`}>
+          API Key
+        </label>
         {/* No value, no defaultValue, not even a masked one: nothing ever
             hands this page a stored key to put here. */}
         <input
@@ -290,6 +706,7 @@ function EndpointForm({
 
       <div style={{ gridColumn: "1 / -1", display: "flex", gap: "var(--space-2)" }}>
         <button type="submit" data-variant="primary" disabled={save.isPending}>
+          <Icon name="save" size={13} />
           {save.isPending ? "保存中…" : endpoint === undefined ? "创建端点" : "保存"}
         </button>
         <button type="button" onClick={onDone}>
@@ -323,40 +740,20 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
   if (editing) return <EndpointForm endpoint={endpoint} onDone={() => setEditing(false)} />;
 
   return (
-    <article
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius)",
-        padding: "var(--space-3)",
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-2)",
-      }}
-    >
-      <header style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap" }}>
-        <strong>{endpoint.label}</strong>
-        <span className="pill">{endpoint.wire_format}</span>
-        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
-          建于 {formatDateTime(endpoint.created_at)}
-        </span>
+    <article className="inner-card">
+      <header className="inner-h">
+        <span className="name">{endpoint.label}</span>
+        <span className="pill mono">{endpoint.wire_format}</span>
+        <span className="built">建于 {formatDateTime(endpoint.created_at)}</span>
       </header>
 
-      <dl
-        style={{
-          margin: 0,
-          display: "grid",
-          gridTemplateColumns: "auto 1fr",
-          gap: "2px 12px",
-          fontSize: 12.5,
-        }}
-      >
-        <dt className="muted">Base URL</dt>
-        <dd className="mono" style={{ margin: 0, wordBreak: "break-all" }}>
-          {endpoint.base_url}
+      <dl className="dl">
+        <dt>Base URL</dt>
+        <dd>{endpoint.base_url}</dd>
+        <dt>API Key</dt>
+        <dd>
+          <SecretState configured={endpoint.api_key_configured} />
         </dd>
-        <dt className="muted">API Key</dt>
-        {/* Never the value, only whether one exists. */}
-        <dd style={{ margin: 0 }}>{endpoint.api_key_configured ? "已设置" : "未设置"}</dd>
       </dl>
 
       {/* The test needs a model name because a connection is only testable
@@ -369,15 +766,17 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
         onChange={setModel}
       />
 
-      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+      <div className="actions-row">
         <button
           type="button"
           onClick={() => test.mutate()}
           disabled={test.isPending || !model.trim()}
         >
+          <Icon name="zap" size={13} />
           {test.isPending ? "测试中…" : "测试连接"}
         </button>
         <button type="button" onClick={() => setEditing(true)}>
+          <Icon name="edit" size={13} />
           编辑
         </button>
         {confirming ? (
@@ -395,7 +794,13 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
             </button>
           </>
         ) : (
-          <button type="button" data-variant="danger" onClick={() => setConfirming(true)}>
+          <button
+            type="button"
+            className="btn-text"
+            data-tone="danger"
+            onClick={() => setConfirming(true)}
+          >
+            <Icon name="trash-2" size={13} />
             删除
           </button>
         )}
@@ -408,9 +813,7 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
       ) : null}
 
       {test.isPending ? (
-        <p style={{ margin: 0, fontSize: 12.5 }}>
-          正在发一次真实调用，可能要几十秒。
-        </p>
+        <p style={{ margin: 0, fontSize: 12.5 }}>正在发一次真实调用，可能要几十秒。</p>
       ) : null}
       {test.data ? (
         test.data.ok ? (
@@ -494,13 +897,16 @@ function ScenarioForm({
   });
 
   return (
-    <article style={CARD}>
-      <header style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap" }}>
-        <h2 style={{ margin: 0 }}>{title}</h2>
+    <>
+      <div className="card-h">
+        <h2>
+          <Icon name="sparkles" size={15} />
+          AI 场景 · {title}
+        </h2>
         <span className="pill" data-tone={ready ? "success" : undefined}>
           {ready ? "已就绪" : "未就绪"}
         </span>
-      </header>
+      </div>
       <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
         {intro}
       </p>
@@ -512,11 +918,14 @@ function ScenarioForm({
         }}
         style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}
       >
-        <div style={FIELD}>
-          <label htmlFor={`${prefix}-endpoint`}>端点</label>
+        <div className="field">
+          <label className="field-label" htmlFor={`${prefix}-endpoint`}>
+            指定端点
+          </label>
           <select
             id={`${prefix}-endpoint`}
             value={endpointId ?? ""}
+            style={{ maxWidth: 280 }}
             onChange={(event) =>
               setDraft((old) => ({
                 ...old,
@@ -540,8 +949,10 @@ function ScenarioForm({
           onChange={(model) => setDraft((old) => ({ ...old, model }))}
         />
 
-        <div style={FIELD}>
-          <label htmlFor={`${prefix}-prompt`}>提示词模板</label>
+        <div className="field">
+          <label className="field-label" htmlFor={`${prefix}-prompt`}>
+            提示词模板
+          </label>
           <textarea
             id={`${prefix}-prompt`}
             value={draft.prompt_template}
@@ -554,7 +965,7 @@ function ScenarioForm({
             style={{ fontFamily: "var(--font-mono)", fontSize: 12, resize: "vertical" }}
             aria-describedby={`${prefix}-placeholders`}
           />
-          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+          <div className="actions-row">
             <button
               type="button"
               onClick={() =>
@@ -565,6 +976,7 @@ function ScenarioForm({
               }
               disabled={defaults.data === undefined}
             >
+              <Icon name="rotate-ccw" size={13} />
               恢复默认模板
             </button>
             {draft.prompt_template ? (
@@ -572,6 +984,7 @@ function ScenarioForm({
                 type="button"
                 onClick={() => setDraft((old) => ({ ...old, prompt_template: "" }))}
               >
+                <Icon name="eraser" size={13} />
                 清空（改用内置默认）
               </button>
             ) : null}
@@ -591,7 +1004,7 @@ function ScenarioForm({
               <>
                 可用占位符（会被替换成真实数据）：
                 {defaults.data.placeholders.map((name) => (
-                  <span key={name} className="mono">
+                  <span key={name} className="mono" style={{ color: "var(--acc2)" }}>
                     {" "}
                     {`{${name}}`}
                   </span>
@@ -603,7 +1016,7 @@ function ScenarioForm({
         </div>
 
         {scenario === "item" ? (
-          <div style={FIELD}>
+          <div className="field">
             <span style={CHECKBOX}>
               <input
                 id={`${prefix}-images`}
@@ -625,15 +1038,19 @@ function ScenarioForm({
           </div>
         ) : null}
 
-        <div style={FIELD}>
-          <label htmlFor={`${prefix}-budget`}>回答的 token 上限</label>
+        <div className="field">
+          <label className="field-label" htmlFor={`${prefix}-budget`}>
+            回答的 token 上限
+          </label>
           <input
             id={`${prefix}-budget`}
+            className="mono"
             type="number"
             min={1024}
             max={65536}
             step={1024}
             placeholder="留空用默认值 16384"
+            style={{ maxWidth: 280 }}
             value={draft.max_tokens}
             onChange={(event) => setDraft((old) => ({ ...old, max_tokens: event.target.value }))}
           />
@@ -657,8 +1074,9 @@ function ScenarioForm({
           <label htmlFor={`${prefix}-enabled`}>启用这个场景</label>
         </span>
 
-        <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+        <div className="actions-row">
           <button type="submit" data-variant="primary" disabled={save.isPending}>
+            <Icon name="save" size={13} />
             {save.isPending ? "保存中…" : "保存配置"}
           </button>
           {save.isSuccess && !save.isPending ? (
@@ -667,16 +1085,19 @@ function ScenarioForm({
         </div>
         {save.isError ? <ErrorState title="保存配置失败" error={save.error} /> : null}
       </form>
-    </article>
+    </>
   );
 }
 
 function ScenarioSection({
+  id,
   scenario,
   title,
   intro,
   endpoints,
 }: {
+  /** Anchor id; only the first scenario card carries one (#ai). */
+  id?: string;
   scenario: Scenario;
   title: string;
   intro: string;
@@ -684,24 +1105,28 @@ function ScenarioSection({
 }) {
   const config = useQuery(llmScenarioOptions(scenario));
 
-  if (config.isPending) return <Loading rows={3} />;
-  if (config.isError) {
-    return (
-      <ErrorState
-        title={`拉取${title}配置失败`}
-        error={config.error}
-        onRetry={() => void config.refetch()}
-      />
-    );
-  }
+  // The card wrapper is stable so the anchor spy can observe #ai at mount;
+  // the three states swap only its contents.
   return (
-    <ScenarioForm
-      scenario={scenario}
-      title={title}
-      intro={intro}
-      config={config.data}
-      endpoints={endpoints}
-    />
+    <section className="card" id={id} style={COL}>
+      {config.isPending ? <Loading rows={3} /> : null}
+      {config.isError ? (
+        <ErrorState
+          title={`拉取${title}配置失败`}
+          error={config.error}
+          onRetry={() => void config.refetch()}
+        />
+      ) : null}
+      {config.data ? (
+        <ScenarioForm
+          scenario={scenario}
+          title={title}
+          intro={intro}
+          config={config.data}
+          endpoints={endpoints}
+        />
+      ) : null}
+    </section>
   );
 }
 
@@ -711,15 +1136,21 @@ function LlmSection() {
 
   return (
     <>
-      <article style={CARD}>
-        <header style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
-          <h2 style={{ margin: 0 }}>LLM 端点</h2>
-          {!creating ? (
-            <button type="button" data-variant="primary" onClick={() => setCreating(true)}>
-              新建端点
-            </button>
-          ) : null}
-        </header>
+      <section className="card" id="llm" style={COL}>
+        <div className="card-h">
+          <h2>
+            <Icon name="cpu" size={15} />
+            LLM 推理端点
+          </h2>
+          <div className="actions">
+            {!creating ? (
+              <button type="button" data-variant="primary" onClick={() => setCreating(true)}>
+                <Icon name="plus" size={13} />
+                新建端点
+              </button>
+            ) : null}
+          </div>
+        </div>
         <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
           任何 OpenAI 兼容或 Anthropic 格式的端点都行，包括本地 Ollama 和自建 vLLM。
           「测试连接」会发一次真实调用——它测的是这条路真的通，不是 base_url 能解析。
@@ -744,9 +1175,10 @@ function LlmSection() {
         {(endpoints.data ?? []).map((endpoint) => (
           <EndpointCard key={endpoint.id} endpoint={endpoint} />
         ))}
-      </article>
+      </section>
 
       <ScenarioSection
+        id="ai"
         scenario="market"
         title="行情分析"
         intro="喂给模型的是已聚合的统计量（分位数、降价排行、供应量趋势、离开观测范围时长），不是原始商品列表。入口在行情分析页，只在你点击时才调用。"
@@ -786,18 +1218,7 @@ function BookmarkletBlock() {
     !["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
 
   return (
-    <div
-      style={{
-        border: "1px dashed var(--border-strong)",
-        borderRadius: "var(--radius-sm)",
-        padding: "var(--space-3)",
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-2)",
-        fontSize: 12.5,
-      }}
-    >
-      <strong>快捷方式：书签脚本</strong>
+    <div className="bookmarklet">
       <p className="muted" style={{ margin: 0 }}>
         生成一个书签拖到书签栏，之后在<strong>已登录的闲鱼页面</strong>上点它，就会把
         <span className="mono"> document.cookie </span>
@@ -828,6 +1249,7 @@ function BookmarkletBlock() {
         disabled={mint.isPending || blockedByMixedContent}
         style={{ alignSelf: "flex-start" }}
       >
+        <Icon name="bookmark-plus" size={13} />
         {mint.isPending ? "生成中…" : mint.data ? "重新生成" : "生成书签"}
       </button>
       {mint.isError ? <ErrorState title="生成失败" error={mint.error} /> : null}
@@ -893,24 +1315,34 @@ function BookmarkletBlock() {
   );
 }
 
-/** Session health, credential import, credential removal, and the LLM
- *  configuration the PRD deferred until something could verify it.
+/** Session health, credential import/removal, notification channels, LLM
+ *  endpoints + scenarios, and panel access -- one page, five anchored
+ *  sections (design.md merge decision).
  *
  *  Importing a cookie header is the one step that cannot be automated: a
  *  headless container cannot solve a slider, so the login state has to come
  *  from a human's own browser. Without this screen the tool cannot be
  *  deployed at all.
- *
- *  The LLM block waited for P4 on purpose (`docs/m1-report.md`: 做一个存了也
- *  无从验证的表单比没有更糟). It ships now because there is something behind
- *  every control: a test call, a real model list, two triggers that consume
- *  what is saved here.
  */
 export default function SettingsPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const session = useQuery(sessionOptions());
+  // Hero meta only; the section queries share these cache entries.
+  const channels = useQuery(channelsOptions());
+  const endpoints = useQuery(llmEndpointsOptions());
   const [paste, setPaste] = useState("");
   const [confirmingClear, setConfirmingClear] = useState(false);
+  const activeSection = useAnchorSpy();
+
+  // /settings#channels (the old /channels route redirects here) must land on
+  // the channels card, on load and on every nav click -- same approach as the
+  // overview's #tasks. location identity changes per navigation, so clicking
+  // an anchor while already at that hash still scrolls.
+  useEffect(() => {
+    if (!location.hash) return;
+    document.getElementById(location.hash.slice(1))?.scrollIntoView();
+  }, [location]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: keys.session });
   const doImport = useMutation({
@@ -934,234 +1366,326 @@ export default function SettingsPage() {
   const state = session.data;
 
   return (
-    <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-      <h1>设置</h1>
-
-      <article style={CARD}>
-        <h2>采集会话</h2>
-
-        {session.isPending ? <Loading rows={2} /> : null}
-        {session.isError ? (
-          <ErrorState
-            title="拉取会话状态失败"
-            error={session.error}
-            onRetry={() => void session.refetch()}
-          />
-        ) : null}
-
-        {state ? (
+    <>
+      <PageHero
+        eyebrow="SYSTEM PREFERENCES · CREDENTIAL VAULT"
+        ghost="CONFIG"
+        title={
           <>
-            {/* Three distinct verdicts. "Usable" and "a human must act" are
-                not opposites: a session can be established and still be
-                challenged on one endpoint, which is a wait-and-retry, while
-                needing verification means nothing will improve on its own. */}
-            {state.needs_verification ? (
-              <div
-                role="alert"
-                style={{
-                  background: "var(--warn-bg)",
-                  border: "1px solid var(--warn)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "var(--space-3)",
-                  fontSize: 13,
-                }}
-              >
-                <strong style={{ color: "var(--warn)" }}>需要人工验证。</strong>{" "}
-                上游对这些接口出了风控挑战：
-                <span className="mono"> {state.challenged_apis.join("、")}</span>
-                。自动重试不会好转，请按下面的步骤在自己的浏览器里过一次验证，再重新导入 cookie。
-              </div>
-            ) : !state.usable ? (
-              <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
-                没有可用会话，采集只能走浏览器兜底或直接失败。
-              </p>
-            ) : state.proven ? (
-              <p style={{ margin: 0, fontSize: 13, color: "var(--success)" }}>
-                会话可用，最近一次采集成功于 {formatRelativeTime(state.last_success_at)}。
-              </p>
-            ) : (
-              /* The distinction that matters: importing a cookie clears the
-                 challenge map unconditionally, so "no challenge" right after
-                 an import only means nothing has failed YET. Reporting that as
-                 a healthy session sent a user chasing a working panel while
-                 the detail endpoint was still blocked. */
-              <div
-                style={{
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--border-strong)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "var(--space-3)",
-                  fontSize: 13,
-                }}
-              >
-                <strong>凭证已导入，但还没有被验证过。</strong>{" "}
-                导入只是收下了 cookie；要等一次真实采集成功，这里才会变成「会话可用」。
-                去「监控任务」页对任一规则点「立即运行」，或等下一轮调度。
-              </div>
-            )}
-
-            <dl
-              style={{
-                margin: 0,
-                display: "grid",
-                gridTemplateColumns: "auto 1fr",
-                gap: "2px 12px",
-                fontSize: 12.5,
-              }}
-            >
-              <dt className="muted">来源</dt>
-              <dd style={{ margin: 0 }}>{state.origin ?? "—"}</dd>
-              <dt className="muted">建立于</dt>
-              <dd style={{ margin: 0 }}>
-                {state.established_at
-                  ? `${formatDateTime(state.established_at)}（${formatRelativeTime(state.established_at)}）`
-                  : "—"}
-              </dd>
-              <dt className="muted">最近错误</dt>
-              <dd style={{ margin: 0, wordBreak: "break-word" }}>{state.last_error ?? "—"}</dd>
-              <dt className="muted">已导入 cookie</dt>
-              {/* Names only. The values never leave the backend. */}
-              <dd className="mono" style={{ margin: 0, wordBreak: "break-all" }}>
-                {state.cookie_names.length > 0 ? state.cookie_names.join(" ") : "—"}
-              </dd>
-              <dt className="muted">采集端身份</dt>
-              {/* A summary line, never the snapshot. Same rule as the cookie
-                  list: hardwareConcurrency / deviceMemory and the rest stay in
-                  the backend -- rendering them here would hand a page's worth
-                  of fingerprint to anything that can read this panel. */}
-              <dd style={{ margin: 0, wordBreak: "break-word" }}>
-                {state.fingerprint ?? "内置默认值（开发者工具导入不带环境信息）"}
-                {state.fingerprint && !state.fingerprint_applied ? (
-                  <span className="muted">
-                    {" "}
-                    ——<strong>已记录，但没有采用</strong>
-                    。这份快照来自移动端浏览器，而本工具驱动的每一个页面和接口都是 PC 版（
-                    <span className="mono">pc.search</span> /{" "}
-                    <span className="mono">pc.detail</span>
-                    ）。带着手机 UA 去请求 PC 接口，是把一种不一致换成更糟的一种，所以采集仍
-                    然用内置默认值。想让它生效，请在电脑浏览器上重新点一次书签。
-                  </span>
-                ) : null}
-              </dd>
-            </dl>
+            设置<span className="thin"> / 系统控制台</span>
           </>
-        ) : null}
+        }
+        meta={
+          <>
+            <span>
+              <Icon name="shield-check" size={12} />
+              <span className="ok">密钥永不回显：页面只显示「已设置 / 未设置」</span>
+            </span>
+            {endpoints.data ? (
+              <span>
+                <Icon name="cpu" size={12} />
+                LLM 端点 {endpoints.data.length} 个
+              </span>
+            ) : null}
+            {channels.data ? (
+              <span>
+                <Icon name="bell" size={12} />
+                通知渠道 {channels.data.filter((c) => c.enabled).length}/{channels.data.length}{" "}
+                启用
+              </span>
+            ) : null}
+          </>
+        }
+      />
 
-        <BookmarkletBlock />
-
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const value = paste.trim();
-            if (value) doImport.mutate(value);
-          }}
-          style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
-        >
-          <label htmlFor="cookie-paste">导入 cookie（开发者工具，最稳的一条路）</label>
-          <textarea
-            id="cookie-paste"
-            value={paste}
-            onChange={(event) => setPaste(event.target.value)}
-            rows={4}
-            placeholder="cookie2=…; unb=…; _m_h5_tk=…"
-            style={{ fontFamily: "var(--font-mono)", fontSize: 12, resize: "vertical" }}
-            aria-describedby="cookie-help"
-          />
-          <div id="cookie-help" className="muted" style={{ fontSize: 11.5 }}>
-            <p style={{ margin: 0 }}>
-              在自己的浏览器里登录闲鱼，开发者工具 → Network → 任一请求 → 复制整个
-              <span className="mono"> Cookie </span>
-              请求头，粘贴到这里。值只存在后端，页面上永远只显示 cookie 名字。
-            </p>
-            {/* Copy the header from the request being reproduced, rather than
-                hunting for a particular cookie name. Which cookie carries a
-                passed verification was never actually measured here -- an
-                early research note guessed `x5sec`, a user passed a slider and
-                got no such cookie. The request's own header sidesteps the
-                question: it is by definition the complete credential set that
-                endpoint receives, on the right domain. */}
-            <p style={{ margin: "var(--space-2) 0 0" }}>
-              <strong>只登录往往不够</strong>
-              ，风控挑战出现在<strong>商品详情</strong>那条路上。所以：先在浏览器里打开一个
-              商品详情页（<span className="mono">goofish.com/item?id=…</span>），出现滑块就
-              完成它，刷新，然后在 Network 里过滤
-              <span className="mono"> detail </span>
-              ，找到
-              <span className="mono"> mtop.taobao.idle.pc.detail </span>
-              这个请求，复制<strong>它的</strong>
-              <span className="mono"> Cookie </span>
-              请求头。
-            </p>
-            <p style={{ margin: "var(--space-1) 0 0" }}>
-              为什么要指定这个请求：它的 Cookie 头按定义就是详情端点实际收到的完整凭证集，
-              域也一定是对的，不需要判断哪个 cookie 名字才是关键。
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
-            <button
-              type="submit"
-              data-variant="primary"
-              disabled={doImport.isPending || !paste.trim()}
+      <div className="settings-grid">
+        <nav className="anchor-nav" aria-label="设置分区">
+          {SECTIONS.map((s) => (
+            <Link
+              key={s.id}
+              to={`#${s.id}`}
+              className={activeSection === s.id ? "active" : ""}
+              aria-current={activeSection === s.id ? "true" : undefined}
             >
-              {doImport.isPending ? "导入中…" : "导入"}
-            </button>
-            {confirmingClear ? (
+              <Icon name={s.icon} size={14} />
+              {s.label}
+            </Link>
+          ))}
+        </nav>
+
+        <div className="settings-col">
+          {/* ---------- 1. 采集会话 ---------- */}
+          <section className="card" id="session" style={COL}>
+            <div className="card-h">
+              <h2>
+                <Icon name="cookie" size={15} />
+                采集会话
+              </h2>
+              {state ? (
+                state.needs_verification ? (
+                  <span className="pill" data-tone="warn">
+                    需要人工验证
+                  </span>
+                ) : !state.usable ? (
+                  <span className="pill" data-tone="danger">
+                    无可用会话
+                  </span>
+                ) : state.proven ? (
+                  <span className="pill" data-tone="success">
+                    <Icon name="check" size={11} />
+                    会话可用
+                  </span>
+                ) : (
+                  <span className="pill">已导入 · 未验证</span>
+                )
+              ) : null}
+            </div>
+
+            {session.isPending ? <Loading rows={2} /> : null}
+            {session.isError ? (
+              <ErrorState
+                title="拉取会话状态失败"
+                error={session.error}
+                onRetry={() => void session.refetch()}
+              />
+            ) : null}
+
+            {state ? (
               <>
-                <button
-                  type="button"
-                  data-variant="danger"
-                  onClick={() => doClear.mutate()}
-                  disabled={doClear.isPending}
-                >
-                  确认清除
-                </button>
-                <button type="button" onClick={() => setConfirmingClear(false)}>
-                  取消
-                </button>
+                {/* Three distinct verdicts. "Usable" and "a human must act" are
+                    not opposites: a session can be established and still be
+                    challenged on one endpoint, which is a wait-and-retry, while
+                    needing verification means nothing will improve on its own. */}
+                {state.needs_verification ? (
+                  <div role="alert" className="alert" data-tone="warn">
+                    <Icon name="alert-triangle" size={15} />
+                    <span>
+                      <strong>需要人工验证。</strong> 上游对这些接口出了风控挑战：
+                      <span className="mono"> {state.challenged_apis.join("、")}</span>
+                      。自动重试不会好转，请按下面的步骤在自己的浏览器里过一次验证，再重新导入
+                      cookie。
+                    </span>
+                  </div>
+                ) : !state.usable ? (
+                  <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
+                    没有可用会话，采集只能走浏览器兜底或直接失败。
+                  </p>
+                ) : state.proven ? (
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: 13,
+                      color: "var(--success)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <span className="dot dot-pulse" />
+                    会话可用，最近一次采集成功于 {formatRelativeTime(state.last_success_at)}。
+                  </p>
+                ) : (
+                  /* The distinction that matters: importing a cookie clears the
+                     challenge map unconditionally, so "no challenge" right after
+                     an import only means nothing has failed YET. Reporting that as
+                     a healthy session sent a user chasing a working panel while
+                     the detail endpoint was still blocked. */
+                  <div className="inner-card" style={{ fontSize: 13 }}>
+                    <span>
+                      <strong>凭证已导入，但还没有被验证过。</strong>{" "}
+                      导入只是收下了 cookie；要等一次真实采集成功，这里才会变成「会话可用」。
+                      去「监控任务」页对任一规则点「立即运行」，或等下一轮调度。
+                    </span>
+                  </div>
+                )}
+
+                <div className="sub-h">
+                  <Icon name="info" size={12} />
+                  会话详情（已脱敏）
+                </div>
+                <dl className="dl">
+                  <dt>来源</dt>
+                  <dd>{state.origin ?? "—"}</dd>
+                  <dt>建立于</dt>
+                  <dd>
+                    {state.established_at
+                      ? `${formatDateTime(state.established_at)}（${formatRelativeTime(state.established_at)}）`
+                      : "—"}
+                  </dd>
+                  <dt>最近错误</dt>
+                  <dd style={{ wordBreak: "break-word" }}>{state.last_error ?? "—"}</dd>
+                  <dt>已导入 cookie</dt>
+                  {/* Names only. The values never leave the backend. */}
+                  <dd style={{ color: "var(--acc2)" }}>
+                    {state.cookie_names.length > 0 ? state.cookie_names.join(" ") : "—"}{" "}
+                    {state.cookie_names.length > 0 ? (
+                      <span className="dim">（仅名称，永不回显值）</span>
+                    ) : null}
+                  </dd>
+                  <dt>采集端身份</dt>
+                  {/* A summary line, never the snapshot. Same rule as the cookie
+                      list: hardwareConcurrency / deviceMemory and the rest stay in
+                      the backend -- rendering them here would hand a page's worth
+                      of fingerprint to anything that can read this panel. */}
+                  <dd style={{ wordBreak: "break-word" }}>
+                    {state.fingerprint ?? "内置默认值（开发者工具导入不带环境信息）"}
+                    {state.fingerprint && !state.fingerprint_applied ? (
+                      <span className="muted">
+                        {" "}
+                        ——<strong>已记录，但没有采用</strong>
+                        。这份快照来自移动端浏览器，而本工具驱动的每一个页面和接口都是 PC 版（
+                        <span className="mono">pc.search</span> /{" "}
+                        <span className="mono">pc.detail</span>
+                        ）。带着手机 UA 去请求 PC 接口，是把一种不一致换成更糟的一种，所以采集仍
+                        然用内置默认值。想让它生效，请在电脑浏览器上重新点一次书签。
+                      </span>
+                    ) : null}
+                  </dd>
+                </dl>
               </>
-            ) : (
-              <button
-                type="button"
-                data-variant="danger"
-                onClick={() => setConfirmingClear(true)}
-                disabled={!state?.cookie_names.length}
-              >
-                清除凭证
-              </button>
-            )}
-          </div>
-          {doImport.isError ? <ErrorState title="导入失败" error={doImport.error} /> : null}
-          {doClear.isError ? <ErrorState title="清除失败" error={doClear.error} /> : null}
-          {doImport.isSuccess ? (
-            <p style={{ margin: 0, fontSize: 12.5, color: "var(--success)" }}>
-              已导入。若上面仍显示没有可用会话，通常是缺少
-              <span className="mono"> _m_h5_tk </span>
-              ——采集器会自己取一个，等一轮再看。
+            ) : null}
+
+            <div className="sub-h">
+              <Icon name="bookmark-plus" size={12} />
+              快捷书签导入
+            </div>
+            <BookmarkletBlock />
+
+            <div className="sub-h">
+              <Icon name="file-code-2" size={12} />
+              手动粘贴 Cookie 凭证（开发者工具，最稳的一条路）
+            </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                const value = paste.trim();
+                if (value) doImport.mutate(value);
+              }}
+              style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
+            >
+              <label className="field-label" htmlFor="cookie-paste">
+                Cookie 键值对字符串
+              </label>
+              <textarea
+                id="cookie-paste"
+                value={paste}
+                onChange={(event) => setPaste(event.target.value)}
+                rows={4}
+                placeholder="cookie2=…; unb=…; _m_h5_tk=…"
+                style={{ fontFamily: "var(--font-mono)", fontSize: 12, resize: "vertical" }}
+                aria-describedby="cookie-help"
+              />
+              <div id="cookie-help" className="muted" style={{ fontSize: 11.5 }}>
+                <p style={{ margin: 0 }}>
+                  在自己的浏览器里登录闲鱼，开发者工具 → Network → 任一请求 → 复制整个
+                  <span className="mono"> Cookie </span>
+                  请求头，粘贴到这里。值只存在后端，页面上永远只显示 cookie 名字。
+                </p>
+                {/* Copy the header from the request being reproduced, rather than
+                    hunting for a particular cookie name. Which cookie carries a
+                    passed verification was never actually measured here -- an
+                    early research note guessed `x5sec`, a user passed a slider and
+                    got no such cookie. The request's own header sidesteps the
+                    question: it is by definition the complete credential set that
+                    endpoint receives, on the right domain. */}
+                <p style={{ margin: "var(--space-2) 0 0" }}>
+                  <strong>只登录往往不够</strong>
+                  ，风控挑战出现在<strong>商品详情</strong>那条路上。所以：先在浏览器里打开一个
+                  商品详情页（<span className="mono">goofish.com/item?id=…</span>），出现滑块就
+                  完成它，刷新，然后在 Network 里过滤
+                  <span className="mono"> detail </span>
+                  ，找到
+                  <span className="mono"> mtop.taobao.idle.pc.detail </span>
+                  这个请求，复制<strong>它的</strong>
+                  <span className="mono"> Cookie </span>
+                  请求头。
+                </p>
+                <p style={{ margin: "var(--space-1) 0 0" }}>
+                  为什么要指定这个请求：它的 Cookie 头按定义就是详情端点实际收到的完整凭证集，
+                  域也一定是对的，不需要判断哪个 cookie 名字才是关键。
+                </p>
+              </div>
+              <div className="actions-row">
+                <button
+                  type="submit"
+                  data-variant="primary"
+                  disabled={doImport.isPending || !paste.trim()}
+                >
+                  <Icon name="upload" size={13} />
+                  {doImport.isPending ? "导入中…" : "导入凭据"}
+                </button>
+                {confirmingClear ? (
+                  <>
+                    <button
+                      type="button"
+                      data-variant="danger"
+                      onClick={() => doClear.mutate()}
+                      disabled={doClear.isPending}
+                    >
+                      确认清除
+                    </button>
+                    <button type="button" onClick={() => setConfirmingClear(false)}>
+                      取消
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    data-variant="danger"
+                    onClick={() => setConfirmingClear(true)}
+                    disabled={!state?.cookie_names.length}
+                  >
+                    <Icon name="trash-2" size={13} />
+                    清除会话凭证
+                  </button>
+                )}
+              </div>
+              {doImport.isError ? <ErrorState title="导入失败" error={doImport.error} /> : null}
+              {doClear.isError ? <ErrorState title="清除失败" error={doClear.error} /> : null}
+              {doImport.isSuccess ? (
+                <p style={{ margin: 0, fontSize: 12.5, color: "var(--success)" }}>
+                  已导入。若上面仍显示没有可用会话，通常是缺少
+                  <span className="mono"> _m_h5_tk </span>
+                  ——采集器会自己取一个，等一轮再看。
+                </p>
+              ) : null}
+            </form>
+          </section>
+
+          {/* ---------- 2. 通知渠道 ---------- */}
+          <ChannelsSection />
+
+          {/* ---------- 3 + 4. LLM 端点与 AI 场景 ---------- */}
+          <LlmSection />
+
+          {/* ---------- 5. 面板访问 ---------- */}
+          <section className="card" id="access" style={COL}>
+            <div className="card-h">
+              <h2>
+                <Icon name="key" size={15} />
+                面板访问安全
+              </h2>
+            </div>
+            <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+              面板用的是后端启动时的
+              <span className="mono"> SFD_API_TOKEN </span>
+              ，只能在服务端改。这里只能忘掉浏览器里存的那一份。
             </p>
-          ) : null}
-        </form>
-      </article>
-
-      <article style={CARD}>
-        <h2>面板访问</h2>
-        <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
-          面板用的是后端启动时的
-          <span className="mono"> SFD_API_TOKEN </span>
-          ，只能在服务端改。这里只能忘掉浏览器里存的那一份。
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            clearToken();
-            window.location.reload();
-          }}
-          style={{ alignSelf: "flex-start" }}
-        >
-          忘掉本机 token 并退出
-        </button>
-      </article>
-
-      <LlmSection />
-    </section>
+            <button
+              type="button"
+              data-variant="danger"
+              onClick={() => {
+                clearToken();
+                window.location.reload();
+              }}
+              style={{ alignSelf: "flex-start" }}
+            >
+              <Icon name="shield-off" size={13} />
+              忘掉本机 Token 并退出
+            </button>
+          </section>
+        </div>
+      </div>
+    </>
   );
 }

@@ -1,9 +1,13 @@
 import { useState } from "react";
 
 import { ApiError, setToken, verifyToken } from "../api/client";
+import { Icon } from "../components/Icon";
 
 /** The token is checked against a real endpoint before it is stored, so a
  *  typo produces a message on this form rather than a broken app behind it.
+ *
+ *  No prototype counterpart — SIGNAL DECK tokens only: brand mark, one field,
+ *  inline error. Auth flow untouched.
  */
 export default function LoginPage({
   onAuthenticated,
@@ -47,28 +51,34 @@ export default function LoginPage({
         padding: "var(--space-4)",
       }}
     >
+      {/* Same static backdrop as the app shell; login renders outside it. */}
+      <div className="bg-grid" />
+      <div className="bg-vignette" />
       <form
         onSubmit={submit}
+        className="card"
         style={{
-          width: "min(360px, 100%)",
+          width: "min(380px, 100%)",
           display: "flex",
           flexDirection: "column",
-          gap: "var(--space-3)",
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius)",
-          padding: "var(--space-5)",
+          gap: "var(--space-4)",
+          padding: "var(--space-6)",
+          zIndex: 1,
         }}
       >
-        <h1>咸鱼监控</h1>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-1)",
-          }}
-        >
-          <label htmlFor="token">API Token</label>
+        <div className="brand" style={{ gap: 10 }}>
+          <span className="brand-mark">
+            <Icon name="radar" />
+          </span>
+          咸鱼监控
+        </div>
+        <div className="hero-eyebrow" style={{ margin: 0 }}>
+          SIGNAL DECK · ACCESS
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor="token">
+            API Token
+          </label>
           <input
             id="token"
             type="password"
@@ -85,22 +95,9 @@ export default function LoginPage({
         </div>
 
         {error ? (
-          <p
-            id="token-error"
-            role="alert"
-            className="mono"
-            style={{
-              margin: 0,
-              fontSize: 12,
-              color: "var(--danger)",
-              background: "var(--danger-bg)",
-              border: "1px solid var(--danger)",
-              borderRadius: "var(--radius-sm)",
-              padding: "var(--space-2)",
-              wordBreak: "break-word",
-            }}
-          >
-            {error}
+          <p id="token-error" role="alert" className="alert" data-tone="danger">
+            <Icon name="alert-circle" size={15} />
+            <code className="alert-msg">{error}</code>
           </p>
         ) : null}
 
