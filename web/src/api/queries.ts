@@ -100,6 +100,9 @@ export type AnalyticsDropsQuery = AnalyticsQuery & { limit: number };
  */
 export type ItemFilters = {
   monitor_id?: number;
+  /** Opaque base64 from the upstream, `+` `/` `=` and all. It only ever
+   *  travels through URLSearchParams, which escapes it. */
+  seller_id?: string;
   min_price_cents?: number;
   max_price_cents?: number;
   status?: "on_sale" | "sold" | "removed";

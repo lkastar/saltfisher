@@ -1,58 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
-import {
-  itemsOptions,
-  monitorsOptions,
-  type ItemFilters,
-  type Monitor,
-} from "../api/queries";
+import { itemsOptions, monitorsOptions, type Monitor } from "../api/queries";
 import RemoteImage from "../components/RemoteImage";
 import { Empty, ErrorState, Loading } from "../components/States";
 import { formatPrice, formatRelativeTime, parseYuanToCents } from "../lib/format";
+import {
+  nextParams,
+  readFilters,
+  sellerLabel,
+  SORTS,
+  STATUSES,
+} from "../lib/itemFilters";
 
 const PAGE = 50;
-
-const SORTS: ReadonlyArray<[NonNullable<ItemFilters["sort"]>, string]> = [
-  ["-first_seen", "最新入库"],
-  ["first_seen", "最早入库"],
-  ["-last_seen", "最近还在"],
-  ["price", "价格从低到高"],
-  ["-price", "价格从高到低"],
-];
-
-const STATUSES: ReadonlyArray<[NonNullable<ItemFilters["status"]>, string]> = [
-  ["on_sale", "在售"],
-  ["sold", "已售"],
-  ["removed", "已下架"],
-];
-
-/** The URL is the only place filter state lives. A reloaded or shared link has
- *  to reproduce the view, and TanStack Query keys off the same object, so
- *  "same URL, same cache" comes out for free.
- */
-function readFilters(params: URLSearchParams): ItemFilters {
-  const num = (key: string): number | undefined => {
-    const raw = params.get(key);
-    if (raw === null || raw === "") return undefined;
-    const value = Number(raw);
-    return Number.isFinite(value) ? value : undefined;
-  };
-  const status = params.get("status");
-  const sort = params.get("sort");
-  return {
-    monitor_id: num("monitor_id"),
-    min_price_cents: num("min_price_cents"),
-    max_price_cents: num("max_price_cents"),
-    status: STATUSES.some(([v]) => v === status)
-      ? (status as ItemFilters["status"])
-      : undefined,
-    sort: SORTS.some(([v]) => v === sort)
-      ? (sort as ItemFilters["sort"])
-      : "-first_seen",
-    offset: num("offset") ?? 0,
-  };
-}
 
 export default function ItemsPage() {
   const [params, setParams] = useSearchParams();
@@ -62,16 +23,8 @@ export default function ItemsPage() {
   // matched" and "this rule is failing" must not look the same.
   const monitors = useQuery(monitorsOptions());
 
-  /** Any filter change resets the page. Keeping the old offset lands the user
-   *  on an empty page, which reads as "no results" rather than "you are on
-   *  page 3 of a shorter list".
-   */
   function update(key: string, value: string | undefined, resetOffset = true) {
-    const next = new URLSearchParams(params);
-    if (value === undefined || value === "") next.delete(key);
-    else next.set(key, value);
-    if (resetOffset) next.delete("offset");
-    setParams(next, { replace: true });
+    setParams(nextParams(params, key, value, resetOffset), { replace: true });
   }
 
   const selected: Monitor | undefined = monitors.data?.find(
@@ -81,6 +34,12 @@ export default function ItemsPage() {
   // only fills it in when a monitor is named. Showing the column regardless
   // would leave it blank and imply nothing was waived.
   const showsHitColumns = filters.monitor_id !== undefined;
+  // The nick is read off the rows already on screen -- naming a seller is not
+  // worth a request. An empty result set leaves it undefined; `sellerLabel`
+  // then falls back to the id rather than pretending to know the name.
+  const sellerNick = items.data?.find(
+    (i) => i.seller_id === filters.seller_id,
+  )?.seller_nick;
 
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
@@ -176,6 +135,24 @@ export default function ItemsPage() {
           清空筛选
         </button>
 
+        {filters.seller_id === undefined ? null : (
+          <p
+            style={{
+              margin: 0,
+              flexBasis: "100%",
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-2)",
+              fontSize: 12,
+            }}
+          >
+            <span>只看卖家「{sellerLabel(sellerNick, filters.seller_id)}」的商品</span>
+            <button type="button" onClick={() => update("seller_id", undefined)}>
+              取消卖家筛选
+            </button>
+          </p>
+        )}
+
         {!showsHitColumns ? (
           <p className="muted" style={{ margin: 0, fontSize: 11.5, flexBasis: "100%" }}>
             选中某个监控任务后，会显示该规则命中时「因数据缺失而保守放行」的筛选条件。
@@ -261,7 +238,29 @@ export default function ItemsPage() {
                       {formatPrice(item.price_cents)}
                     </td>
                     <td>
-                      {item.seller_nick}
+                      {item.seller_nick ? (
+                        <button
+                          type="button"
+                          onClick={() => update("seller_id", item.seller_id)}
+                          title="只看这个卖家的商品"
+                          style={{
+                            padding: 0,
+                            minHeight: 0,
+                            border: "none",
+                            background: "none",
+                            color: "var(--primary)",
+                            textAlign: "left",
+                            whiteSpace: "normal",
+                          }}
+                        >
+                          {item.seller_nick}
+                        </button>
+                      ) : (
+                        // 8 of the 253 sellers in the real db have an empty nick. A
+                        // button labelled with it would be an invisible click
+                        // target, so those degrade to plain text.
+                        <span className="muted">未知卖家</span>
+                      )}
                       {item.seller_is_shop ? (
                         <span className="muted" style={{ fontSize: 11 }}>
                           {" "}
