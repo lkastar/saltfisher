@@ -639,7 +639,7 @@ async def dispatch_challenge(
 
 
 def resume_challenge_disabled() -> list[int]:
-    """Re-enable the rules a challenge switched off, and only those.
+    """Re-enable what a challenge switched off, and only that.
 
     Called after a credential import. Clearing the failure state mirrors what
     `update_monitor` does for a manual re-enable -- leaving the streak intact
@@ -661,6 +661,7 @@ def resume_challenge_disabled() -> list[int]:
     docs/operations.md:「判定成功看行为，不看 cookie 名单」.
     """
     resumed: list[int] = []
+    watched: list[str] = []
     with Session(engine) as session:
         for monitor in session.exec(select(Monitor)).all():
             if monitor.enabled or NEEDS_VERIFICATION not in (monitor.last_error or ""):
@@ -670,6 +671,20 @@ def resume_challenge_disabled() -> list[int]:
             monitor.last_error = None
             if monitor.id is not None:
                 resumed.append(monitor.id)
+        # Watched items are disabled by the same challenge through their own
+        # counter (`record_watch_failure`), and they were missed here at first:
+        # a re-import brought the search rules back while the watched item
+        # stayed dead with nothing on screen to say why. Same marker, same
+        # rule -- only the challenge class, never a hand-disabled entry or one
+        # that failed five times for its own reasons.
+        for entry in session.exec(select(Watchlist)).all():
+            if entry.price_watch_enabled or NEEDS_VERIFICATION not in (entry.last_error or ""):
+                continue
+            entry.price_watch_enabled = True
+            entry.consecutive_failures = 0
+            entry.last_error = None
+            watched.append(entry.item_id)
+
         cleared = session.exec(
             select(Seller).where(col(Seller.fetch_error).startswith(CHALLENGE_REASON_PREFIX))
         ).all()
@@ -679,10 +694,14 @@ def resume_challenge_disabled() -> list[int]:
             # the stamp would keep the seller inside `fresh_seller_ids`.
             seller.fetched_at = None
         session.commit()
-    if resumed or cleared:
+    if resumed or watched or cleared:
         log.info(
             "resumed what the challenge stopped",
-            extra={"monitor_ids": resumed, "sellers_cleared": len(cleared)},
+            extra={
+                "monitor_ids": resumed,
+                "watch_item_ids": watched,
+                "sellers_cleared": len(cleared),
+            },
         )
     return resumed
 

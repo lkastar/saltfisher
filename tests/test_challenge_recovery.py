@@ -373,6 +373,55 @@ async def test_import_resumes_only_the_rules_the_challenge_disabled(client):
     assert state["healthy"][0] is True
 
 
+async def test_import_resumes_the_watched_items_too(client):
+    """Watched items are disabled by the same challenge, through their own
+    counter in `record_watch_failure` -- and they were missed here at first.
+
+    The failure it leaves is silent in the worst way: the search rules come
+    back on import, so the panel looks recovered, while the watched item stays
+    dead with nothing on screen saying why. Found by reading the real db before
+    walking a user through this exact flow.
+    """
+    from app.models import Watchlist
+
+    c, _, engine = client
+    with Session(engine) as s:
+        s.add_all(
+            [
+                Watchlist(
+                    item_id="challenged",
+                    added_price_cents=1000,
+                    price_watch_enabled=False,
+                    consecutive_failures=5,
+                    last_error=(
+                        "auto-disabled after 5 failures: needs verification: FAIL_SYS_USER_VALIDATE"
+                    ),
+                ),
+                Watchlist(
+                    item_id="five-failures",
+                    added_price_cents=1000,
+                    price_watch_enabled=False,
+                    consecutive_failures=5,
+                    last_error="auto-disabled after 5 failures: upstream returned nothing",
+                ),
+                # Switched off by hand: no last_error at all.
+                Watchlist(item_id="by-hand", added_price_cents=1000, price_watch_enabled=False),
+            ]
+        )
+        s.commit()
+
+    c.post("/api/session/cookies", json={"cookie_header": REAL_PASTE}, headers=AUTH)
+
+    with Session(engine) as s:
+        state = {
+            e.item_id: (e.price_watch_enabled, e.last_error, e.consecutive_failures)
+            for e in s.exec(select(Watchlist)).all()
+        }
+    assert state["challenged"] == (True, None, 0), "the failure state must be cleared too"
+    assert state["five-failures"][0] is False, "not a challenge; stays off"
+    assert state["by-hand"][0] is False, "the user's own choice stays"
+
+
 async def test_import_un_poisons_the_sellers_the_challenge_stamped(client):
     """A challenge poisons seller profiles for a WEEK if nobody clears them.
 
