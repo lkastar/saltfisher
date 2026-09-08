@@ -143,10 +143,14 @@ export function channelsOptions() {
   });
 }
 
-export function notifyLogsOptions() {
+/** `limit` is part of the key: 50 rows and 200 rows are two different
+ *  answers. `keys.notifyLogs` stays the invalidation prefix, so a send still
+ *  drops every window at once. The backend caps limit at 200.
+ */
+export function notifyLogsOptions(limit = 50) {
   return queryOptions({
-    queryKey: keys.notifyLogs,
-    queryFn: () => request<NotifyLog[]>("/api/notify-logs"),
+    queryKey: [...keys.notifyLogs, limit] as const,
+    queryFn: () => request<NotifyLog[]>(`/api/notify-logs${queryString({ limit })}`),
   });
 }
 

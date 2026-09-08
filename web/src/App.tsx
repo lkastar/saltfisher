@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Navigate, NavLink, Route, Routes } from "react-router";
+import { Link, Navigate, Route, Routes, useLocation, type Location } from "react-router";
 
 import { clearToken, getToken } from "./api/client";
 import { sessionOptions } from "./api/queries";
@@ -9,23 +9,28 @@ import AnalyticsPage from "./pages/AnalyticsPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import ItemsPage from "./pages/ItemsPage";
 import LoginPage from "./pages/LoginPage";
-import MonitorsPage from "./pages/MonitorsPage";
 import OverviewPage from "./pages/OverviewPage";
 import SettingsPage from "./pages/SettingsPage";
 import WatchlistPage from "./pages/WatchlistPage";
 
-/** Prototype nav, except 监控任务 points at /monitors instead of /#tasks:
- *  the overview has no #tasks section until step 4, and redirecting away from
- *  MonitorsPage now would orphan monitor create/edit. Step 4 flips this to
- *  /#tasks and adds the redirect. */
-const NAV: { to: string; label: string; icon: IconName; end?: boolean }[] = [
-  { to: "/", label: "总览", icon: "layout-dashboard", end: true },
-  { to: "/monitors", label: "监控任务", icon: "scan-search" },
+const NAV: { to: string; label: string; icon: IconName }[] = [
+  { to: "/", label: "总览", icon: "layout-dashboard" },
+  { to: "/#tasks", label: "监控任务", icon: "scan-search" },
   { to: "/items", label: "命中商品", icon: "package" },
   { to: "/watchlist", label: "收藏追踪", icon: "bookmark" },
   { to: "/analytics", label: "行情分析", icon: "chart-spline" },
   { to: "/settings", label: "设置", icon: "settings" },
 ];
+
+/** Plain Links with hand-computed active state, not NavLink: `/` and
+ *  `/#tasks` share a pathname, so NavLink's matcher would mark BOTH 总览 and
+ *  监控任务 aria-current at `/`. The hash is the tiebreaker.
+ */
+function navActive(to: string, location: Location): boolean {
+  if (to === "/") return location.pathname === "/" && location.hash !== "#tasks";
+  if (to === "/#tasks") return location.pathname === "/" && location.hash === "#tasks";
+  return location.pathname === to || location.pathname.startsWith(`${to}/`);
+}
 
 function ThemeToggle() {
   const [theme, setTheme] = useState<"dark" | "light">(() =>
@@ -81,31 +86,35 @@ function TopbarStatus() {
 }
 
 function AppShell() {
+  const location = useLocation();
   return (
     <>
       <div className="bg-grid" />
       <div className="bg-vignette" />
       <header className="topbar">
         <div className="topbar-inner">
-          <NavLink to="/" className="brand">
+          <Link to="/" className="brand">
             <span className="brand-mark">
               <Icon name="radar" />
             </span>
             咸鱼监控
-          </NavLink>
+          </Link>
           <nav className="main-nav">
-            {NAV.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                aria-label={item.label}
-                className={({ isActive }) => (isActive ? "active" : "")}
-              >
-                <Icon name={item.icon} />
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
+            {NAV.map((item) => {
+              const active = navActive(item.to, location);
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  aria-label={item.label}
+                  aria-current={active ? "page" : undefined}
+                  className={active ? "active" : ""}
+                >
+                  <Icon name={item.icon} />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
           </nav>
           <div className="topbar-actions">
             <ThemeToggle />
@@ -127,9 +136,8 @@ function AppShell() {
       <main className="page">
         <Routes>
           <Route path="/" element={<OverviewPage />} />
-          {/* Kept (not redirected) until step 4 folds monitor CRUD into the
-              overview — see NAV note above. */}
-          <Route path="/monitors" element={<MonitorsPage />} />
+          {/* Monitor CRUD now lives in the overview's #tasks card. */}
+          <Route path="/monitors" element={<Navigate to="/#tasks" replace />} />
           <Route path="/items" element={<ItemsPage />} />
           <Route path="/items/:itemId" element={<ItemDetailPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />

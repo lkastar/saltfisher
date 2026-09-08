@@ -195,14 +195,14 @@ export default function ItemsPage() {
                     it here would send them looking for a control that is not
                     there. */}
                 已创建规则「{watch.data.name}」，已带上当前启用的推送渠道，下个周期开始盯。
-                <Link to="/monitors">去监控任务页</Link>
+                <Link to="/#tasks">去监控任务</Link>
                 看它。<strong>规则建好后改不了</strong>
                 ——要换筛选条件就删掉重建。
               </span>
             ) : sellerRule ? (
               <span>
                 已有规则「{sellerRule.name}」在盯这个卖家，不再重复创建。
-                <Link to="/monitors">去监控任务页</Link>
+                <Link to="/#tasks">去监控任务</Link>
               </span>
             ) : (
               <button

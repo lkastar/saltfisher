@@ -265,6 +265,10 @@ tbody tr:last-child td {
   color: var(--text-muted);
 }
 
+.dim {
+  color: var(--text3);
+}
+
 .mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -605,6 +609,307 @@ tbody tr:last-child td {
   color: var(--amber);
 }
 
+/* ---------- cards, KPI grid, overview lists (SIGNAL DECK) ---------- */
+
+.card {
+  position: relative;
+  background: var(--card-gradient);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--card-shadow);
+  transition: border-color 0.35s var(--ease);
+}
+
+.card:hover {
+  border-color: var(--line2);
+}
+
+.card-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.card-h h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.card-h h2 svg {
+  color: var(--acc2);
+}
+
+.card-h .note {
+  font-size: 11.5px;
+  color: var(--text3);
+  font-family: var(--font-mono);
+}
+
+.card-h .actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.kpi-grid {
+  display: grid;
+  /* auto-fit, not the prototype's repeat(4,1fr): the card count follows what
+   * the API can honestly supply (see OverviewPage), so the grid cannot assume
+   * four. */
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.kpi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.kpi-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.kpi-label svg {
+  color: var(--acc2);
+}
+
+.kpi-value {
+  font-family: var(--font-mono);
+  font-size: clamp(30px, 2.6vw, 40px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-value .unit {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text3);
+  margin-left: 6px;
+  letter-spacing: 0;
+}
+
+.kpi-sub {
+  font-size: 12px;
+  color: var(--text2);
+  font-family: var(--font-mono);
+}
+
+.kpi-spark {
+  margin-top: 6px;
+  height: 26px;
+  opacity: 0.9;
+}
+
+.grid-21 {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.side-stack {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.hit-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 6px;
+  margin: 0 -6px;
+  border-bottom: 1px solid var(--line);
+  align-items: center;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.hit-item:hover {
+  background: var(--bg2);
+}
+
+.hit-item:last-child {
+  border-bottom: none;
+}
+
+.hit-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.hit-title {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hit-title a {
+  color: var(--text);
+}
+
+.hit-title a:hover {
+  color: var(--acc2);
+}
+
+.hit-meta {
+  font-size: 12px;
+  color: var(--text2);
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.hit-price {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.push-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.push-item:last-child {
+  border-bottom: none;
+}
+
+.push-item .time {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text3);
+  white-space: nowrap;
+}
+
+/* Text-only link/button with a trailing icon (card header "全部 →"). */
+.btn-text {
+  border: none;
+  background: none;
+  min-height: 0;
+  padding: 0;
+  color: var(--acc2);
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ---------- ticker (Ticker.tsx) ---------- */
+
+.ticker-wrap {
+  /* Full-bleed strip inside the max-width page frame: pull each side out by
+   * (viewport - content)/2. */
+  margin-inline: calc(50% - 50vw);
+  border-bottom: 1px solid var(--line);
+  background: var(--ticker-bg);
+  overflow: hidden;
+  height: 38px;
+  display: flex;
+  align-items: center;
+}
+
+.ticker-label {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 16px;
+  height: 100%;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  color: var(--acc2);
+  border-right: 1px solid var(--line);
+  background: var(--acc-soft);
+}
+
+.ticker {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  height: 100%;
+}
+
+/* The track holds the cells TWICE (second copy aria-hidden) so the -50%
+ * translation loops seamlessly. Reduced motion zeroes the animation via the
+ * global rule below, leaving the first copy readable in place. */
+.ticker-track {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  white-space: nowrap;
+  animation: ticker 46s linear infinite;
+  will-change: transform;
+}
+
+.ticker:hover .ticker-track {
+  animation-play-state: paused;
+}
+
+@keyframes ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.tk {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 22px;
+  font-size: 12px;
+  color: var(--text2);
+  border-right: 1px solid var(--line);
+}
+
+/* Real captured titles run past 250 chars; unclamped they would make one
+ * loop of the marquee minutes long. */
+.tk b {
+  color: var(--text);
+  font-weight: 600;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 1080px) {
   .main-nav {
     gap: 0;
@@ -618,6 +923,10 @@ tbody tr:last-child td {
 
   .hero-ghost {
     font-size: 72px;
+  }
+
+  .grid-21 {
+    grid-template-columns: 1fr;
   }
 }
 
