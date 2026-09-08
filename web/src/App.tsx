@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, type Location } from "react-router";
 
 import { clearToken, getToken } from "./api/client";
 import { sessionOptions } from "./api/queries";
 import { Icon, type IconName } from "./components/Icon";
+import { useBgfx, useCursorGlow } from "./lib/fx";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import ItemsPage from "./pages/ItemsPage";
@@ -85,12 +86,30 @@ function TopbarStatus() {
   );
 }
 
-function AppShell() {
-  const location = useLocation();
+/** Decorative backdrop (prd round-2 item 2): static grid/vignette plus the
+ *  signal-field canvas and pointer glow from lib/fx.ts. All fixed,
+ *  pointer-events none, below `.page` (z-index 1); the two animated layers are
+ *  fully inert under prefers-reduced-motion and pause on a hidden tab. */
+function Backdrop() {
+  const canvas = useRef<HTMLCanvasElement | null>(null);
+  const glow = useRef<HTMLDivElement | null>(null);
+  useBgfx(canvas);
+  useCursorGlow(glow);
   return (
     <>
       <div className="bg-grid" />
       <div className="bg-vignette" />
+      <canvas ref={canvas} className="bgfx" aria-hidden="true" />
+      <div ref={glow} className="cursor-glow" aria-hidden="true" />
+    </>
+  );
+}
+
+function AppShell() {
+  const location = useLocation();
+  return (
+    <>
+      <Backdrop />
       <header className="topbar">
         <div className="topbar-inner">
           <Link to="/" className="brand">

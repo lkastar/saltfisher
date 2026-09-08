@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
-/** Decorative layer (task step 8). Everything here is cuttable: deleting this
- *  file plus the `data-reveal` attributes and `<CountUp>` leaves the panel
- *  fully functional. Under `prefers-reduced-motion` both helpers render the
- *  final state immediately.
+/** Decorative layer (task step 8 + round-2 item 2). Everything here is
+ *  cuttable: deleting this file plus the `data-reveal` attributes, `<CountUp>`
+ *  and the App backdrop leaves the panel fully functional. Under
+ *  `prefers-reduced-motion` every helper renders the final state immediately
+ *  and no rAF loop ever starts.
  *
- *  Not ported from the prototype, on purpose: canvas bgfx, cursor glow and
- *  magnetic buttons (pure ornament, not <20 lines); the ticker clone already
- *  lives in `components/Ticker.tsx` since step 4.
+ *  Canvas bgfx and cursor glow were cut in step 8, then explicitly requested
+ *  back in round-2 feedback (prd.md item 2) — ported from
+ *  research/prototype/ui.js. Still not ported: magnetic buttons (pure
+ *  ornament, nobody asked); the ticker clone already lives in
+ *  `components/Ticker.tsx` since step 4.
  */
 
 function prefersReducedMotion(): boolean {
@@ -80,4 +83,182 @@ export function useCountUp(target: number): number {
   }, [target]);
 
   return shown;
+}
+
+/** Ambient signal-field canvas (prototype ui.js `bgfx`): drifting outlined
+ *  circles with centre dots plus a sweeping scanline. Colours come from the
+ *  theme tokens via getComputedStyle — never hardcoded — re-resolved whenever
+ *  `data-theme` changes, cached in between. Under `prefers-reduced-motion` no
+ *  loop starts and the canvas stays empty; a hidden tab cancels the loop and
+ *  resumes on return.
+ */
+export function useBgfx(ref: RefObject<HTMLCanvasElement | null>): void {
+  useEffect(() => {
+    const cv = ref.current;
+    if (cv === null || prefersReducedMotion()) return;
+    const ctx = cv.getContext("2d");
+    if (ctx === null) return;
+
+    type Blip = {
+      x: number;
+      y: number;
+      r: number;
+      max: number;
+      life: number;
+      decay: number;
+      c: string; // "r, g, b" — alpha is applied per frame
+    };
+    const blips: Blip[] = [];
+    let W = 0;
+    let H = 0;
+    let DPR = 1;
+    let raf = 0;
+    let t = 0;
+
+    const resize = () => {
+      DPR = Math.min(window.devicePixelRatio || 1, 2);
+      W = cv.width = window.innerWidth * DPR;
+      H = cv.height = window.innerHeight * DPR;
+      cv.style.width = `${window.innerWidth}px`;
+      cv.style.height = `${window.innerHeight}px`;
+    };
+
+    let paletteTheme: string | null = null;
+    let palette = { acc: "0, 0, 0", pool: [] as string[] };
+    const readPalette = () => {
+      const theme = document.documentElement.dataset.theme ?? "dark";
+      if (theme === paletteTheme) return;
+      paletteTheme = theme;
+      const cs = getComputedStyle(document.documentElement);
+      const rgb = (name: string) => {
+        const hex = cs.getPropertyValue(name).trim();
+        return `${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)}`;
+      };
+      // Prototype weighting: mostly accent, an occasional green/red blip.
+      // Blips already in flight keep their colour until they fade (<3s).
+      const acc = rgb("--acc");
+      palette = { acc, pool: [acc, acc, acc, rgb("--green"), rgb("--red")] };
+    };
+
+    const frame = () => {
+      t += 1;
+      readPalette();
+      const light = paletteTheme === "light";
+      ctx.clearRect(0, 0, W, H);
+
+      // Sweeping scanline.
+      const sy = ((t * 0.35 * DPR) % (H * 1.3)) - H * 0.15;
+      const grad = ctx.createLinearGradient(0, sy - 90 * DPR, 0, sy);
+      grad.addColorStop(0, `rgba(${palette.acc}, 0)`);
+      grad.addColorStop(1, `rgba(${palette.acc}, ${light ? 0.025 : 0.045})`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, sy - 90 * DPR, W, 90 * DPR);
+
+      // Signal blips.
+      if (Math.random() < 0.02 && blips.length < 9) {
+        blips.push({
+          x: Math.random() * W,
+          y: Math.random() * H * 0.85,
+          r: 0,
+          max: (40 + Math.random() * 90) * DPR,
+          life: 1,
+          decay: 0.006 + Math.random() * 0.008,
+          c: palette.pool[Math.floor(Math.random() * palette.pool.length)] ?? palette.acc,
+        });
+      }
+      for (let i = blips.length - 1; i >= 0; i--) {
+        const b = blips[i];
+        if (b === undefined) continue; // noUncheckedIndexedAccess; can't happen
+        b.r += (b.max - b.r) * 0.03;
+        b.life -= b.decay;
+        if (b.life <= 0) {
+          blips.splice(i, 1);
+          continue;
+        }
+        const a = b.life * (light ? 0.35 : 0.5);
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${b.c}, ${a * 0.35})`;
+        ctx.lineWidth = DPR;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 1.6 * DPR, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${b.c}, ${a})`;
+        ctx.fill();
+      }
+      raf = requestAnimationFrame(frame);
+    };
+
+    const onVisibility = () => {
+      cancelAnimationFrame(raf);
+      if (!document.hidden) raf = requestAnimationFrame(frame);
+    };
+
+    resize();
+    window.addEventListener("resize", resize);
+    document.addEventListener("visibilitychange", onVisibility);
+    raf = requestAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [ref]);
+}
+
+/** Pointer-follow glow (prototype ui.js `cursorGlow`), lerp-eased via
+ *  `translate3d`. The rAF loop only runs while the glow is still catching up
+ *  to the pointer, so an idle or hidden tab (no mousemove events) spends
+ *  nothing; it never starts under `prefers-reduced-motion` or on coarse
+ *  pointers. The element itself is styled in base.css (`.cursor-glow`, hidden
+ *  in the light theme like the prototype).
+ */
+export function useCursorGlow(ref: RefObject<HTMLDivElement | null>): void {
+  useEffect(() => {
+    const el = ref.current;
+    if (
+      el === null ||
+      prefersReducedMotion() ||
+      !window.matchMedia("(pointer: fine)").matches
+    ) {
+      return;
+    }
+    let tx = 0;
+    let ty = 0;
+    let x = 0;
+    let y = 0;
+    let raf = 0;
+    let running = false;
+
+    // 260 = half the 520px glow, centring it on the pointer.
+    const step = () => {
+      x += (tx - x) * 0.08;
+      y += (ty - y) * 0.08;
+      el.style.transform = `translate3d(${x - 260}px, ${y - 260}px, 0)`;
+      if (Math.abs(tx - x) + Math.abs(ty - y) > 0.5) {
+        raf = requestAnimationFrame(step);
+      } else {
+        running = false;
+      }
+    };
+    const onMove = (e: MouseEvent) => {
+      tx = e.clientX;
+      ty = e.clientY;
+      if (el.style.opacity !== "1") {
+        // First movement: appear at the pointer instead of gliding across.
+        x = tx;
+        y = ty;
+        el.style.opacity = "1";
+      }
+      if (!running) {
+        running = true;
+        raf = requestAnimationFrame(step);
+      }
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      cancelAnimationFrame(raf);
+    };
+  }, [ref]);
 }

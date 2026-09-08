@@ -158,6 +158,12 @@ export default function ItemDetailPage() {
 
   const data = item.data;
   const cover = hero ?? data.cover_url ?? data.image_urls[0] ?? null;
+  // With the hero title clamped to two lines, a long title with no separate
+  // description would have no fully readable copy on the page — fall back to
+  // the title text. Short titles (<= 80 chars) fit the hero; repeating them
+  // in a card would just duplicate the headline. (prd round-2 item 4)
+  const descriptionBody =
+    data.description || (data.title.length > 80 ? data.title : null);
 
   return (
     <>
@@ -170,7 +176,24 @@ export default function ItemDetailPage() {
           rather than growing base.css a one-caller class. */}
       <header style={{ margin: "24px 0 16px" }}>
         <div className="hero-eyebrow">ITEM DETAIL · ID: {data.id}</div>
-        <h1 style={{ fontSize: "clamp(22px, 2.6vw, 32px)", lineHeight: 1.25 }}>{data.title}</h1>
+        {/* Seller-card-collected items carry the long description AS the title
+            (no short title exists upstream), so the hero clamps to two lines;
+            the full text travels in title= and in the description card below.
+            (prd round-2 item 4) */}
+        <h1
+          title={data.title}
+          style={{
+            fontSize: "clamp(22px, 2.6vw, 32px)",
+            lineHeight: 1.25,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            wordBreak: "break-word",
+          }}
+        >
+          {data.title}
+        </h1>
         <div
           style={{
             display: "flex",
@@ -267,13 +290,16 @@ export default function ItemDetailPage() {
               ) : null}
             </section>
 
-            {data.description ? (
+            {descriptionBody !== null ? (
               <section className="card">
                 <div className="card-h">
                   <h2>
                     <Icon name="file-text" size={15} />
                     卖家原帖描述
                   </h2>
+                  {/* Honest label: this source had no separate description,
+                      the body below is the title's full text. */}
+                  {data.description ? null : <span className="note">标题全文（该来源无独立描述）</span>}
                 </div>
                 <div
                   style={{
@@ -283,7 +309,7 @@ export default function ItemDetailPage() {
                     wordBreak: "break-word",
                   }}
                 >
-                  {data.description}
+                  {descriptionBody}
                 </div>
               </section>
             ) : null}

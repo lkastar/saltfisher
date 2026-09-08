@@ -283,9 +283,10 @@ tbody tr:last-child td {
 }
 
 /* ---------- app shell: backdrop, topbar, page frame, hero ----------
- * SIGNAL DECK prototype (task 09-08-frontend-refactor). Canvas signal-field
- * and cursor glow are step 8 (decorative, cuttable); these two divs are the
- * cheap static part of the backdrop. #000 below is a mask alpha ramp, not a
+ * SIGNAL DECK prototype (task 09-08-frontend-refactor). Backdrop = static
+ * grid + vignette, then the signal-field canvas and cursor glow (round-2
+ * item 2, driven by lib/fx.ts). All share z-index 0 so DOM order layers them,
+ * all below .page (z-index 1). #000 below is a mask alpha ramp, not a
  * rendered colour. */
 
 .bg-grid {
@@ -311,6 +312,34 @@ tbody tr:last-child td {
   z-index: 0;
   pointer-events: none;
   background: radial-gradient(ellipse 120% 90% at 50% 110%, var(--bg0), transparent 60%);
+}
+
+/* Signal-field canvas; fx.ts sizes and draws it (empty under reduced motion). */
+.bgfx {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Pointer-follow glow: fx.ts moves it and flips opacity on the first pointer
+ * move. Hidden in the light theme, like the prototype. */
+.cursor-glow {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  width: 520px;
+  height: 520px;
+  pointer-events: none;
+  background: radial-gradient(circle, var(--acc-soft), transparent 65%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+[data-theme="light"] .cursor-glow {
+  display: none;
 }
 
 .topbar {
@@ -1439,5 +1468,11 @@ button.btn-text[data-tone="danger"]:hover:not(:disabled) {
     opacity: 1;
     transform: none;
     transition: none;
+  }
+
+  /* fx.ts already refuses to start these loops; hide the layers outright. */
+  .bgfx,
+  .cursor-glow {
+    display: none;
   }
 }
