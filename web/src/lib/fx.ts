@@ -113,7 +113,6 @@ export function useBgfx(ref: RefObject<HTMLCanvasElement | null>): void {
     let H = 0;
     let DPR = 1;
     let raf = 0;
-    let t = 0;
 
     const resize = () => {
       DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -141,18 +140,12 @@ export function useBgfx(ref: RefObject<HTMLCanvasElement | null>): void {
     };
 
     const frame = () => {
-      t += 1;
       readPalette();
       const light = paletteTheme === "light";
       ctx.clearRect(0, 0, W, H);
 
-      // Sweeping scanline.
-      const sy = ((t * 0.35 * DPR) % (H * 1.3)) - H * 0.15;
-      const grad = ctx.createLinearGradient(0, sy - 90 * DPR, 0, sy);
-      grad.addColorStop(0, `rgba(${palette.acc}, 0)`);
-      grad.addColorStop(1, `rgba(${palette.acc}, ${light ? 0.025 : 0.045})`);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, sy - 90 * DPR, W, 90 * DPR);
+      // Scanline sweep removed (round 2): a full-width band travelling down
+      // reads as the whole backdrop sliding — hycai flagged it. Blips only.
 
       // Signal blips.
       if (Math.random() < 0.02 && blips.length < 9) {

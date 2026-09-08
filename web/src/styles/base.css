@@ -20,6 +20,10 @@ body {
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  /* The page body never scrolls horizontally (spec: only .table-scroll
+   * wrappers do). Also absorbs the scrollbar-width overshoot of the ticker's
+   * calc(50% - 50vw) full bleed. Prototype has the same guard. */
+  overflow-x: hidden;
   transition:
     background-color 0.3s var(--ease),
     color 0.3s var(--ease);
@@ -781,6 +785,17 @@ tbody tr:last-child td {
   align-content: start;
 }
 
+/* Grid items default to min-width:auto, so one unwrappable string (a real
+ * 185-char captured title) widens the fr track — and the whole page — no
+ * matter how the leaf clamps. Leaf ellipsis rules (.hit-title, .t2l) only
+ * take effect once every track on the way down can actually shrink. */
+.grid-21 > *,
+.grid-2 > *,
+.side-stack > *,
+.channel-grid > * {
+  min-width: 0;
+}
+
 .hit-item {
   display: flex;
   gap: 12px;
@@ -848,6 +863,16 @@ tbody tr:last-child td {
 
 .push-item:last-child {
   border-bottom: none;
+}
+
+/* The label between dot and time is user text (channel labels); one line,
+ * ellipsis, like .hit-title. */
+.push-item .push-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .push-item .time {

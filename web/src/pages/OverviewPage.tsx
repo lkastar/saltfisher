@@ -900,7 +900,7 @@ export default function OverviewPage() {
                   className="dot"
                   style={{ color: log.ok ? "var(--green)" : "var(--red)" }}
                 />
-                <span>
+                <span className="push-text">
                   {log.ok ? "" : "失败 · "}
                   {log.kind} · {channelLabel(channels.data, log.channel_id)}
                 </span>
