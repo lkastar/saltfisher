@@ -270,6 +270,357 @@ tbody tr:last-child td {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------- app shell: backdrop, topbar, page frame, hero ----------
+ * SIGNAL DECK prototype (task 09-08-frontend-refactor). Canvas signal-field
+ * and cursor glow are step 8 (decorative, cuttable); these two divs are the
+ * cheap static part of the backdrop. #000 below is a mask alpha ramp, not a
+ * rendered colour. */
+
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(
+    ellipse 90% 70% at 50% 0%,
+    #000 30%,
+    transparent 100%
+  );
+}
+
+.bg-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 120% 90% at 50% 110%, var(--bg0), transparent 60%);
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
+  background: var(--topbar-bg);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border-bottom: 1px solid var(--line);
+  transition: background-color 0.3s;
+}
+
+.topbar-inner {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 0 28px;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.brand:hover {
+  color: var(--text);
+}
+
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Prototype's #2b5cb8 gradient stop, derived from the accent instead of a
+   * second hex so both themes get a matching darker stop. White glyph and
+   * inset highlight are ornament on the accent, not text (prototype values). */
+  background: linear-gradient(135deg, var(--acc), color-mix(in srgb, var(--acc) 62%, #000));
+  box-shadow:
+    0 0 18px var(--acc-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.main-nav {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  height: 58px;
+}
+
+.main-nav a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text2);
+  font-size: 13.5px;
+  padding: 0 14px;
+  transition: color 0.25s var(--ease);
+}
+
+.main-nav a svg {
+  opacity: 0.75;
+}
+
+.main-nav a:hover {
+  color: var(--text);
+}
+
+.main-nav a::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--acc);
+  border-radius: 2px;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.35s var(--ease);
+  box-shadow: 0 0 12px var(--acc-glow);
+}
+
+/* Active carries weight + underline, never colour alone. */
+.main-nav a.active {
+  color: var(--acc2);
+  font-weight: 600;
+}
+
+.main-nav a.active::after {
+  transform: scaleX(1);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Square icon button; border/hover come from the button baseline above. */
+.theme-toggle {
+  width: 34px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+/* Session health. Words always accompany the tone (colour never alone). */
+.topbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  white-space: nowrap;
+}
+
+.topbar-status[data-tone="ok"] {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.topbar-status[data-tone="warn"] {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.topbar-status[data-tone="err"] {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.topbar-status[data-tone="dim"] {
+  color: var(--text3);
+  background: transparent;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px;
+  flex: none;
+}
+
+.topbar-status .dot {
+  width: 6px;
+  height: 6px;
+}
+
+.dot-pulse {
+  animation: pulse 2s var(--ease) infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.btn-logout {
+  border: none;
+  background: none;
+  min-height: 0;
+  padding: 0;
+  color: var(--text3);
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-logout:hover:not(:disabled) {
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--red);
+}
+
+.page {
+  position: relative;
+  z-index: 1; /* above the fixed backdrop layers */
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 0 28px 96px;
+}
+
+/* ---------- hero (PageHero.tsx) ---------- */
+
+.hero {
+  position: relative;
+  padding: 64px 0 36px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 32px;
+}
+
+.hero-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--acc2);
+  margin-bottom: 16px;
+}
+
+.hero-eyebrow::before {
+  content: "";
+  width: 26px;
+  height: 1px;
+  background: var(--acc);
+  box-shadow: 0 0 8px var(--acc-glow);
+}
+
+.hero h1 {
+  position: relative;
+  z-index: 1;
+  font-size: clamp(38px, 5.6vw, 76px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.06;
+}
+
+.hero h1 .thin {
+  color: var(--text3);
+  font-weight: 400;
+}
+
+.hero-ghost {
+  position: absolute;
+  right: -10px;
+  top: 32px;
+  font-family: var(--font-mono);
+  font-size: clamp(64px, 10vw, 140px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--ghost-stroke);
+  user-select: none;
+  pointer-events: none;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.hero-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.hero-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding-right: 18px;
+  margin-right: 18px;
+  border-right: 1px solid var(--line);
+}
+
+.hero-meta > span:last-child {
+  border-right: none;
+  margin-right: 0;
+  padding-right: 0;
+}
+
+.hero-meta .ok {
+  color: var(--green);
+}
+
+.hero-meta .warn {
+  color: var(--amber);
+}
+
+@media (max-width: 1080px) {
+  .main-nav {
+    gap: 0;
+    overflow-x: auto;
+  }
+
+  /* Labels collapse to icons; links keep their aria-label. */
+  .main-nav a span {
+    display: none;
+  }
+
+  .hero-ghost {
+    font-size: 72px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

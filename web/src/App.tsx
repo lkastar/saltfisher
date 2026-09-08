@@ -1,24 +1,30 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { NavLink, Route, Routes } from "react-router";
+import { Navigate, NavLink, Route, Routes } from "react-router";
 
 import { clearToken, getToken } from "./api/client";
-import { Icon } from "./components/Icon";
+import { sessionOptions } from "./api/queries";
+import { Icon, type IconName } from "./components/Icon";
 import AnalyticsPage from "./pages/AnalyticsPage";
-import ChannelsPage from "./pages/ChannelsPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import ItemsPage from "./pages/ItemsPage";
 import LoginPage from "./pages/LoginPage";
 import MonitorsPage from "./pages/MonitorsPage";
+import OverviewPage from "./pages/OverviewPage";
 import SettingsPage from "./pages/SettingsPage";
 import WatchlistPage from "./pages/WatchlistPage";
 
-const NAV = [
-  { to: "/", label: "监控任务" },
-  { to: "/items", label: "命中商品" },
-  { to: "/watchlist", label: "收藏追踪" },
-  { to: "/analytics", label: "行情分析" },
-  { to: "/channels", label: "通知渠道" },
-  { to: "/settings", label: "设置" },
+/** Prototype nav, except 监控任务 points at /monitors instead of /#tasks:
+ *  the overview has no #tasks section until step 4, and redirecting away from
+ *  MonitorsPage now would orphan monitor create/edit. Step 4 flips this to
+ *  /#tasks and adds the redirect. */
+const NAV: { to: string; label: string; icon: IconName; end?: boolean }[] = [
+  { to: "/", label: "总览", icon: "layout-dashboard", end: true },
+  { to: "/monitors", label: "监控任务", icon: "scan-search" },
+  { to: "/items", label: "命中商品", icon: "package" },
+  { to: "/watchlist", label: "收藏追踪", icon: "bookmark" },
+  { to: "/analytics", label: "行情分析", icon: "chart-spline" },
+  { to: "/settings", label: "设置", icon: "settings" },
 ];
 
 function ThemeToggle() {
@@ -29,9 +35,9 @@ function ThemeToggle() {
   return (
     <button
       type="button"
+      className="theme-toggle"
       aria-label={label}
       title={label}
-      style={{ display: "inline-flex", alignItems: "center" }}
       onClick={() => {
         const next = theme === "light" ? "dark" : "light";
         document.documentElement.dataset.theme = next;
@@ -44,72 +50,95 @@ function ThemeToggle() {
   );
 }
 
+/** Session health in the topbar. The prototype's static "LIVE" pill, wired to
+ *  the real /api/session state — a hardcoded LIVE would claim liveness the
+ *  backend never proved. Amber is reserved for risk control (spec). */
+function TopbarStatus() {
+  const session = useQuery({ ...sessionOptions(), refetchInterval: 30_000 });
+  let tone: "ok" | "warn" | "err" | "dim" = "dim";
+  let label = "…";
+  if (session.isError) {
+    tone = "err";
+    label = "离线";
+  } else if (session.data) {
+    if (!session.data.usable) {
+      tone = "err";
+      label = "会话不可用";
+    } else if (session.data.needs_verification || session.data.challenged_apis.length > 0) {
+      tone = "warn";
+      label = "风控";
+    } else {
+      tone = "ok";
+      label = "LIVE";
+    }
+  }
+  return (
+    <span className="topbar-status" data-tone={tone}>
+      <span className={tone === "ok" ? "dot dot-pulse" : "dot"} />
+      {label}
+    </span>
+  );
+}
+
 function AppShell() {
   return (
     <>
-      <header
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: "var(--z-header)",
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-4)",
-          padding: "var(--space-2) var(--space-4)",
-          background: "var(--surface)",
-          borderBottom: "1px solid var(--border)",
-        }}
-      >
-        <strong style={{ fontSize: 14 }}>咸鱼监控</strong>
-        <nav style={{ display: "flex", gap: "var(--space-3)", flex: 1 }}>
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              style={({ isActive }) => ({
-                color: isActive ? "var(--text)" : "var(--text-muted)",
-                fontWeight: isActive ? 600 : 400,
-                textDecoration: "none",
-                padding: "var(--space-1) 0",
-                borderBottom: isActive
-                  ? "2px solid var(--primary)"
-                  : "2px solid transparent",
-              })}
+      <div className="bg-grid" />
+      <div className="bg-vignette" />
+      <header className="topbar">
+        <div className="topbar-inner">
+          <NavLink to="/" className="brand">
+            <span className="brand-mark">
+              <Icon name="radar" />
+            </span>
+            咸鱼监控
+          </NavLink>
+          <nav className="main-nav">
+            {NAV.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                aria-label={item.label}
+                className={({ isActive }) => (isActive ? "active" : "")}
+              >
+                <Icon name={item.icon} />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+          <div className="topbar-actions">
+            <ThemeToggle />
+            <TopbarStatus />
+            <button
+              type="button"
+              className="btn-logout"
+              onClick={() => {
+                clearToken();
+                window.location.reload();
+              }}
             >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-        <ThemeToggle />
-        <button
-          type="button"
-          onClick={() => {
-            clearToken();
-            window.location.reload();
-          }}
-        >
-          退出
-        </button>
+              <Icon name="log-out" />
+              退出
+            </button>
+          </div>
+        </div>
       </header>
-      <main
-        style={{
-          padding: "var(--space-4)",
-          maxWidth: 1280,
-          margin: "0 auto",
-        }}
-      >
+      <main className="page">
         <Routes>
-          <Route path="/" element={<MonitorsPage />} />
+          <Route path="/" element={<OverviewPage />} />
+          {/* Kept (not redirected) until step 4 folds monitor CRUD into the
+              overview — see NAV note above. */}
+          <Route path="/monitors" element={<MonitorsPage />} />
           <Route path="/items" element={<ItemsPage />} />
           <Route path="/items/:itemId" element={<ItemDetailPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/channels" element={<ChannelsPage />} />
+          {/* Channel CRUD is unreachable until step 7 merges it into the
+              settings page; ChannelsPage.tsx stays on disk for that merge. */}
+          <Route path="/channels" element={<Navigate to="/settings#channels" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route
-            path="*"
-            element={<p className="muted">没有这个页面。</p>}
-          />
+          <Route path="*" element={<p className="muted">没有这个页面。</p>} />
         </Routes>
       </main>
     </>
