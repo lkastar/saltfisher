@@ -13,7 +13,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { describeReport, flattenCookies } from "../../../extension/lib/cookies.js";
-import { addressSpace, normalisePanelOrigin } from "../../../extension/lib/panel.js";
+import {
+  addressSpace,
+  DEFAULT_PANEL_ORIGIN,
+  normalisePanelOrigin,
+} from "../../../extension/lib/panel.js";
 import { readEnvSnapshot } from "../../../extension/lib/env.js";
 
 /** Every file that ships in the unpacked extension, as text. */
@@ -165,6 +169,21 @@ describe("normalisePanelOrigin", () => {
     expect(normalisePanelOrigin(undefined)).toBe("");
     expect(normalisePanelOrigin("http://")).toBe("");
     expect(normalisePanelOrigin("::::")).toBe("");
+  });
+});
+
+describe("DEFAULT_PANEL_ORIGIN", () => {
+  it("is loopback, not localhost", () => {
+    // `localhost` resolves to ::1 before 127.0.0.1 on macOS while uvicorn
+    // binds IPv4 only, so a `localhost` default would hand every new user a
+    // fetch against a closed port -- and curl's IPv4 fallback would tell them
+    // the panel is fine. Hit for real on 2026-09-08.
+    expect(DEFAULT_PANEL_ORIGIN).toBe("http://127.0.0.1:8000");
+    expect(DEFAULT_PANEL_ORIGIN).not.toContain("localhost");
+    // ...and it must survive the extension's own normaliser unchanged.
+    expect(normalisePanelOrigin(DEFAULT_PANEL_ORIGIN)).toBe(DEFAULT_PANEL_ORIGIN);
+    // ...and be classified as what it is, or the fetch asserts the wrong space.
+    expect(addressSpace(new URL(DEFAULT_PANEL_ORIGIN).hostname)).toBe("loopback");
   });
 });
 
@@ -795,9 +814,12 @@ describe("outbound destinations", () => {
       // The scheme prepended to an address the user typed without one. The
       // host half is still entirely theirs.
       "extension/lib/panel.js: http://${raw}",
-      // The `placeholder` attribute of the panel-address field. Markup, shown
-      // to the user, never fetched.
-      "extension/popup.html: http://192.168.1.10:8000",
+      // The default panel address, and the `placeholder` that mirrors it. This
+      // one IS reachable -- it is the destination until the user changes the
+      // field -- and it is deliberately loopback on the user's own machine,
+      // which is where both supported ways of running the panel put it.
+      "extension/lib/panel.js: http://127.0.0.1:8000",
+      "extension/popup.html: http://127.0.0.1:8000",
       // Inside an error message, telling the user where to go reload the
       // extension when its host permission has gone missing. Prose in a
       // string literal -- and unfetchable by an extension anyway. Listed here

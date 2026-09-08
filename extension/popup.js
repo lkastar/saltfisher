@@ -11,7 +11,7 @@
  */
 
 import { describeReport } from "./lib/cookies.js";
-import { normalisePanelOrigin } from "./lib/panel.js";
+import { DEFAULT_PANEL_ORIGIN, normalisePanelOrigin } from "./lib/panel.js";
 
 const panelInput = document.getElementById("panel-origin");
 const tokenInput = document.getElementById("api-token");
@@ -22,7 +22,10 @@ const say = (text) => {
 };
 
 const stored = await chrome.storage.local.get(["panelOrigin", "apiToken", "lastResult"]);
-panelInput.value = stored.panelOrigin ?? "";
+// Prefilled, not just a placeholder: a placeholder still has to be typed, and
+// this is where the panel is for both supported ways of running it. Anyone
+// running it elsewhere overwrites one field.
+panelInput.value = stored.panelOrigin ?? DEFAULT_PANEL_ORIGIN;
 tokenInput.value = stored.apiToken ?? "";
 
 /** Whether the panel host has been granted, for the origin currently typed. */
@@ -37,9 +40,13 @@ function showLast() {
   return true;
 }
 
-if (!stored.panelOrigin) {
-  say("先填面板地址和 API token，点「保存」。");
-} else if (!(await granted(normalisePanelOrigin(stored.panelOrigin)))) {
+// The address that is actually in the field, default included -- checking
+// `stored.panelOrigin` here would nag for an address that is already filled in.
+const current = normalisePanelOrigin(panelInput.value);
+
+if (!stored.apiToken) {
+  say("填上面板的 API token（SFD_API_TOKEN），点「保存」。地址已经按默认填好了。");
+} else if (!(await granted(current))) {
   // Said up front rather than mid-click: by the time the dialog is up this
   // window may already be gone, so a warning printed just before the request
   // would never be read.

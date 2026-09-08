@@ -10,6 +10,20 @@
  *  never a URL: the host half only ever comes from the stored origin. */
 export const IMPORT_PATH = "/api/session/cookies";
 
+/** Where the panel is unless the user says otherwise.
+ *
+ *  Both supported ways of running it land here: `uvicorn --port 8000` binds
+ *  127.0.0.1 by default, and `docker-compose.yml` publishes
+ *  `127.0.0.1:8000:8000`.
+ *
+ *  `127.0.0.1` and not `localhost`, deliberately. `localhost` resolves to the
+ *  IPv6 `::1` first on macOS while uvicorn binds IPv4 only, so the fetch hits
+ *  a closed port -- and `curl` hides it by falling back, which is what made
+ *  the panel look healthy from the command line while every import failed.
+ *  A default nobody has to debug beats a default that reads better.
+ */
+export const DEFAULT_PANEL_ORIGIN = "http://127.0.0.1:8000";
+
 /**
  * Turn what a human typed into an origin, or "" if it is not one.
  *
