@@ -21,10 +21,35 @@ const say = (text) => {
   status.textContent = text;
 };
 
-const stored = await chrome.storage.local.get(["panelOrigin", "apiToken"]);
+const stored = await chrome.storage.local.get(["panelOrigin", "apiToken", "lastResult"]);
 panelInput.value = stored.panelOrigin ?? "";
 tokenInput.value = stored.apiToken ?? "";
-if (!stored.panelOrigin) say("先填面板地址和 API token，点「保存」。");
+
+/** Whether the panel host has been granted, for the origin currently typed. */
+const granted = async (origin) =>
+  Boolean(origin) && chrome.permissions.contains({ origins: [`${origin}/*`] });
+
+/** Whatever happened last time, even if this window was not alive to hear it. */
+function showLast() {
+  const last = stored.lastResult;
+  if (!last) return false;
+  say(last.ok ? describeReport(last.report) : `上次导入失败：${last.error}`);
+  return true;
+}
+
+if (!stored.panelOrigin) {
+  say("先填面板地址和 API token，点「保存」。");
+} else if (!(await granted(normalisePanelOrigin(stored.panelOrigin)))) {
+  // Said up front rather than mid-click: by the time the dialog is up this
+  // window may already be gone, so a warning printed just before the request
+  // would never be read.
+  say(
+    "还需要一次授权：点「导入」后 Chrome 会问你是否允许访问这个面板地址。" +
+      "允许之后这个小窗口很可能会被关掉——那不是出错。重新点一下扩展图标，再点一次「导入」即可。",
+  );
+} else {
+  showLast();
+}
 
 async function save() {
   const origin = normalisePanelOrigin(panelInput.value);
@@ -49,8 +74,12 @@ document.getElementById("run").addEventListener("click", async () => {
   }
   // First await in this handler, deliberately: anything awaited before it
   // spends the user gesture and Chrome then refuses the request outright.
-  const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
-  if (!granted) {
+  // If the permission is already held this resolves without a dialog and the
+  // window survives; if it is not, Chrome shows the dialog and very likely
+  // closes this window, so everything below may simply never run. That is why
+  // the outcome is persisted by the worker rather than only replied to.
+  const allowed = await chrome.permissions.request({ origins: [`${origin}/*`] });
+  if (!allowed) {
     say(`没拿到访问 ${origin} 的权限，没法导入。再点一次「导入」并在弹框里允许。`);
     return;
   }

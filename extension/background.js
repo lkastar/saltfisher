@@ -24,8 +24,25 @@ const COOKIE_DOMAINS = ["goofish.com", "taobao.com"];
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "import") return false;
-  runImport(message).then(sendResponse, (error) =>
-    sendResponse({ ok: false, error: String(error?.message || error) }),
+  const finish = (result) => {
+    // Written down before it is replied to, because the reply has nowhere to
+    // go when the popup is already gone. Chrome closes the popup while it
+    // shows the host-permission dialog, so the click that FIRST grants the
+    // permission reliably loses its own answer -- and the import then looked
+    // like nothing happened at all. The popup reads this back on open.
+    // Values never enter it: `report` is names and counts (see runImport).
+    // try/catch, not just a rejected-promise handler: writing this down is a
+    // convenience and the reply is the point, so nothing about the write may
+    // be able to lose it.
+    try {
+      Promise.resolve(chrome.storage.local.set({ lastResult: result })).catch(() => {});
+    } catch {
+      /* the reply below still happens */
+    }
+    sendResponse(result);
+  };
+  runImport(message).then(finish, (error) =>
+    finish({ ok: false, error: String(error?.message || error) }),
   );
   // Synchronous `true` is what keeps the reply channel open for the await
   // above; without it the popup gets an immediate undefined.

@@ -304,6 +304,8 @@ type ImportResult = {
 type Harness = {
   send: (message: Record<string, unknown>) => Promise<ImportResult>;
   calls: { url: string; init: RequestInit & { targetAddressSpace?: string } }[];
+  /** What the worker wrote to chrome.storage.local. */
+  written: Record<string, unknown>;
 };
 
 const GOOFISH_COOKIES = [
@@ -325,6 +327,8 @@ async function loadBackground(
     cookies?: Record<string, ReturnType<typeof cookie>[]>;
     env?: Record<string, unknown> | Error;
     granted?: boolean;
+    /** Makes chrome.storage.local.set throw, the way a quota error would. */
+    breakStorageSet?: boolean;
     respond?: () => Promise<Response> | Response;
     /** Answers the `/api/health` probe the fetch-failure path makes. */
     healthy?: boolean;
@@ -336,12 +340,18 @@ async function loadBackground(
     "taobao.com": TAOBAO_COOKIES,
   };
   const calls: Harness["calls"] = [];
+  const written: Record<string, unknown> = {};
 
   const chrome = {
     runtime: { onMessage: { addListener: (fn: (typeof listeners)[number]) => listeners.push(fn) } },
     storage: {
       local: {
         get: async () => options.stored ?? { panelOrigin: "http://192.168.1.10:8000", apiToken: "tok" },
+        set: (patch: Record<string, unknown>) => {
+          if (options.breakStorageSet) throw new Error("storage is full");
+          Object.assign(written, patch);
+          return Promise.resolve();
+        },
       },
     },
     permissions: {
@@ -382,6 +392,7 @@ async function loadBackground(
 
   return {
     calls,
+    written,
     send: (message) =>
       new Promise<ImportResult>((resolve) => {
         const kept = listeners[0]!(message, null, resolve);
@@ -497,6 +508,33 @@ describe("background service worker", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("Failed to fetch");
     expect(result.error).toContain("开发者工具");
+  });
+
+  it("writes every outcome down, because the reply can have nowhere to go", async () => {
+    // Chrome closes the extension popup while it shows the host-permission
+    // dialog. So the very click that FIRST grants the permission loses its own
+    // answer: the popup document is gone before sendResponse lands, and
+    // everything after the `await` in the click handler never runs. Observed
+    // 2026-09-08 -- after reloading the extension (which drops runtime-granted
+    // permissions) the import produced no message and no session, and looked
+    // like nothing had happened at all.
+    const good = await loadBackground();
+    const ok = await good.send({ type: "import", tabId: 1 });
+    expect(ok.ok).toBe(true);
+    expect(good.written.lastResult).toEqual(ok);
+
+    const bad = await loadBackground({ granted: false });
+    const failed = await bad.send({ type: "import", tabId: 1 });
+    expect(failed.ok).toBe(false);
+    expect(bad.written.lastResult).toEqual(failed);
+  });
+
+  it("still replies when writing the outcome down fails", async () => {
+    // The record is a convenience; the reply is the point. A storage failure
+    // that swallowed the answer would recreate the silence this fixes.
+    const harness = await loadBackground({ breakStorageSet: true });
+    const result = await harness.send({ type: "import", tabId: 1 });
+    expect(result.ok).toBe(true);
   });
 
   it("says the host permission is missing instead of failing opaquely", async () => {
