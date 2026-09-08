@@ -167,7 +167,11 @@ export default function DistroChart({
         </p>
       ) : null}
 
-      <div className="table-scroll">
+      {/* Vertical cap: with real data this table runs 16+ rows and dwarfs its
+          .grid-2 row partner, leaving a void in the other column. The chart
+          above shows the shape; the table scrolls for the exact numbers. The
+          global `thead th` sticky rule keeps the header visible while it does. */}
+      <div className="table-scroll" style={{ maxHeight: 320, overflowY: "auto" }}>
         <table>
           <caption
             className="muted"
