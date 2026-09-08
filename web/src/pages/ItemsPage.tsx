@@ -1,7 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
-import { itemsOptions, monitorsOptions, type Monitor } from "../api/queries";
+import {
+  channelsOptions,
+  createMonitor,
+  itemsOptions,
+  keys,
+  monitorsOptions,
+  type Monitor,
+} from "../api/queries";
 import RemoteImage from "../components/RemoteImage";
 import { Empty, ErrorState, Loading } from "../components/States";
 import { formatPrice, formatRelativeTime, parseYuanToCents } from "../lib/format";
@@ -12,6 +19,7 @@ import {
   SORTS,
   STATUSES,
 } from "../lib/itemFilters";
+import { findSellerRule, sellerRuleName } from "../lib/monitorRules";
 
 const PAGE = 50;
 
@@ -40,6 +48,29 @@ export default function ItemsPage() {
   const sellerNick = items.data?.find(
     (i) => i.seller_id === filters.seller_id,
   )?.seller_nick;
+  // Bound to a const so the narrowing survives into the click handler below.
+  const sellerId = filters.seller_id;
+
+  // "Watch this seller" lives here rather than in the rule form: the id and
+  // the nick are already on this page, so no seller picker and no
+  // `GET /api/sellers` are needed. See the task prd.
+  const queryClient = useQueryClient();
+  // Only to give the new rule the same default channels the form's checkboxes
+  // have. A rule with no channel collects and then tells nobody, and there is
+  // no edit form to attach one afterwards.
+  const channels = useQuery(channelsOptions());
+  const watch = useMutation({
+    mutationFn: createMonitor,
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.monitors }),
+  });
+  // One rule per seller. The backend constrains keyword-xor-seller, not this,
+  // so the check is here — off the data the page already has.
+  const sellerRule =
+    sellerId === undefined ? undefined : findSellerRule(monitors.data ?? [], sellerId);
+  // Success and failure belong to the seller they were for: the mutation state
+  // outlives a change of filter, and "已创建" left over from the previous
+  // seller would be a lie about this one.
+  const watched = watch.variables?.seller_id === sellerId;
 
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
@@ -135,21 +166,81 @@ export default function ItemsPage() {
           清空筛选
         </button>
 
-        {filters.seller_id === undefined ? null : (
+        {sellerId === undefined ? null : (
           <p
             style={{
               margin: 0,
               flexBasis: "100%",
               display: "flex",
               alignItems: "center",
+              flexWrap: "wrap",
               gap: "var(--space-2)",
               fontSize: 12,
             }}
           >
-            <span>只看卖家「{sellerLabel(sellerNick, filters.seller_id)}」的商品</span>
+            <span>只看卖家「{sellerLabel(sellerNick, sellerId)}」的商品</span>
             <button type="button" onClick={() => update("seller_id", undefined)}>
               取消卖家筛选
             </button>
+
+            {/* Inline, because this project has no modal and no toast by
+                design (spec/frontend/). */}
+            {watched && watch.isSuccess ? (
+              <span role="status">
+                {/* Says only what is true. The first draft sent the user to
+                    「监控任务」to add a price range and channels -- that page
+                    has no edit form at all (MonitorForm is create-only, and
+                    the SPA's one updateMonitor call toggles `enabled`), so a
+                    seller rule cannot be changed after it is made. Promising
+                    it here would send them looking for a control that is not
+                    there. */}
+                已创建规则「{watch.data.name}」，已带上当前启用的推送渠道，下个周期开始盯。
+                <Link to="/monitors">去监控任务页</Link>
+                看它。<strong>规则建好后改不了</strong>
+                ——要换筛选条件就删掉重建。
+              </span>
+            ) : sellerRule ? (
+              <span>
+                已有规则「{sellerRule.name}」在盯这个卖家，不再重复创建。
+                <Link to="/monitors">去监控任务页</Link>
+              </span>
+            ) : (
+              <button
+                type="button"
+                data-variant="primary"
+                // Without the rule list there is no way to tell a duplicate
+                // from a first rule, and guessing creates the second one.
+                disabled={watch.isPending || !monitors.data}
+                title={
+                  monitors.data
+                    ? "为这个卖家建一条监控规则：盯他的全部在售商品，不按关键词"
+                    : "监控任务还没加载出来"
+                }
+                onClick={() =>
+                  watch.mutate({
+                    name: sellerRuleName(sellerNick, sellerId),
+                    seller_id: sellerId,
+                    exclude_words: "",
+                    exclude_shop: false,
+                    // Same default the rule form starts from.
+                    interval_seconds: 300,
+                    channel_ids: (channels.data ?? [])
+                      .filter((ch) => ch.enabled)
+                      .map((ch) => ch.id),
+                  })
+                }
+              >
+                {watch.isPending ? "创建中…" : "盯住这个卖家"}
+              </button>
+            )}
+            {watched && watch.isError ? (
+              // The backend's own reason, including the 422 that explains the
+              // keyword/seller exclusion. Re-implementing the rule here would
+              // give us a second one to keep in sync.
+              <span role="alert" style={{ color: "var(--danger)" }}>
+                创建失败：{watch.error.message}
+              </span>
+            ) : null}
           </p>
         )}
 
@@ -256,7 +347,7 @@ export default function ItemsPage() {
                           {item.seller_nick}
                         </button>
                       ) : (
-                        // 8 of the 253 sellers in the real db have an empty nick. A
+                        // 8 of the 359 sellers in the real db have an empty nick. A
                         // button labelled with it would be an invisible click
                         // target, so those degrade to plain text.
                         <span className="muted">未知卖家</span>

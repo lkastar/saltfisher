@@ -18,6 +18,7 @@ import {
 } from "../api/queries";
 import { Empty, ErrorState, Loading } from "../components/States";
 import { formatPrice, formatRelativeTime, parseYuanToCents } from "../lib/format";
+import { sellerLabel } from "../lib/itemFilters";
 
 /** Mirrors the backend floor. It is an anti-ban rule, not a UI hint: polling
  *  faster is how the upstream session gets challenged.
@@ -33,6 +34,30 @@ function priceRange(m: Monitor): string {
   if (lo == null) return `≤ ${formatPrice(hi)}`;
   if (hi == null) return `≥ ${formatPrice(lo)}`;
   return `${formatPrice(lo)} – ${formatPrice(hi)}`;
+}
+
+/** What the rule watches. `keyword === null` IS the rule type -- see
+ *  `models.Monitor`, where the xor CHECK is also the reason a `kind` column
+ *  would be a second truth. Rendering `m.keyword` straight left this cell
+ *  blank for every seller rule.
+ */
+function RuleTarget({ m }: { m: Monitor }) {
+  if (m.keyword != null) return <>{m.keyword}</>;
+  // Unreachable through the API (the xor is a CHECK constraint), but a blank
+  // cell is what this component exists to stop, so it does not return one.
+  if (m.seller_id == null) return <span className="muted">目标缺失</span>;
+  return (
+    <span style={{ display: "inline-flex", gap: "var(--space-1)", alignItems: "baseline" }}>
+      <span className="pill" title="盯这个卖家的全部在售商品，不按关键词搜索">
+        卖家
+      </span>
+      {/* URLSearchParams, not string concatenation: a seller id is base64 and
+          `+` in a raw query string reads back as a space -- see itemFilters. */}
+      <Link to={`/items?${new URLSearchParams({ seller_id: m.seller_id }).toString()}`}>
+        {sellerLabel(m.seller_nick, m.seller_id)}
+      </Link>
+    </span>
+  );
 }
 
 /** The health cell is the reason this page exists. A rule that silently
@@ -184,6 +209,13 @@ function MonitorForm({
             {fieldError("keyword")}
           </span>
         ) : null}
+        {/* This form only builds keyword rules. Without saying where the other
+            kind comes from, a user reads "keyword required" as "watching a
+            seller is not possible". */}
+        <span className="muted" style={{ fontSize: 11 }}>
+          想盯某个卖家的全部在售商品？去<Link to="/items">命中商品</Link>
+          页筛出那个卖家，从那里创建——卖家规则不在这个表单里建。
+        </span>
       </label>
 
       <label style={FIELD}>
@@ -420,7 +452,7 @@ export default function MonitorsPage() {
             <thead>
               <tr>
                 <th>名称</th>
-                <th>关键词</th>
+                <th>关键词 / 卖家</th>
                 <th style={{ textAlign: "right" }}>价格区间</th>
                 <th style={{ textAlign: "right" }}>间隔</th>
                 <th style={{ textAlign: "right" }}>命中</th>
@@ -435,7 +467,9 @@ export default function MonitorsPage() {
               {query.data.map((m) => (
                 <tr key={m.id}>
                   <td>{m.name}</td>
-                  <td>{m.keyword}</td>
+                  <td>
+                    <RuleTarget m={m} />
+                  </td>
                   <td className="num">{priceRange(m)}</td>
                   <td className="num">{m.interval_seconds}s</td>
                   <td className="num">

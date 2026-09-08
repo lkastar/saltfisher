@@ -79,10 +79,11 @@ export function nextParams(
 /** What to call the seller the list is pinned to.
  *
  *  The id is base64, not a name, so it is never the headline -- but a nick can
- *  be empty (8 of the 253 sellers in the real db) and a list filtered down to nothing
+ *  be empty (8 of the 359 sellers in the real db, and it comes back as "" not
+ *  null) and a list filtered down to nothing
  *  has no row to read a nick off at all. A truncated id is the honest answer
  *  there: it says "this is who the URL points at" without inventing a name.
  */
-export function sellerLabel(nick: string | undefined, sellerId: string): string {
+export function sellerLabel(nick: string | null | undefined, sellerId: string): string {
   return nick?.trim() ? nick : `${sellerId.slice(0, 8)}…`;
 }

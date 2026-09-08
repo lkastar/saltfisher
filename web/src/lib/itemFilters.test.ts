@@ -74,7 +74,9 @@ describe("sellerLabel", () => {
   });
 
   it("falls back to a short id rather than showing base64 as a name", () => {
-    // Empty nick: 8 of the 253 sellers in the real db. Undefined: the list
+    // Empty nick: 8 of the 359 sellers in the real db, sent as "" and never
+    // null -- which is why the fallback tests trim() and not nullishness.
+    // Undefined: the list
     // came back empty, so there is no row to read a nick off.
     expect(sellerLabel("", REAL_IDS[0]!)).toBe("+5xYqEw3…");
     expect(sellerLabel(undefined, REAL_IDS[0]!)).toBe("+5xYqEw3…");
