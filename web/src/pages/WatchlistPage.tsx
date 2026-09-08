@@ -19,6 +19,7 @@ import {
   formatChangeRatio,
   formatPrice,
   formatRelativeTime,
+  shortTitle,
 } from "../lib/format";
 
 const MIN_INTERVAL = 60;
@@ -92,13 +93,6 @@ function AddByLink() {
   );
 }
 
-/** Real merchant titles run past 250 characters. Putting one in an aria-label
- *  makes a screen reader read the entire listing before it says which control
- *  this is, so the label identifies the row with a short prefix instead.
- */
-function shortTitle(title: string): string {
-  return title.length > 18 ? `${title.slice(0, 18)}…` : title;
-}
 
 function NoteEditor({ entry }: { entry: WatchEntry }) {
   const queryClient = useQueryClient();

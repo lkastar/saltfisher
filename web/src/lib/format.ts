@@ -185,3 +185,12 @@ export function parseYuanToCents(input: string): number | null {
   // become 12.34, and floating point makes 1234.5 out of 12.345 * 100.
   return Math.round(yuan * 100);
 }
+
+/** Real merchant titles run past 250 characters. Putting one in an aria-label
+ *  makes a screen reader read the entire listing before it says which control
+ *  this is, so labels built from titles identify the row with this short
+ *  prefix instead.
+ */
+export function shortTitle(title: string): string {
+  return title.length > 18 ? `${title.slice(0, 18)}…` : title;
+}

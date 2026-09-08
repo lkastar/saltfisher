@@ -10,6 +10,7 @@ import {
   legacyClockNote,
   parseUtc,
   parseYuanToCents,
+  shortTitle,
 } from "./format";
 
 describe("formatPrice", () => {
@@ -214,5 +215,17 @@ describe("apertureNote", () => {
         expect(text).not.toContain("售出");
       }
     }
+  });
+});
+
+describe("shortTitle", () => {
+  it("cuts a 250-char merchant title to a labelled prefix", () => {
+    const long = "全新国行 iPhone 15 Pro Max 256G 原色钛金属".repeat(10);
+    expect(shortTitle(long)).toBe(`${long.slice(0, 18)}…`);
+  });
+
+  it("leaves a short title untouched, with no ellipsis", () => {
+    expect(shortTitle("iPhone 15")).toBe("iPhone 15");
+    expect(shortTitle("")).toBe("");
   });
 });

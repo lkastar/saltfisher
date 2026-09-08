@@ -25,6 +25,7 @@ import {
   formatDuration,
   formatPrice,
   formatRelativeTime,
+  shortTitle,
 } from "../lib/format";
 import { useReveal } from "../lib/fx";
 import { marketReading, scenarioReady,
@@ -49,14 +50,6 @@ const DROP_LIMIT = 20;
 
 const CREATE_RULE = <Link to="/#tasks">去建一条监控规则</Link>;
 
-/** Long titles reach 250+ characters in real captures; an aria-label built
- *  from one reads the whole listing before saying what the control is. The
- *  hero keyword gets the same cut for the same reason clamp(38px…) type has:
- *  a 100-char keyword would wrap the title into a wall.
- */
-function shortTitle(title: string): string {
-  return title.length > 18 ? `${title.slice(0, 18)}…` : title;
-}
 
 /** One stat card. The `note` slot is the prototype's short mono fact (sample
  *  counts); the long 口径 sentence goes in `caption` because each block reads

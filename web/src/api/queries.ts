@@ -77,8 +77,9 @@ export const keys = {
   priceDrops: (q: AnalyticsDropsQuery) => ["analytics", "price-drops", q] as const,
   supplyTrend: (q: AnalyticsQuery) => ["analytics", "supply-trend", q] as const,
   listingDuration: (q: AnalyticsQuery) => ["analytics", "listing-duration", q] as const,
-  /** Coarse -> fine again, so deleting an endpoint can invalidate ["llm"] and
+  /** Coarse -> fine again, so deleting an endpoint can invalidate keys.llm and
    *  drop the scenario configs that just lost their endpoint with it. */
+  llm: ["llm"] as const,
   llmEndpoints: ["llm", "endpoints"] as const,
   llmModels: (endpointId: number) => ["llm", "endpoints", endpointId, "models"] as const,
   llmScenario: (scenario: Scenario) => ["llm", "scenarios", scenario] as const,

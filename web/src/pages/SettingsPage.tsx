@@ -732,9 +732,9 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
   const test = useMutation({ mutationFn: () => testLlmEndpoint(endpoint.id, model.trim()) });
   const remove = useMutation({
     mutationFn: () => deleteLlmEndpoint(endpoint.id),
-    // ["llm"], not just the endpoint list: deleting an endpoint detaches and
+    // keys.llm, not just the endpoint list: deleting an endpoint detaches and
     // disables every scenario that pointed at it, so those forms are stale too.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["llm"] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.llm }),
   });
 
   if (editing) return <EndpointForm endpoint={endpoint} onDone={() => setEditing(false)} />;

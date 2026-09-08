@@ -512,7 +512,9 @@ function TasksSection({
           <table>
             <thead>
               <tr>
-                <th>名称</th>
+                {/* min-width: table-layout auto squeezes this column until CJK
+                    wraps one character per line; the wrapper scrolls instead. */}
+                <th style={{ minWidth: "7em" }}>名称</th>
                 <th>关键词 / 卖家</th>
                 <th style={{ textAlign: "right" }}>价格区间</th>
                 <th style={{ textAlign: "right" }}>间隔</th>
