@@ -227,6 +227,26 @@ def _histogram(values: list[int], *, align: int = CENTS_PER_YUAN) -> list[dict[s
     ]
 
 
+# Raw-sample cap for the KDE + rug the frontend draws. 500 points keep the
+# density shape while bounding the payload; the true count stays in
+# `sample_size`.
+SAMPLES_CAP = 500
+
+
+def downsample_sorted(values: list[int], cap: int = SAMPLES_CAP) -> list[int]:
+    """Sort ascending and uniformly downsample to at most `cap` points.
+
+    Uniform over the SORTED order statistics, keeping the first and last, so
+    min/max survive and the retained points still describe the distribution —
+    a random or head-biased cut would move the tails.
+    """
+    ordered = sorted(values)
+    n = len(ordered)
+    if n <= cap:
+        return ordered
+    return [ordered[i * (n - 1) // (cap - 1)] for i in range(cap)]
+
+
 def price_distribution(
     session: Session, keyword: str, *, days: int = 7, now: datetime | None = None
 ) -> dict:
@@ -242,6 +262,7 @@ def price_distribution(
     empty = {
         "quantiles": {},
         "histogram": [],
+        "samples": [],
         "sample_size": 0,
         "fresh_size": 0,
         "data_days": data_days(scope, now),
@@ -275,6 +296,9 @@ def price_distribution(
     return {
         "quantiles": _quantiles(prices),
         "histogram": _histogram(prices),
+        # The same row set the quantiles read, so the KDE the frontend draws
+        # from it cannot disagree with the numbers beside it.
+        "samples": downsample_sorted(prices),
         "sample_size": len(prices),
         "fresh_size": sum(1 for row in rows if row[1] >= cutoff),
         "data_days": data_days(scope, now),
@@ -516,6 +540,7 @@ def listing_duration(
     result: dict = {
         "quantiles": {},
         "histogram": [],
+        "samples": [],
         "sample_size": 0,
         "data_days": data_days(scope, now),
         "window_days": days,
@@ -584,6 +609,9 @@ def listing_duration(
     # can, and a negative duration would plot as a bucket left of zero.
     minutes = [max(0, int((row[1] - row[0]).total_seconds() // 60)) for row in rows]
     result["sample_size"] = len(minutes)
+    # Minutes, matching the quantiles' unit; same row set, same cap rule as
+    # the price distribution's samples.
+    result["samples"] = downsample_sorted(minutes)
     # Each row contributes 0 or 1, so this is bounded by sample_size and the
     # page can say "N of M samples" without the two numbers contradicting.
     result["legacy_clock_rows"] = sum(int(row[2] or 0) for row in rows)

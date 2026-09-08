@@ -245,6 +245,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sellers/{seller_id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Seller
+         * @description Fetch this seller's profile now, unless the stored one is still fresh.
+         *
+         *     At most ONE upstream detail request per call (plus the pipeline's own
+         *     browser degradation, same as every collection path). The profile is
+         *     obtained through the seller's most recently seen item because that is the
+         *     only route upstream offers — a seller with no collected items has nothing
+         *     to fetch through, which is a 409, not a 500.
+         */
+        post: operations["refresh_seller_api_sellers__seller_id__refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stats/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Overview
+         * @description The overview KPI row: runs, hits, pushes, cumulative items, daily series.
+         *
+         *     `runs_24h` counts BOTH search and watch cycles — every `CollectRun` row,
+         *     whichever of its two foreign keys is set. `hits` counts listings by
+         *     `Item.first_seen_at` (global first sighting), the same fact the page
+         *     previously counted client-side. Per-day rows exist for every day in the
+         *     window, zeros included.
+         */
+        get: operations["overview_api_stats_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/session/import-ticket": {
         parameters: {
             query?: never;
@@ -987,6 +1039,11 @@ export interface components {
             quantiles: components["schemas"]["DurationQuantiles"];
             /** Histogram */
             histogram: components["schemas"]["DurationBucket"][];
+            /**
+             * Samples
+             * @default []
+             */
+            samples: number[];
             /** Aperture Pages Min */
             aperture_pages_min?: number | null;
             /** Aperture Pages Max */
@@ -1468,6 +1525,76 @@ export interface components {
             sent_at: string;
         };
         /**
+         * OverviewDay
+         * @description One UTC calendar day of the sparkline series. `date` is ISO
+         *     `YYYY-MM-DD`. Days with no rows are present with zeros — a gap in the
+         *     series would let the frontend close it up and invent a trend.
+         */
+        OverviewDay: {
+            /** Date */
+            date: string;
+            /** New Hits */
+            new_hits: number;
+            /** Runs Total */
+            runs_total: number;
+            /** Runs Failed */
+            runs_failed: number;
+            /** Pushes */
+            pushes: number;
+        };
+        /**
+         * OverviewHits
+         * @description New listings first observed, counted on `Item.first_seen_at` — the same
+         *     fact the overview page previously derived client-side from
+         *     `/api/items?sort=-first_seen`, now without the 200-row cap.
+         *
+         *     Day boundaries are UTC calendar days, consistent with every analytics
+         *     endpoint; converting for display is the frontend's job. `avg_7d` is the
+         *     mean over the 7 UTC days ending today (today included, matching what the
+         *     page already showed), as a float because it is a mean of counts, not money.
+         */
+        OverviewHits: {
+            /** Today */
+            today: number;
+            /** Yesterday */
+            yesterday: number;
+            /** Avg 7D */
+            avg_7d: number;
+        };
+        /**
+         * OverviewPushes
+         * @description Notification deliveries in the trailing 24 hours, from `NotifyLog`.
+         *
+         *     `email` / `telegram` count log rows by the CHANNEL's kind (join on
+         *     `NotifyChannel`), so `email + telegram` can fall short of `total` if a
+         *     log row's channel has been deleted — honest, not a bug.
+         */
+        OverviewPushes: {
+            /** Total */
+            total: number;
+            /** Ok */
+            ok: number;
+            /** Failed */
+            failed: number;
+            /** Email */
+            email: number;
+            /** Telegram */
+            telegram: number;
+        };
+        /**
+         * OverviewRuns
+         * @description Collection cycles in the trailing 24 hours — search AND watch cycles
+         *     both, since either kind failing is the degradation the KPI exists to show.
+         *     The success rate is `1 - failed/total`, computed by the UI so a zero-run
+         *     day renders as "no data" rather than a division by zero here.
+         */
+        OverviewRuns: {
+            /** Total */
+            total: number;
+            /** Failed */
+            failed: number;
+        };
+        /**
          * PriceBucket
          * @description One histogram column. Edges are whole yuan in cents.
          */
@@ -1485,6 +1612,13 @@ export interface components {
          *     how much the distribution covers, the second how much of it is still on
          *     sale right now. With only the first, four-day-old asking prices read as
          *     the current market.
+         *
+         *     `samples` is the same row set the quantiles were computed from — one price
+         *     in cents per listing, sorted ascending — so the frontend can draw a density
+         *     curve and rug without a second aperture. Capped at 500 by uniform
+         *     downsampling over the sorted values (first and last kept), so the shape
+         *     survives while the payload stays bounded; `sample_size` remains the true
+         *     count.
          */
         PriceDistribution: {
             /** Sample Size */
@@ -1498,6 +1632,11 @@ export interface components {
             histogram: components["schemas"]["PriceBucket"][];
             /** Fresh Size */
             fresh_size: number;
+            /**
+             * Samples
+             * @default []
+             */
+            samples: number[];
         };
         /**
          * PriceDrop
@@ -1576,6 +1715,41 @@ export interface components {
             p90?: number | null;
         };
         /**
+         * SellerRefreshResult
+         * @description A seller's profile after an on-demand refresh — the same seller fields
+         *     `ItemPublic` exposes, so the detail page can splice them in directly.
+         *
+         *     None still means "not available from any source", never zero. `refreshed`
+         *     false means the stored profile was inside the TTL
+         *     (`settings.seller_profile_ttl_days`) and no upstream request was made.
+         */
+        SellerRefreshResult: {
+            /** Seller Id */
+            seller_id: string;
+            /** Seller Nick */
+            seller_nick: string;
+            /** Seller Avatar Url */
+            seller_avatar_url: string | null;
+            /** Seller Is Shop */
+            seller_is_shop: boolean | null;
+            /** Seller Credit Level */
+            seller_credit_level: number | null;
+            /** Seller Review Count */
+            seller_review_count: number | null;
+            /** Seller Positive Rate */
+            seller_positive_rate: number | null;
+            /** Seller Sold Count */
+            seller_sold_count: number | null;
+            /** Seller Verified */
+            seller_verified: boolean | null;
+            /** Fetched At */
+            fetched_at: string | null;
+            /** Fetch Error */
+            fetch_error: string | null;
+            /** Refreshed */
+            refreshed: boolean;
+        };
+        /**
          * SessionState
          * @description Session health. Carries cookie NAMES and never values.
          */
@@ -1602,6 +1776,24 @@ export interface components {
             fingerprint: string | null;
             /** Fingerprint Applied */
             fingerprint_applied: boolean;
+        };
+        /**
+         * StatsOverview
+         * @description The overview page's KPI row, from the real tables in one request.
+         *
+         *     All windows are UTC: the trailing-24h figures are exact rolling windows,
+         *     `daily` and `hits` cut on UTC calendar days like the analytics endpoints
+         *     do. `items_total` is the cumulative count of distinct listings ever
+         *     observed (`Item` rows).
+         */
+        StatsOverview: {
+            runs_24h: components["schemas"]["OverviewRuns"];
+            hits: components["schemas"]["OverviewHits"];
+            pushes_24h: components["schemas"]["OverviewPushes"];
+            /** Items Total */
+            items_total: number;
+            /** Daily */
+            daily: components["schemas"]["OverviewDay"][];
         };
         /**
          * SupplyDay
@@ -2417,6 +2609,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PricePoint"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_seller_api_sellers__seller_id__refresh_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                seller_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SellerRefreshResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overview_api_stats_overview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsOverview"];
                 };
             };
             /** @description Validation Error */

@@ -465,11 +465,20 @@ class PriceDistribution(Sample):
     """`fresh_size` is separate from `sample_size` on purpose: the first says
     how much the distribution covers, the second how much of it is still on
     sale right now. With only the first, four-day-old asking prices read as
-    the current market."""
+    the current market.
+
+    `samples` is the same row set the quantiles were computed from — one price
+    in cents per listing, sorted ascending — so the frontend can draw a density
+    curve and rug without a second aperture. Capped at 500 by uniform
+    downsampling over the sorted values (first and last kept), so the shape
+    survives while the payload stays bounded; `sample_size` remains the true
+    count.
+    """
 
     quantiles: PriceQuantiles
     histogram: list[PriceBucket]
     fresh_size: int
+    samples: list[int] = []
 
 
 class PriceDrop(SQLModel):
@@ -564,6 +573,10 @@ class ListingDuration(Sample):
 
     quantiles: DurationQuantiles
     histogram: list[DurationBucket]
+    # Same unit as the quantiles: integer MINUTES, one per listing, sorted
+    # ascending. Capped at 500 by uniform downsampling over the sorted values
+    # (first and last kept); `sample_size` remains the true count.
+    samples: list[int] = []
     aperture_pages_min: int | None = None
     aperture_pages_max: int | None = None
     aperture_rows: int
@@ -574,6 +587,108 @@ class ListingDuration(Sample):
     # report. Cannot be backfilled, so it shrinks on its own and the page
     # says so while it is non-zero.
     legacy_clock_rows: int = 0
+
+
+# --------------------------------------------------------------------------- #
+# Overview stats (frontend-refactor round 2)
+# --------------------------------------------------------------------------- #
+
+
+class OverviewRuns(SQLModel):
+    """Collection cycles in the trailing 24 hours — search AND watch cycles
+    both, since either kind failing is the degradation the KPI exists to show.
+    The success rate is `1 - failed/total`, computed by the UI so a zero-run
+    day renders as "no data" rather than a division by zero here."""
+
+    total: int
+    failed: int
+
+
+class OverviewHits(SQLModel):
+    """New listings first observed, counted on `Item.first_seen_at` — the same
+    fact the overview page previously derived client-side from
+    `/api/items?sort=-first_seen`, now without the 200-row cap.
+
+    Day boundaries are UTC calendar days, consistent with every analytics
+    endpoint; converting for display is the frontend's job. `avg_7d` is the
+    mean over the 7 UTC days ending today (today included, matching what the
+    page already showed), as a float because it is a mean of counts, not money.
+    """
+
+    today: int
+    yesterday: int
+    avg_7d: float
+
+
+class OverviewPushes(SQLModel):
+    """Notification deliveries in the trailing 24 hours, from `NotifyLog`.
+
+    `email` / `telegram` count log rows by the CHANNEL's kind (join on
+    `NotifyChannel`), so `email + telegram` can fall short of `total` if a
+    log row's channel has been deleted — honest, not a bug.
+    """
+
+    total: int
+    ok: int
+    failed: int
+    email: int
+    telegram: int
+
+
+class OverviewDay(SQLModel):
+    """One UTC calendar day of the sparkline series. `date` is ISO
+    `YYYY-MM-DD`. Days with no rows are present with zeros — a gap in the
+    series would let the frontend close it up and invent a trend."""
+
+    date: str
+    new_hits: int
+    runs_total: int
+    runs_failed: int
+    pushes: int
+
+
+class StatsOverview(SQLModel):
+    """The overview page's KPI row, from the real tables in one request.
+
+    All windows are UTC: the trailing-24h figures are exact rolling windows,
+    `daily` and `hits` cut on UTC calendar days like the analytics endpoints
+    do. `items_total` is the cumulative count of distinct listings ever
+    observed (`Item` rows).
+    """
+
+    runs_24h: OverviewRuns
+    hits: OverviewHits
+    pushes_24h: OverviewPushes
+    items_total: int
+    daily: list[OverviewDay]
+
+
+# --------------------------------------------------------------------------- #
+# Seller refresh (frontend-refactor round 2)
+# --------------------------------------------------------------------------- #
+
+
+class SellerRefreshResult(SQLModel):
+    """A seller's profile after an on-demand refresh — the same seller fields
+    `ItemPublic` exposes, so the detail page can splice them in directly.
+
+    None still means "not available from any source", never zero. `refreshed`
+    false means the stored profile was inside the TTL
+    (`settings.seller_profile_ttl_days`) and no upstream request was made.
+    """
+
+    seller_id: str
+    seller_nick: str
+    seller_avatar_url: str | None
+    seller_is_shop: bool | None
+    seller_credit_level: int | None
+    seller_review_count: int | None
+    seller_positive_rate: float | None
+    seller_sold_count: int | None
+    seller_verified: bool | None
+    fetched_at: datetime | None
+    fetch_error: str | None
+    refreshed: bool
 
 
 # --------------------------------------------------------------------------- #

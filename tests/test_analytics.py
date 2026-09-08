@@ -945,3 +945,64 @@ def test_analytics_does_not_reach_into_the_http_layer():
         text = handle.read()
     assert "fastapi" not in text
     assert "HTTPException" not in text
+
+
+# --------------------------------------------------------------------------- #
+# Raw samples for the KDE + rug (frontend-refactor round 2)
+# --------------------------------------------------------------------------- #
+
+
+def test_downsample_sorts_caps_and_keeps_the_extremes():
+    """The frontend draws a density from these points; a cap that dropped the
+    min or the max would move the tails of the drawn distribution."""
+    values = list(range(1234))
+    values.reverse()  # deliberately unsorted input
+    out = analytics.downsample_sorted(values)
+    assert len(out) == analytics.SAMPLES_CAP == 500
+    assert out == sorted(out)
+    assert out[0] == 0 and out[-1] == 1233
+
+    small = analytics.downsample_sorted([5, 3, 4])
+    assert small == [3, 4, 5], "below the cap: sorted, nothing dropped"
+
+
+def test_price_samples_are_the_quantile_row_set_sorted(session):
+    """Same rows the quantiles read, so the density the frontend draws cannot
+    disagree with the numbers printed beside it."""
+    monitor_id = seed_monitor(session)
+    seed_item(session, "a", monitor_id, prices=[300000])
+    seed_item(session, "b", monitor_id, prices=[100000])
+    seed_item(session, "c", monitor_id, prices=[200000])
+
+    result = analytics.price_distribution(session, KW, now=NOW)
+    assert result["samples"] == [100000, 200000, 300000]
+    assert len(result["samples"]) == result["sample_size"]
+
+    empty = analytics.price_distribution(session, "nothing here", now=NOW)
+    assert empty["samples"] == []
+
+
+def test_duration_samples_are_sorted_minutes(session):
+    """Minutes, matching the unit the duration quantiles already use."""
+    monitor_id = seed_monitor(session)
+    seed_item(
+        session,
+        "long",
+        monitor_id,
+        prices=[300000],
+        first_hit_at=NOW - timedelta(hours=6),
+        last_seen_at=STALE,
+    )
+    seed_item(
+        session,
+        "short",
+        monitor_id,
+        prices=[300000],
+        first_hit_at=NOW - timedelta(hours=3),
+        last_seen_at=STALE,
+    )
+
+    result = analytics.listing_duration(session, KW, now=NOW)
+    assert result["sample_size"] == 2
+    # 6h->1h ago is 300 minutes inside our range; 3h->1h ago is 120.
+    assert result["samples"] == [120, 300]
