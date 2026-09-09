@@ -665,7 +665,7 @@ wheels = [
 ]
 
 [[package]]
-name = "saltfish-digger"
+name = "saltfisher"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

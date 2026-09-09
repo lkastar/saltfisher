@@ -69,7 +69,7 @@ def _plain_body(notification: Notification) -> str:
     for hit in notification.sorted_hits():
         lines.append(describe(hit))
         lines.append(f"  {hit.url}")
-    lines += ["", "— saltfish-digger"]
+    lines += ["", "— saltfisher"]
     return "\n".join(lines)
 
 
@@ -105,5 +105,5 @@ def _html_body(notification: Notification) -> str:
         f'<div style="font-family:system-ui,sans-serif">'
         f"<h3>{escape(notification.title)}</h3>{intro}"
         f'<table style="border-collapse:collapse">{"".join(rows)}</table>'
-        f'<p style="color:#999;font-size:12px">— saltfish-digger</p></div>'
+        f'<p style="color:#999;font-size:12px">— saltfisher</p></div>'
     )

@@ -28,7 +28,11 @@ import { itemAdvice, scenarioReady } from "../lib/llm";
 
 const GOOFISH_ITEM = "https://www.goofish.com/item?id=";
 
-const ICON_BUTTON: React.CSSProperties = {
+/** Anchors get none of the button baseline (inline-flex centering, gap), so
+ *  the primary CTA link declares its own. Buttons must NOT use this — the
+ *  base.css button rule already provides it.
+ */
+const LINK_BUTTON: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 7,
@@ -211,7 +215,7 @@ export default function ItemDetailPage() {
 
       {/* item-hero: page-specific layout per the prototype, so it stays inline
           rather than growing base.css a one-caller class. */}
-      <header style={{ margin: "24px 0 16px" }}>
+      <header style={{ margin: "var(--space-5) 0 var(--space-4)" }}>
         <div className="hero-eyebrow">ITEM DETAIL · ID: {data.id}</div>
         {/* Clean one-line derived headline; the full stored title travels in
             title= and, when shortened, in the description card below. */}
@@ -260,7 +264,7 @@ export default function ItemDetailPage() {
             target="_blank"
             rel="noreferrer noopener"
             style={{
-              ...ICON_BUTTON,
+              ...LINK_BUTTON,
               minHeight: 32,
               padding: "var(--space-1) var(--space-3)",
               borderRadius: "var(--radius-sm)",
@@ -275,7 +279,6 @@ export default function ItemDetailPage() {
           </a>
           <button
             type="button"
-            style={ICON_BUTTON}
             onClick={() => watch.mutate()}
             disabled={watch.isPending}
           >
@@ -286,11 +289,19 @@ export default function ItemDetailPage() {
         {watch.isError ? <ErrorState title="加入收藏失败" error={watch.error} /> : null}
 
         <div className="grid-21">
-          <div className="side-stack" style={{ minWidth: 0 }}>
+          {/* min-width:0 comes from the global `.grid-21 > *` rule. */}
+          <div className="side-stack">
             <section className="card">
               <RemoteImage src={cover} alt={data.title} width="100%" height={360} />
               {data.image_urls.length > 1 ? (
-                <div style={{ display: "flex", gap: 8, marginTop: 10, overflowX: "auto" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "var(--space-2)",
+                    marginTop: "var(--space-3)",
+                    overflowX: "auto",
+                  }}
+                >
                   {data.image_urls.map((url) => (
                     <button
                       key={url}
@@ -352,7 +363,7 @@ export default function ItemDetailPage() {
             {prices.data ? <PriceChart points={prices.data} /> : null}
           </div>
 
-          <aside style={{ minWidth: 0 }}>
+          <aside>
             <SellerProfile
               seller={data}
               onRefresh={() => refresh.mutate(data.seller_id)}

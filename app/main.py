@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         checkpoint()
 
 
-app = FastAPI(title="saltfish-digger", lifespan=lifespan)
+app = FastAPI(title="saltfisher", lifespan=lifespan)
 app.include_router(monitors.router, dependencies=[Depends(require_token)])
 app.include_router(channels.router, dependencies=[Depends(require_token)])
 app.include_router(watchlist.router, dependencies=[Depends(require_token)])

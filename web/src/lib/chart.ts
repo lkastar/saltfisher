@@ -106,9 +106,10 @@ export function stateColumns(
 /** Sparkline geometry for a KPI card: smoothed line plus the area under it,
  *  closed to the bottom edge. Ported from the prototype's `SFD.spark`.
  *
- *  A flat series still draws (span falls back to 1 instead of dividing by
- *  zero), a single value centres as a bare point with no area, and an empty
- *  series draws nothing.
+ *  A flat series still draws, centred vertically (span falls back to 1
+ *  instead of dividing by zero, and ratio 0.5 keeps the line off the bottom
+ *  edge where it read as a card underline), a single value centres as a bare
+ *  point with no area, and an empty series draws nothing.
  */
 export function sparkPaths(
   values: readonly number[],
@@ -119,10 +120,13 @@ export function sparkPaths(
   if (count === 0) return { line: "", area: "", end: null };
 
   const min = Math.min(...values);
-  const span = Math.max(...values) - min || 1;
+  const rawSpan = Math.max(...values) - min;
+  const span = rawSpan || 1;
   const points = values.map((v, i) => ({
     x: count === 1 ? width / 2 : 2 + ((width - 4) * i) / (count - 1),
-    y: 2 + (height - 5) * (1 - (v - min) / span),
+    // A flat series parks at mid-height: at ratio 0 it hugged the bottom
+    // edge and read as an underline for the KPI card, not a trend line.
+    y: 2 + (height - 5) * (1 - (rawSpan === 0 ? 0.5 : (v - min) / span)),
   }));
   const line = smoothPath(points);
   const end = points[count - 1]!;

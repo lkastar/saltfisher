@@ -1,5 +1,5 @@
 [project]
-name = "saltfish-digger"
+name = "saltfisher"
 version = "0.1.0"
 description = "闲鱼关键词/商品持续监控：定时采集、行情分析、邮件与 Telegram 通知"
 readme = "README.md"

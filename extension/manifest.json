@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "saltfish-digger 凭证导入",
+  "name": "saltfisher 凭证导入",
   "version": "1.0",
-  "description": "把当前浏览器的闲鱼登录 cookie（含只存在于 taobao 域的 _m_h5_tk）和环境快照，发回你自己的 saltfish-digger 面板。",
+  "description": "把当前浏览器的闲鱼登录 cookie（含只存在于 taobao 域的 _m_h5_tk）和环境快照，发回你自己的 saltfisher 面板。",
   "permissions": ["cookies", "storage", "scripting", "tabs"],
   "host_permissions": ["*://*.goofish.com/*", "*://*.taobao.com/*"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],

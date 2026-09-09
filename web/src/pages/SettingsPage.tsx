@@ -31,6 +31,7 @@ import {
   type LlmScenarioConfig,
   type Scenario,
 } from "../api/queries";
+import { ConfirmInline } from "../components/ConfirmInline";
 import { Icon, type IconName } from "../components/Icon";
 import { PageHero } from "../components/PageHero";
 import { Empty, ErrorState, Loading } from "../components/States";
@@ -207,11 +208,11 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
             <input name="to_addrs" required />
           </label>
           <label style={CHECKBOX}>
-            <input name="use_starttls" type="checkbox" defaultChecked />
+            <input name="use_starttls" type="checkbox" data-switch defaultChecked />
             STARTTLS（587 端口）
           </label>
           <label style={CHECKBOX}>
-            <input name="use_ssl" type="checkbox" />
+            <input name="use_ssl" type="checkbox" data-switch />
             直接 SSL（465 端口）
           </label>
         </>
@@ -313,19 +314,12 @@ function ChannelCard({ channel }: { channel: Channel }) {
           {channel.enabled ? "停用" : "启用"}
         </button>
         {confirming ? (
-          <>
-            <button
-              type="button"
-              data-variant="danger"
-              onClick={() => remove.mutate()}
-              disabled={remove.isPending}
-            >
-              确认删除
-            </button>
-            <button type="button" onClick={() => setConfirming(false)}>
-              取消
-            </button>
-          </>
+          <ConfirmInline
+            verb="删除"
+            pending={remove.isPending}
+            onConfirm={() => remove.mutate()}
+            onCancel={() => setConfirming(false)}
+          />
         ) : (
           <button
             type="button"
@@ -780,19 +774,12 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
           编辑
         </button>
         {confirming ? (
-          <>
-            <button
-              type="button"
-              data-variant="danger"
-              onClick={() => remove.mutate()}
-              disabled={remove.isPending}
-            >
-              确认删除
-            </button>
-            <button type="button" onClick={() => setConfirming(false)}>
-              取消
-            </button>
-          </>
+          <ConfirmInline
+            verb="删除"
+            pending={remove.isPending}
+            onConfirm={() => remove.mutate()}
+            onCancel={() => setConfirming(false)}
+          />
         ) : (
           <button
             type="button"
@@ -1021,6 +1008,7 @@ function ScenarioForm({
               <input
                 id={`${prefix}-images`}
                 type="checkbox"
+                data-switch
                 checked={draft.send_images}
                 onChange={(event) =>
                   setDraft((old) => ({ ...old, send_images: event.target.checked }))
@@ -1068,6 +1056,7 @@ function ScenarioForm({
           <input
             id={`${prefix}-enabled`}
             type="checkbox"
+            data-switch
             checked={draft.enabled}
             onChange={(event) => setDraft((old) => ({ ...old, enabled: event.target.checked }))}
           />
@@ -1615,19 +1604,12 @@ export default function SettingsPage() {
                   {doImport.isPending ? "导入中…" : "导入凭据"}
                 </button>
                 {confirmingClear ? (
-                  <>
-                    <button
-                      type="button"
-                      data-variant="danger"
-                      onClick={() => doClear.mutate()}
-                      disabled={doClear.isPending}
-                    >
-                      确认清除
-                    </button>
-                    <button type="button" onClick={() => setConfirmingClear(false)}>
-                      取消
-                    </button>
-                  </>
+                  <ConfirmInline
+                    verb="清除"
+                    pending={doClear.isPending}
+                    onConfirm={() => doClear.mutate()}
+                    onCancel={() => setConfirmingClear(false)}
+                  />
                 ) : (
                   <button
                     type="button"

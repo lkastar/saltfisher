@@ -1,13 +1,15 @@
 import { useState } from "react";
 
 import { ApiError, setToken, verifyToken } from "../api/client";
+import { Backdrop } from "../components/Backdrop";
 import { Icon } from "../components/Icon";
+import { useMagnetic } from "../lib/fx";
 
 /** The token is checked against a real endpoint before it is stored, so a
  *  typo produces a message on this form rather than a broken app behind it.
  *
- *  No prototype counterpart — SIGNAL DECK tokens only: brand mark, one field,
- *  inline error. Auth flow untouched.
+ *  Same SIGNAL DECK stage as the app shell: shared Backdrop, giant outlined
+ *  SIGNAL behind a frosted card. Auth flow untouched.
  */
 export default function LoginPage({
   onAuthenticated,
@@ -17,6 +19,8 @@ export default function LoginPage({
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  // Login renders instead of AppShell, so the magnetic layer is wired here.
+  useMagnetic();
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -43,31 +47,14 @@ export default function LoginPage({
   }
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        padding: "var(--space-4)",
-      }}
-    >
-      {/* Same static backdrop as the app shell; login renders outside it. */}
-      <div className="bg-grid" />
-      <div className="bg-vignette" />
-      <form
-        onSubmit={submit}
-        className="card"
-        style={{
-          width: "min(380px, 100%)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-4)",
-          padding: "var(--space-6)",
-          zIndex: 1,
-        }}
-      >
-        <div className="brand" style={{ gap: 10 }}>
-          <span className="brand-mark">
+    <main className="login-wrap">
+      <Backdrop />
+      <span className="login-ghost" aria-hidden="true">
+        SIGNAL
+      </span>
+      <form onSubmit={submit} className="card login-card">
+        <div className="brand">
+          <span className="brand-mark" data-magnetic>
             <Icon name="radar" />
           </span>
           咸鱼监控
@@ -104,6 +91,7 @@ export default function LoginPage({
         <button
           type="submit"
           data-variant="primary"
+          data-magnetic
           disabled={checking || !value.trim()}
         >
           {checking ? "验证中…" : "进入"}

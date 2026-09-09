@@ -66,7 +66,6 @@ export default function SellerProfile({
               type="button"
               onClick={onRefresh}
               disabled={refreshing}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
               title="向闲鱼现场抓一次这个卖家的画像（画像还新鲜时不会重复抓）"
             >
               <Icon name="refresh-cw" size={13} />
@@ -127,7 +126,7 @@ export default function SellerProfile({
       {/* Also shown when the refresh answered "still fresh" (refreshed:
           false): the timestamp is the whole story there. */}
       {fetchedAt === null ? null : (
-        <div className="dim mono" style={{ marginTop: 10, fontSize: 12 }}>
+        <div className="dim mono" style={{ marginTop: "var(--space-3)", fontSize: 12 }}>
           画像更新于 {formatRelativeTime(fetchedAt)}
         </div>
       )}
@@ -135,8 +134,8 @@ export default function SellerProfile({
       <div
         className="dim mono"
         style={{
-          marginTop: 14,
-          paddingTop: 12,
+          marginTop: "var(--space-4)",
+          paddingTop: "var(--space-3)",
           borderTop: "1px dashed var(--line2)",
           fontSize: 12,
         }}

@@ -1,3 +1,5 @@
+tmp/
+
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -19,6 +21,9 @@ wheels/
 .codex/
 AGENTS.md
 CLAUDE.md
+
+# Local milestone/phase delivery reports — dev artifacts, not shipped docs
+docs/*-report.md
 
 # Runtime data: SQLite database, Playwright session state
 data/

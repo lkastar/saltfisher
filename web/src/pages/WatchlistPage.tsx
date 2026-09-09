@@ -10,6 +10,7 @@ import {
   watchlistOptions,
   type WatchEntry,
 } from "../api/queries";
+import { ConfirmInline } from "../components/ConfirmInline";
 import { Icon } from "../components/Icon";
 import { PageHero } from "../components/PageHero";
 import RemoteImage from "../components/RemoteImage";
@@ -78,7 +79,6 @@ function AddByLink() {
             type="submit"
             data-variant="primary"
             disabled={add.isPending || !value.trim()}
-            style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
           >
             <Icon name="plus" size={14} />
             {add.isPending ? "抓取中…" : "加入追踪"}
@@ -107,7 +107,8 @@ type CellEditorProps = {
   onCancel: () => void;
 };
 
-/* Icon-only 保存/取消 pair shared by both cell editors. */
+/* Icon-only 保存/取消 pair shared by both cell editors. Toned icon buttons:
+ * green = commit this edit, dim = abandon it. */
 function EditActions({
   saving,
   valid,
@@ -123,8 +124,10 @@ function EditActions({
     <>
       <button
         type="button"
-        className="btn-text"
+        className="icon-btn"
+        data-tone="ok"
         aria-label="保存"
+        title="保存 (Enter)"
         disabled={saving || !valid}
         onClick={onSave}
       >
@@ -132,8 +135,10 @@ function EditActions({
       </button>
       <button
         type="button"
-        className="btn-text"
+        className="icon-btn"
+        data-tone="dim"
         aria-label="取消"
+        title="取消 (Esc)"
         disabled={saving}
         onClick={onCancel}
       >
@@ -148,7 +153,7 @@ function NoteEditor({ entry, saving, onSave, onCancel }: CellEditorProps) {
   const save = () => onSave({ note });
   return (
     <span
-      className="cell-edit"
+      className="cell-editing"
       onKeyDown={(event: KeyboardEvent) => {
         if (event.key === "Escape") onCancel();
       }}
@@ -178,14 +183,15 @@ function IntervalEditor({ entry, saving, onSave, onCancel }: CellEditorProps) {
   const save = () => onSave({ price_watch_enabled: enabled, interval_seconds: seconds });
   return (
     <span
-      className="cell-edit"
+      className="cell-editing"
       onKeyDown={(event: KeyboardEvent) => {
         if (event.key === "Escape") onCancel();
       }}
     >
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
         <input
           type="checkbox"
+          data-switch
           checked={enabled}
           onChange={(event) => setEnabled(event.target.checked)}
         />
@@ -308,7 +314,7 @@ export default function WatchlistPage() {
               <table>
                 <thead>
                   <tr>
-                    <th style={{ width: 56 }}>品类</th>
+                    <th style={{ width: 56 }}>封面</th>
                     <th>商品 / 卖家</th>
                     <th style={{ textAlign: "right" }}>现价</th>
                     <th style={{ textAlign: "right" }}>基准价</th>
@@ -337,7 +343,10 @@ export default function WatchlistPage() {
                           className="t2l"
                           to={`/items/${entry.item_id}`}
                           title={entry.title}
-                          style={{ maxWidth: 240, fontSize: 13 }}
+                          /* 420, not 240: real captured titles run long, and a
+                           * tight clamp left a dead gutter between this column
+                           * and 现价 that read as an empty column. */
+                          style={{ maxWidth: 420, fontSize: 13 }}
                         >
                           {entry.title}
                         </Link>
@@ -446,19 +455,12 @@ export default function WatchlistPage() {
                       </td>
                       <td>
                         {confirming === entry.item_id ? (
-                          <div style={{ display: "flex", gap: "var(--space-1)" }}>
-                            <button
-                              type="button"
-                              data-variant="danger"
-                              onClick={() => remove.mutate(entry.item_id)}
-                              disabled={remove.isPending}
-                            >
-                              确认
-                            </button>
-                            <button type="button" onClick={() => setConfirming(null)}>
-                              取消
-                            </button>
-                          </div>
+                          <ConfirmInline
+                            verb="移出"
+                            pending={remove.isPending}
+                            onConfirm={() => remove.mutate(entry.item_id)}
+                            onCancel={() => setConfirming(null)}
+                          />
                         ) : (
                           <button
                             type="button"
@@ -480,9 +482,9 @@ export default function WatchlistPage() {
               className="dim mono"
               style={{
                 fontSize: 11.5,
-                margin: "12px 0 0",
+                margin: "var(--space-3) 0 0",
                 borderTop: "1px dashed var(--line2)",
-                paddingTop: 10,
+                paddingTop: "var(--space-3)",
               }}
             >
               备注会作为「个人意图」喂给单品 AI 建议（如「预算

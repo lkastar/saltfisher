@@ -231,7 +231,6 @@ export default function ItemsPage() {
 
           <button
             type="button"
-            style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
             onClick={() => setParams(new URLSearchParams(), { replace: true })}
           >
             <Icon name="rotate-ccw" size={14} />
@@ -360,7 +359,6 @@ export default function ItemsPage() {
                 params.toString() === "" ? undefined : (
                   <button
                     type="button"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
                     onClick={() => setParams(new URLSearchParams(), { replace: true })}
                   >
                     <Icon name="sliders-horizontal" size={14} />
@@ -378,7 +376,7 @@ export default function ItemsPage() {
               <table>
                 <thead>
                   <tr>
-                    <th style={{ width: 56 }}>品类</th>
+                    <th style={{ width: 56 }}>封面</th>
                     <th>商品标题</th>
                     <th style={{ textAlign: "right" }}>价格</th>
                     <th>卖家</th>
@@ -412,17 +410,10 @@ export default function ItemsPage() {
                         {item.seller_nick ? (
                           <button
                             type="button"
+                            className="btn-text"
                             onClick={() => update("seller_id", item.seller_id)}
                             title="只看这个卖家的商品"
-                            style={{
-                              padding: 0,
-                              minHeight: 0,
-                              border: "none",
-                              background: "none",
-                              color: "var(--acc2)",
-                              textAlign: "left",
-                              whiteSpace: "normal",
-                            }}
+                            style={{ textAlign: "left", whiteSpace: "normal" }}
                           >
                             {item.seller_nick}
                           </button>
@@ -477,10 +468,10 @@ export default function ItemsPage() {
               </table>
             </div>
 
-            <nav className="pager">
+            <nav className="pager" aria-label="分页">
               <button
                 type="button"
-                className="btn-text"
+                className="pager-btn"
                 disabled={(filters.offset ?? 0) === 0}
                 onClick={() =>
                   update("offset", String(Math.max(0, (filters.offset ?? 0) - PAGE)), false)
@@ -489,12 +480,12 @@ export default function ItemsPage() {
                 <Icon name="chevron-left" size={13} />
                 上一页
               </button>
-              <span className="mono" style={{ fontSize: 12 }}>
+              <span className="pager-range">
                 {(filters.offset ?? 0) + 1} – {(filters.offset ?? 0) + items.data.length}
               </span>
               <button
                 type="button"
-                className="btn-text"
+                className="pager-btn"
                 // No total count from the API, so a full page is the only signal
                 // that another one might exist.
                 disabled={items.data.length < PAGE}

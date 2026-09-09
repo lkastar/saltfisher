@@ -31,7 +31,38 @@ body {
 
 ::selection {
   background: var(--acc);
-  color: #fff;
+  /* --primary-on, not #fff: white on the dark theme's #4d8dff is only 3.13:1
+   * (tokens.css header math); --primary-on is the computed on-accent colour. */
+  color: var(--primary-on);
+}
+
+/* Thin themed scrollbars (round 3). Firefox reads scrollbar-color off :root;
+ * WebKit needs the pseudo-elements. Thumb stays a translucent line tone so it
+ * never reads as a control in either theme. */
+:root {
+  scrollbar-color: var(--line2) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line2);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text3);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 h1,
@@ -84,6 +115,15 @@ button {
   background: var(--surface-2);
   color: var(--text);
   cursor: pointer;
+  /* inline-flex everywhere (audit, round 5): an inline <svg> baseline-aligns
+   * its BOTTOM edge to the text baseline, so icon+label buttons rendered the
+   * icon riding ~3px high. Flex centreing fixes every button at once; text-
+   * only buttons are unaffected. Inline styles on specific buttons win over
+   * this, same as before. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   transition: all 0.25s var(--ease);
 }
 
@@ -99,11 +139,38 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* Press feedback (round 4): a 3% squash on mousedown. data-magnetic elements
+ * keep their inline transform, which simply wins over this — no conflict. */
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 button[data-variant="primary"] {
+  position: relative;
+  overflow: hidden;
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-on);
   font-weight: 500;
+}
+
+/* Sheen sweep on hover (round 3): one skewed highlight crossing the fill.
+ * White-on-accent ornament, same precedent as the brand-mark inset. */
+button[data-variant="primary"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -70%;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+  transform: skewX(-18deg);
+  pointer-events: none;
+}
+
+button[data-variant="primary"]:hover:not(:disabled)::after {
+  left: 125%;
+  transition: left 0.55s var(--ease);
 }
 
 button[data-variant="primary"]:hover:not(:disabled) {
@@ -134,11 +201,21 @@ textarea {
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  background: var(--input-bg);
+  /* background-color, not the shorthand: the focus underline below rides as
+   * a background-IMAGE layer the shorthand would wipe. */
+  background-color: var(--input-bg);
   color: var(--text);
+  /* Focus underline (round 4): an acc→acc3 gradient bar that sweeps in from
+   * the left edge. It complements the ring — the ring says "focus is here",
+   * the sweep is the deck acknowledging the keystroke. */
+  background-image: linear-gradient(90deg, var(--acc), var(--acc3));
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0% 2px;
   transition:
     border-color 0.25s,
-    box-shadow 0.25s;
+    box-shadow 0.25s,
+    background-size 0.35s var(--ease);
 }
 
 input:focus,
@@ -146,11 +223,38 @@ select:focus,
 textarea:focus {
   border-color: var(--acc);
   box-shadow: 0 0 0 3px var(--acc-soft);
+  background-size: 100% 2px;
 }
 
 select option {
   background: var(--surface);
   color: var(--text);
+}
+
+/* Custom chevron (round 4): appearance:none retires the native arrow and a
+ * Lucide chevron-down rides as a background layer, ahead of the focus
+ * underline. base-select browsers override this inside the @supports block
+ * below (the UA picker icon returns, so the custom layer must go). The
+ * chevron is decorative; its grey is mid-tone in both themes on purpose. */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%238492a6' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"),
+    linear-gradient(90deg, var(--acc), var(--acc3));
+  background-position:
+    right 8px center,
+    0 100%;
+  background-size:
+    14px 14px,
+    0% 2px;
+}
+
+select:focus {
+  background-size:
+    14px 14px,
+    100% 2px;
 }
 
 /* Customizable <select> (Chrome 135+). Without base-select, macOS Chrome
@@ -163,6 +267,19 @@ select option {
   select,
   ::picker(select) {
     appearance: base-select;
+  }
+
+  /* base-select draws the UA picker icon; the custom chevron layer and its
+   * reserved padding must go, or the arrow renders twice. */
+  select {
+    padding-right: var(--space-2);
+    background-image: linear-gradient(90deg, var(--acc), var(--acc3));
+    background-position: 0 100%;
+    background-size: 0% 2px;
+  }
+
+  select:focus {
+    background-size: 100% 2px;
   }
 
   ::picker(select) {
@@ -191,9 +308,80 @@ select option {
   }
 }
 
+/* Custom checkbox (round 4): appearance:none, accent fill, and a clipped
+ * check shape — never a font glyph, so it cannot fall back to a tofu box.
+ * The background shorthand deliberately resets the focus-underline layer. */
 input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
   min-height: 0;
-  accent-color: var(--primary);
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  display: inline-grid;
+  place-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--input-bg);
+  cursor: pointer;
+  vertical-align: -3px;
+  transition:
+    border-color 0.2s var(--ease),
+    background-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease);
+}
+
+input[type="checkbox"]:hover:not(:disabled) {
+  border-color: var(--acc);
+}
+
+input[type="checkbox"]:checked {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+
+input[type="checkbox"]:checked::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: var(--primary-on);
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+/* Switch variant (round 4): data-switch turns the same checkbox into a
+ * sliding toggle for boolean settings. These rules must follow the base
+ * checkbox block — specificity on ::after ties, so order decides. The knob
+ * is grid-centred and travels ±8px (inner 32px, knob 12px, 2px inset). */
+input[type="checkbox"][data-switch] {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--bg3);
+  vertical-align: -5px;
+}
+
+input[type="checkbox"][data-switch]::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  clip-path: none;
+  background: var(--text2);
+  transform: translateX(-8px);
+  transition:
+    transform 0.25s var(--ease),
+    background-color 0.25s var(--ease);
+}
+
+input[type="checkbox"][data-switch]:checked {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+
+input[type="checkbox"][data-switch]:checked::after {
+  transform: translateX(8px);
+  background: var(--primary-on);
 }
 
 /* Native spin buttons clash with the dark theme; hide them everywhere.
@@ -242,6 +430,12 @@ table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  /* Audit (round 5): `width: 100%` alone lets a narrow wrapper squeeze CJK
+   * columns down to one character per line — min-content of wrappable CJK is
+   * a single glyph. max-content pins the table to its natural width and the
+   * wrapper scrolls, which was always the intended behaviour. On wide
+   * containers 100% wins and nothing changes. */
+  min-width: max-content;
 }
 
 thead th {
@@ -369,6 +563,41 @@ tbody tr:last-child td {
   background: radial-gradient(ellipse 120% 90% at 50% 110%, var(--bg0), transparent 60%);
 }
 
+/* Aurora wash (round 3): two huge soft blobs breathing across the top of the
+ * viewport. Transform-only animation, composited; the gradients carry their
+ * own falloff so no blur filter is needed (a filter would force re-raster
+ * every frame). Values come from --aurora-* tokens, near-invisible in light. */
+.bg-aurora {
+  position: fixed;
+  inset: -15%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 32% at 20% 16%, var(--aurora-1), transparent 70%),
+    radial-gradient(34% 30% at 80% 6%, var(--aurora-2), transparent 70%);
+  animation: aurora-drift 26s var(--ease-io) infinite alternate;
+}
+
+@keyframes aurora-drift {
+  from {
+    transform: translate3d(-2.5%, -1.5%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2.5%, 2%, 0) scale(1.06);
+  }
+}
+
+/* Film grain (round 3): static SVG turbulence tile, no animation. The grain
+ * is what stops the big flat dark surfaces from banding next to the glows. */
+.bg-noise {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--noise-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+}
+
 /* Signal-field canvas; fx.ts sizes and draws it (empty under reduced motion). */
 .bgfx {
   position: fixed;
@@ -406,6 +635,28 @@ tbody tr:last-child td {
   -webkit-backdrop-filter: blur(18px) saturate(1.4);
   border-bottom: 1px solid var(--line);
   transition: background-color 0.3s;
+}
+
+/* Reading-progress hairline (fx.ts sets scaleX). Sits on the topbar's bottom
+ * edge, over the border. */
+.scroll-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--acc), var(--acc2), var(--acc3));
+  transform: scaleX(0);
+  transform-origin: left;
+  pointer-events: none;
+  box-shadow: 0 0 10px var(--acc-glow);
+}
+
+/* Magnetic elements (fx.ts writes translate() on hover). The transition turns
+ * each rAF update into a lagged chase — that lag is the "physics". */
+[data-magnetic] {
+  transition: transform 0.35s var(--ease);
+  will-change: transform;
 }
 
 .topbar-inner {
@@ -447,7 +698,9 @@ tbody tr:last-child td {
   box-shadow:
     0 0 18px var(--acc-glow),
     inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  color: #fff;
+  /* --primary-on: the computed on-accent colour (white on the light theme's
+   * #1d4ed8, near-black on the dark theme's #4d8dff where white is 3.13:1). */
+  color: var(--primary-on);
 }
 
 .main-nav {
@@ -528,6 +781,9 @@ tbody tr:last-child td {
   font-size: 11px;
   letter-spacing: 0.12em;
   padding: 4px 12px;
+  /* letter-spacing also pads the LAST glyph's right side; subtracting it
+   * from the right padding keeps the text optically centred in the pill. */
+  padding-right: calc(12px - 0.12em);
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
   white-space: nowrap;
@@ -618,6 +874,29 @@ tbody tr:last-child td {
   margin-bottom: 32px;
 }
 
+/* Entrance choreography (round 3): eyebrow and meta rise once; the h1 rises
+ * per-character via .ch/.ch-i below; the ghost only fades (its transform is
+ * owned by the useHeroDrift parallax, so a keyframe must never touch it). */
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ghost-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .hero-eyebrow {
   display: flex;
   align-items: center;
@@ -628,6 +907,7 @@ tbody tr:last-child td {
   text-transform: uppercase;
   color: var(--acc2);
   margin-bottom: 16px;
+  animation: hero-rise 0.5s var(--ease) both;
 }
 
 .hero-eyebrow::before {
@@ -641,8 +921,8 @@ tbody tr:last-child td {
 .hero h1 {
   position: relative;
   z-index: 1;
-  font-size: clamp(38px, 5.6vw, 76px);
-  font-weight: 700;
+  font-size: clamp(42px, 6.2vw, 88px);
+  font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1.06;
 }
@@ -650,6 +930,30 @@ tbody tr:last-child td {
 .hero h1 .thin {
   color: var(--text3);
   font-weight: 400;
+}
+
+/* Per-character masked rise. PageHero wraps each glyph in .ch > .ch-i and
+ * sets --i; the outer span is the mask. The bottom padding/margin pair keeps
+ * Latin descenders out of the clip without shifting the baseline. */
+.hero h1 .ch {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  padding-bottom: 0.1em;
+  margin-bottom: -0.1em;
+}
+
+.hero h1 .ch-i {
+  display: inline-block;
+  transform: translateY(115%);
+  animation: ch-in 0.65s var(--ease) forwards;
+  animation-delay: calc(var(--i) * 38ms);
+}
+
+@keyframes ch-in {
+  to {
+    transform: translateY(0);
+  }
 }
 
 .hero-ghost {
@@ -666,6 +970,12 @@ tbody tr:last-child td {
   pointer-events: none;
   line-height: 1;
   white-space: nowrap;
+  will-change: transform;
+  animation: ghost-in 1.1s var(--ease) 0.15s both;
+  /* Long titles (收藏与降价追踪…) reach under the ghost; fading its left edge
+   * keeps the overlap legible instead of a stroke collision. */
+  mask-image: linear-gradient(90deg, transparent, #000 35%);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 35%);
 }
 
 .hero-meta {
@@ -676,6 +986,7 @@ tbody tr:last-child td {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text3);
+  animation: hero-rise 0.5s var(--ease) 0.28s both;
 }
 
 .hero-meta > span {
@@ -715,6 +1026,55 @@ tbody tr:last-child td {
 
 .card:hover {
   border-color: var(--line2);
+}
+
+/* Cursor spotlight (round 3): --mx/--my are fed by useSpotlight in fx.ts and
+ * :hover drives opacity, so an un-instrumented browser simply never shows it.
+ * ::before is the top accent hairline — .ai-card::before overrides it below
+ * (same specificity, later in the file) to keep its permanent hairline. */
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--acc-glow), transparent);
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+  pointer-events: none;
+}
+
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    240px circle at var(--mx, 50%) var(--my, 50%),
+    var(--acc-soft),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+  pointer-events: none;
+}
+
+.card:hover::before,
+.card:hover::after {
+  opacity: 1;
+}
+
+/* KPI cards lift a notch on hover; transition here adds transform on top of
+ * the .card border-color transition above. The .card.kpi:hover specificity
+ * (0,3,0) must beat [data-reveal].in's `transform: none` (0,2,0), which lives
+ * at the end of this file. */
+.card.kpi {
+  transition:
+    border-color 0.35s var(--ease),
+    transform 0.35s var(--ease);
+}
+
+.card.kpi:hover {
+  transform: translateY(-2px);
 }
 
 .card-h {
@@ -827,7 +1187,11 @@ tbody tr:last-child td {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
-  align-items: start;
+  /* stretch, not start (audit, round 5): with `start`, a short card next to a
+   * tall one left a page-void the size of a card — it read as a broken empty
+   * card. Stretching pairs them at equal height; the shorter card's inner
+   * whitespace stays inside its own border, which reads as intentional. */
+  align-items: stretch;
 }
 
 .side-stack {
@@ -979,6 +1343,159 @@ tr:hover .cell-edit .row-edit-btn,
   opacity: 1;
 }
 
+/* ---------- round-4 interaction layer: icon buttons, armed confirms,
+ * inline edit clusters, segmented controls, pager ---------- */
+
+/* Icon-only square button (cell-editor save/cancel, row actions). The button
+ * baseline would paint a border + glow on hover; an icon button tints its own
+ * soft background instead, in its tone colour. */
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text2);
+  flex: none;
+}
+
+.icon-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--bg3);
+  box-shadow: none;
+  color: var(--text);
+}
+
+.icon-btn[data-tone="ok"] {
+  color: var(--green);
+}
+
+.icon-btn[data-tone="ok"]:hover:not(:disabled) {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.icon-btn[data-tone="dim"] {
+  color: var(--text3);
+}
+
+/* Inline edit cluster (watchlist 备注 / 降价轮询): the cell morphs into an
+ * accent-tinted editing pill so "this cell is being edited right now" reads
+ * at a glance. Negative margins absorb the padding+border so the row height
+ * does not jump when the cluster appears. */
+@keyframes cell-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.cell-editing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 3px 4px 3px 8px;
+  margin: -4px -4px -4px -9px;
+  background: var(--acc-soft);
+  border: 1px solid color-mix(in srgb, var(--acc) 45%, transparent);
+  border-radius: var(--radius-sm);
+  animation: cell-in 0.22s var(--ease);
+}
+
+/* Inputs inside the cluster drop their own chrome; the cluster IS the chrome.
+ * The focus underline still sweeps, at hairline weight. */
+.cell-editing input {
+  border-color: transparent;
+  background-color: transparent;
+  background-size: 0% 1.5px;
+}
+
+.cell-editing input:focus {
+  box-shadow: none;
+  border-color: transparent;
+  background-size: 100% 1.5px;
+}
+
+/* Armed destructive confirm (components/ConfirmInline.tsx). Same trick as
+ * .cell-editing, in the danger tone: the trigger swaps for an unmistakable
+ * armed cluster, inline, no modal — per spec there is no modal and no toast. */
+.confirm-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  padding: 4px 4px 4px 10px;
+  margin: -5px 0;
+  background: var(--danger-bg);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  animation: cell-in 0.22s var(--ease);
+}
+
+.confirm-inline .confirm-verb {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.confirm-inline button {
+  min-height: 26px;
+  padding: 1px 10px;
+  font-size: 12px;
+}
+
+/* Segmented control (analytics 统计窗口). A group of mutually exclusive
+ * options rendered as one pill strip; the active segment carries weight +
+ * fill, never colour alone. */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  /* Inside a column flex container (.field) the default stretch would pull
+   * the strip to full width; the control hugs its segments instead. */
+  align-self: flex-start;
+}
+
+.seg-btn {
+  min-height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  padding: 1px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text2);
+}
+
+.seg-btn:hover:not(:disabled) {
+  border: none;
+  background: var(--bg3);
+  box-shadow: none;
+  color: var(--text);
+}
+
+.seg-btn[aria-pressed="true"] {
+  background: var(--acc);
+  color: var(--primary-on);
+  font-weight: 600;
+  box-shadow: 0 0 10px var(--acc-glow);
+}
+
+.seg-btn[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--acc);
+  color: var(--primary-on);
+}
+
 /* ---------- filterbar (ItemsPage, later AnalyticsPage) ---------- */
 
 .filterbar {
@@ -1032,10 +1549,33 @@ tr:hover .cell-edit .row-edit-btn,
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 12px;
   padding: 16px 0 4px;
   font-size: 13px;
   color: var(--text2);
+}
+
+/* Pill buttons + a dashed range chip (round 4). There is no total count from
+ * the API, so the range chip is the whole position readout. */
+.pager-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 2px 14px;
+  border-radius: 999px;
+  font-size: 12.5px;
+}
+
+.pager-range {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--text2);
+  padding: 4px 12px;
+  border: 1px dashed var(--line2);
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 /* Back link above a detail view. */
@@ -1415,6 +1955,49 @@ button.btn-text[data-tone="danger"]:hover:not(:disabled) {
   gap: 6px;
 }
 
+/* ---------- login (LoginPage.tsx) ---------- */
+
+.login-wrap {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  overflow: hidden;
+}
+
+/* The one place the outlined display word gets centre stage: huge SIGNAL
+ * behind the card. Reuses the hero ghost-in keyframe (opacity only). */
+.login-ghost {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono);
+  font-size: clamp(120px, 24vw, 340px);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--ghost-stroke);
+  user-select: none;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: ghost-in 1.4s var(--ease) both;
+}
+
+/* A .card with a frosted face so the backdrop motion reads through it. */
+.login-card {
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  z-index: 1;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: hero-rise 0.6s var(--ease) both;
+}
+
 /* ---------- ticker (Ticker.tsx) ---------- */
 
 .ticker-wrap {
@@ -1449,6 +2032,9 @@ button.btn-text[data-tone="danger"]:hover:not(:disabled) {
   overflow: hidden;
   position: relative;
   height: 100%;
+  /* Fade the cells in/out at the strip edges instead of a hard clip. */
+  mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent);
 }
 
 /* The track holds the cells TWICE (second copy aria-hidden) so the -50%
@@ -1501,6 +2087,19 @@ button.btn-text[data-tone="danger"]:hover:not(:disabled) {
   .main-nav {
     gap: 0;
     overflow-x: auto;
+  }
+
+  /* Tighten the chrome: at 390px the 28px padding + 28px gaps pushed the
+   * status pill off the right edge (audit, round 5). */
+  .topbar-inner {
+    padding: 0 14px;
+    gap: 14px;
+  }
+
+  /* Icon-only logout; the button keeps its aria-label via visually hiding
+   * the word, not the control. */
+  .btn-logout .btn-logout-text {
+    display: none;
   }
 
   .settings-grid,
@@ -1556,16 +2155,24 @@ button.btn-text[data-tone="danger"]:hover:not(:disabled) {
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+    transition-delay: 0.01ms !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
 
   /* Belt and braces on top of fx.ts's own check: even if .in never arrives,
-   * nothing may sit invisible waiting for a motion cue. */
+   * nothing may sit invisible waiting for a motion cue. Same for the hero
+   * char masks: with delays zeroed above the animation completes instantly,
+   * but never let a glyph depend on it. */
   [data-reveal] {
     opacity: 1;
     transform: none;
     transition: none;
+  }
+
+  .hero h1 .ch-i {
+    transform: none;
   }
 
   /* fx.ts already refuses to start these loops; hide the layers outright. */

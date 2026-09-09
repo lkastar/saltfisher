@@ -25,6 +25,7 @@ import {
   type Monitor,
   type MonitorCreate,
 } from "../api/queries";
+import { ConfirmInline } from "../components/ConfirmInline";
 import { Icon } from "../components/Icon";
 import { PageHero } from "../components/PageHero";
 import RemoteImage from "../components/RemoteImage";
@@ -116,7 +117,9 @@ function Health({ m }: { m: Monitor }) {
     );
   }
   if (!m.enabled) {
-    return <span className="muted">已停用</span>;
+    // nowrap: the tasks table squeezes this column under pressure and a plain
+    // span wrapped one character per line — a vertical "已停用" tower.
+    return <span className="muted" style={{ whiteSpace: "nowrap" }}>已停用</span>;
   }
   if (!m.baseline_done) {
     return (
@@ -344,7 +347,7 @@ function MonitorForm({
       <label
         style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", alignSelf: "end" }}
       >
-        <input name="exclude_shop" type="checkbox" />
+        <input name="exclude_shop" type="checkbox" data-switch />
         排除鱼小铺（商家）
       </label>
 
@@ -455,6 +458,7 @@ function TasksSection({
           ) : null}
           {!creating ? (
             <button type="button" data-variant="primary" onClick={() => setCreating(true)}>
+              <Icon name="plus" size={14} />
               新建监控
             </button>
           ) : null}
@@ -555,7 +559,13 @@ function TasksSection({
                     )}
                   </td>
                   <td>
-                    <div style={{ display: "flex", gap: "var(--space-1)" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "var(--space-1)",
+                        alignItems: "center",
+                      }}
+                    >
                       <button
                         type="button"
                         onClick={() => run.mutate(m.id)}
@@ -574,19 +584,12 @@ function TasksSection({
                           dialog blocks the event loop, which would also make
                           the panel unresponsive to any automated check. */}
                       {confirming === m.id ? (
-                        <>
-                          <button
-                            type="button"
-                            data-variant="danger"
-                            onClick={() => remove.mutate(m.id)}
-                            disabled={remove.isPending}
-                          >
-                            确认删除
-                          </button>
-                          <button type="button" onClick={() => setConfirming(null)}>
-                            取消
-                          </button>
-                        </>
+                        <ConfirmInline
+                          verb="删除"
+                          pending={remove.isPending}
+                          onConfirm={() => remove.mutate(m.id)}
+                          onCancel={() => setConfirming(null)}
+                        />
                       ) : (
                         <button
                           type="button"
@@ -711,10 +714,14 @@ export default function OverviewPage() {
                 <span className="pill" data-tone="warn">
                   有报错
                 </span>
-              ) : (
+              ) : enabledRules.length > 0 ? (
                 <span className="pill" data-tone="success">
                   运行中
                 </span>
+              ) : (
+                // Every rule is stopped: "运行中" next to "0 启用" would be a
+                // lie. Neutral pill — nothing is wrong, nothing is running.
+                <span className="pill">全部停用</span>
               )
             ) : null}
           </div>

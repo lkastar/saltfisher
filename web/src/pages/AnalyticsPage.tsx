@@ -81,7 +81,7 @@ function Block({
         {note === undefined ? null : <span className="note">{note}</span>}
       </div>
       {caption === undefined ? null : (
-        <p className="muted" style={{ fontSize: 12, marginBottom: "var(--space-3)" }}>
+        <p className="muted" style={{ fontSize: 12.5, marginBottom: "var(--space-3)" }}>
           {caption}
         </p>
       )}
@@ -682,16 +682,24 @@ export default function AnalyticsPage() {
             </select>
           </label>
 
-          <label className="field">
-            <span className="field-label">统计窗口</span>
-            <select value={days} onChange={(e) => update("days", e.target.value)}>
+          <div className="field">
+            <span className="field-label">统计窗口（天）</span>
+            {/* Segmented control, not a select: three options, chosen often,
+                and the whole set should be visible without opening a popup. */}
+            <div className="seg" role="group" aria-label="统计窗口（天）">
               {WINDOWS.map((n) => (
-                <option key={n} value={n}>
-                  最近 {n} 天
-                </option>
+                <button
+                  key={n}
+                  type="button"
+                  className="seg-btn"
+                  aria-pressed={days === n}
+                  onClick={() => update("days", String(n))}
+                >
+                  {n} 天
+                </button>
               ))}
-            </select>
-          </label>
+            </div>
+          </div>
 
           <div className="spacer" />
 

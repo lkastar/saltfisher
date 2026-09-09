@@ -8,9 +8,9 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
  *
  *  Canvas bgfx and cursor glow were cut in step 8, then explicitly requested
  *  back in round-2 feedback (prd.md item 2) — ported from
- *  research/prototype/ui.js. Still not ported: magnetic buttons (pure
- *  ornament, nobody asked); the ticker clone already lives in
- *  `components/Ticker.tsx` since step 4.
+ *  research/prototype/ui.js. Round 3 (awwwards pass) added the waveform
+ *  carriers in bgfx plus useSpotlight / useMagnetic / useScrollProgress /
+ *  useHeroDrift. The ticker clone lives in `components/Ticker.tsx`.
  */
 
 function prefersReducedMotion(): boolean {
@@ -139,13 +139,35 @@ export function useBgfx(ref: RefObject<HTMLCanvasElement | null>): void {
       palette = { acc, pool: [acc, acc, acc, rgb("--green"), rgb("--red")] };
     };
 
-    const frame = () => {
+    const frame = (now: number) => {
       readPalette();
       const light = paletteTheme === "light";
       ctx.clearRect(0, 0, W, H);
 
       // Scanline sweep removed (round 2): a full-width band travelling down
       // reads as the whole backdrop sliding — hycai flagged it. Blips only.
+
+      // Signal waveforms (round 3): two slow sine carriers across the lower
+      // third — the "deck is listening" motif. Amplitude-modulated, alpha low
+      // enough to stay behind the content, additive cost is one path per wave.
+      const waveAlpha = light ? 0.1 : 0.13;
+      for (let k = 0; k < 2; k++) {
+        const yBase = H * (0.66 + k * 0.13);
+        const amp = (16 + k * 11) * DPR;
+        const speed = 0.00016 + k * 0.00007;
+        ctx.beginPath();
+        for (let x = 0; x <= W; x += 8 * DPR) {
+          const y =
+            yBase +
+            Math.sin(x / (190 * DPR) + now * speed + k * 2.4) * amp +
+            Math.sin(x / (61 * DPR) - now * speed * 1.7) * amp * 0.35;
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = `rgba(${palette.acc}, ${waveAlpha - k * 0.045})`;
+        ctx.lineWidth = DPR;
+        ctx.stroke();
+      }
 
       // Signal blips.
       if (Math.random() < 0.02 && blips.length < 9) {
@@ -254,4 +276,159 @@ export function useCursorGlow(ref: RefObject<HTMLDivElement | null>): void {
       cancelAnimationFrame(raf);
     };
   }, [ref]);
+}
+
+/** Card spotlight (round 3): one delegated pointer listener feeds --mx/--my
+ *  on the `.card` under the cursor; CSS paints the radial highlight from
+ *  those vars and `:hover` drives its opacity, so a stale value on a card the
+ *  pointer already left costs nothing. rAF-throttled; fine pointers and full
+ *  motion only — touch and reduced-motion users simply get no spotlight.
+ */
+export function useSpotlight(): void {
+  useEffect(() => {
+    if (prefersReducedMotion() || !window.matchMedia("(pointer: fine)").matches) {
+      return;
+    }
+    let raf = 0;
+    let pending: PointerEvent | null = null;
+
+    const flush = () => {
+      raf = 0;
+      const e = pending;
+      pending = null;
+      if (e === null) return;
+      const card =
+        e.target instanceof Element ? e.target.closest<HTMLElement>(".card") : null;
+      if (card === null) return;
+      const r = card.getBoundingClientRect();
+      card.style.setProperty("--mx", `${e.clientX - r.left}px`);
+      card.style.setProperty("--my", `${e.clientY - r.top}px`);
+    };
+    const onMove = (e: PointerEvent) => {
+      pending = e;
+      if (raf === 0) raf = requestAnimationFrame(flush);
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+}
+
+/** Magnetic pull (round 3): elements marked `data-magnetic` lean toward the
+ *  cursor (max ~7px). The CSS `transition` on transform turns each update
+ *  into a lagged chase, which is where the "physics" feel comes from — no
+ *  spring integrator needed. Opt-in per element: primary CTAs and the brand
+ *  mark only, never table-row buttons (mis-click risk beats ornament there).
+ */
+export function useMagnetic(): void {
+  useEffect(() => {
+    if (prefersReducedMotion() || !window.matchMedia("(pointer: fine)").matches) {
+      return;
+    }
+    let current: HTMLElement | null = null;
+    let raf = 0;
+    let pending: PointerEvent | null = null;
+
+    const flush = () => {
+      raf = 0;
+      const e = pending;
+      pending = null;
+      if (e === null) return;
+      const el =
+        e.target instanceof Element
+          ? e.target.closest<HTMLElement>("[data-magnetic]")
+          : null;
+      if (el !== current) {
+        if (current !== null) current.style.transform = "";
+        current = el;
+      }
+      if (el !== null) {
+        const r = el.getBoundingClientRect();
+        const dx = e.clientX - (r.left + r.width / 2);
+        const dy = e.clientY - (r.top + r.height / 2);
+        const clamp = (v: number) => Math.max(-7, Math.min(7, v * 0.22));
+        el.style.transform = `translate(${clamp(dx)}px, ${clamp(dy)}px)`;
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      pending = e;
+      if (raf === 0) raf = requestAnimationFrame(flush);
+    };
+    const onLeave = () => {
+      if (current !== null) {
+        current.style.transform = "";
+        current = null;
+      }
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    document.documentElement.addEventListener("pointerleave", onLeave);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      document.documentElement.removeEventListener("pointerleave", onLeave);
+      cancelAnimationFrame(raf);
+      if (current !== null) current.style.transform = "";
+    };
+  }, []);
+}
+
+/** Reading-progress hairline under the topbar: scaleX = scroll fraction.
+ *  Not "motion" in the vestibular sense, so it also runs under reduced
+ *  motion — like a scrollbar thumb, it only ever mirrors position.
+ */
+export function useScrollProgress(ref: RefObject<HTMLDivElement | null>): void {
+  useEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      const p = max > 0 ? Math.min(1, window.scrollY / max) : 0;
+      el.style.transform = `scaleX(${p})`;
+    };
+    const onScroll = () => {
+      if (raf === 0) raf = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      cancelAnimationFrame(raf);
+    };
+  }, [ref]);
+}
+
+/** Hero ghost parallax (round 3): the outlined background word sinks at
+ *  ~1/5 of scroll speed. Callback-ref shape like useReveal; attach to the
+ *  `.hero-ghost` span. Skipped entirely under reduced motion.
+ */
+export function useHeroDrift(): (el: HTMLElement | null) => void {
+  const elRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (prefersReducedMotion()) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      if (elRef.current !== null) {
+        elRef.current.style.transform = `translate3d(0, ${window.scrollY * 0.22}px, 0)`;
+      }
+    };
+    const onScroll = () => {
+      if (raf === 0) raf = requestAnimationFrame(update);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  return useCallback((el: HTMLElement | null) => {
+    elRef.current = el;
+  }, []);
 }

@@ -4,8 +4,9 @@ import { Link, Navigate, Route, Routes, useLocation, type Location } from "react
 
 import { clearToken, getToken } from "./api/client";
 import { sessionOptions } from "./api/queries";
+import { Backdrop } from "./components/Backdrop";
 import { Icon, type IconName } from "./components/Icon";
-import { useBgfx, useCursorGlow } from "./lib/fx";
+import { useMagnetic, useScrollProgress, useSpotlight } from "./lib/fx";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import ItemsPage from "./pages/ItemsPage";
@@ -42,6 +43,7 @@ function ThemeToggle() {
     <button
       type="button"
       className="theme-toggle"
+      data-magnetic
       aria-label={label}
       title={label}
       onClick={() => {
@@ -86,34 +88,24 @@ function TopbarStatus() {
   );
 }
 
-/** Decorative backdrop (prd round-2 item 2): static grid/vignette plus the
- *  signal-field canvas and pointer glow from lib/fx.ts. All fixed,
- *  pointer-events none, below `.page` (z-index 1); the two animated layers are
- *  fully inert under prefers-reduced-motion and pause on a hidden tab. */
-function Backdrop() {
-  const canvas = useRef<HTMLCanvasElement | null>(null);
-  const glow = useRef<HTMLDivElement | null>(null);
-  useBgfx(canvas);
-  useCursorGlow(glow);
-  return (
-    <>
-      <div className="bg-grid" />
-      <div className="bg-vignette" />
-      <canvas ref={canvas} className="bgfx" aria-hidden="true" />
-      <div ref={glow} className="cursor-glow" aria-hidden="true" />
-    </>
-  );
-}
-
+/** Decorative backdrop lives in components/Backdrop.tsx (shared with the
+ *  login page). AppShell adds the interactive layers on top: card spotlight,
+ *  magnetic elements, and the scroll-progress hairline.
+ */
 function AppShell() {
   const location = useLocation();
+  const progress = useRef<HTMLDivElement | null>(null);
+  useSpotlight();
+  useMagnetic();
+  useScrollProgress(progress);
   return (
     <>
       <Backdrop />
       <header className="topbar">
+        <div ref={progress} className="scroll-progress" aria-hidden="true" />
         <div className="topbar-inner">
           <Link to="/" className="brand">
-            <span className="brand-mark">
+            <span className="brand-mark" data-magnetic>
               <Icon name="radar" />
             </span>
             咸鱼监控
@@ -141,13 +133,14 @@ function AppShell() {
             <button
               type="button"
               className="btn-logout"
+              aria-label="退出"
               onClick={() => {
                 clearToken();
                 window.location.reload();
               }}
             >
               <Icon name="log-out" />
-              退出
+              <span className="btn-logout-text">退出</span>
             </button>
           </div>
         </div>
