@@ -68,9 +68,7 @@ def load_detail():
     item_id = str(item_do.get("itemId") or "")
     item = normalize_item(flatten_detail(item_do, seller_do, item_id), "detail")
     seller = (
-        normalize_seller(flatten_seller(seller_do), item.seller_id, "detail")
-        if seller_do
-        else None
+        normalize_seller(flatten_seller(seller_do), item.seller_id, "detail") if seller_do else None
     )
     return item, seller
 
