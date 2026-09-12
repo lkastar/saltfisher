@@ -48,7 +48,7 @@ const WINDOWS = [7, 30, 90];
 const DEFAULT_DAYS = 30;
 const DROP_LIMIT = 20;
 
-const CREATE_RULE = <Link to="/#tasks">去建一条监控规则</Link>;
+const CREATE_RULE = <Link to="/monitors">去建一条监控规则</Link>;
 
 
 /** One stat card. The `note` slot is the prototype's short mono fact (sample

@@ -42,7 +42,7 @@ import { scenarioReady } from "../lib/llm";
 /* One settings page, five anchored sections (design.md: Settings + Channels
  * merge). The anchor-nav mirrors the prototype's scroll-spy; /channels
  * redirects to /settings#channels and the hash-scroll effect lands on the
- * section, same approach as the overview's #tasks. */
+ * section, same approach as the monitors page's #tasks. */
 
 const SECTIONS: { id: string; label: string; icon: IconName }[] = [
   { id: "session", label: "采集会话", icon: "cookie" },
@@ -1326,7 +1326,7 @@ export default function SettingsPage() {
 
   // /settings#channels (the old /channels route redirects here) must land on
   // the channels card, on load and on every nav click -- same approach as the
-  // overview's #tasks. location identity changes per navigation, so clicking
+  // the monitors page's #tasks. location identity changes per navigation, so clicking
   // an anchor while already at that hash still scrolls.
   useEffect(() => {
     if (!location.hash) return;

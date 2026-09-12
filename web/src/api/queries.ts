@@ -25,6 +25,8 @@ export type WatchlistCreate = Schemas["WatchlistCreate"];
 export type WatchlistUpdate = Schemas["WatchlistUpdate"];
 export type Item = Schemas["ItemPublic"];
 export type PricePoint = Schemas["PricePoint"];
+export type MonitorTrend = Schemas["MonitorTrend"];
+export type MonitorTrendDay = Schemas["MonitorTrendDay"];
 export type SessionState = Schemas["SessionState"];
 export type StatsOverview = Schemas["StatsOverview"];
 export type SellerRefreshResult = Schemas["SellerRefreshResult"];
@@ -72,6 +74,8 @@ export const keys = {
   itemPrices: (id: string) => ["items", id, "prices"] as const,
   session: ["session"] as const,
   statsOverview: ["stats", "overview"] as const,
+  monitorTrend: (monitorId: number, days: number) =>
+    ["stats", "monitor-trend", monitorId, days] as const,
   /** Coarse -> fine, so invalidating ["analytics"] drops all four charts at
    *  once. The window is part of the key because two windows are two
    *  different answers, not two renderings of one. */
@@ -189,6 +193,17 @@ export function statsOverviewOptions() {
   return queryOptions({
     queryKey: keys.statsOverview,
     queryFn: () => request<StatsOverview>("/api/stats/overview"),
+  });
+}
+
+/** One rule's daily price level. The window is in the key because two windows
+ *  are two different answers -- same rule as the analytics factories.
+ */
+export function monitorTrendOptions(monitorId: number, days = 30) {
+  return queryOptions({
+    queryKey: keys.monitorTrend(monitorId, days),
+    queryFn: () =>
+      request<MonitorTrend>(`/api/stats/monitor-trend?monitor_id=${monitorId}&days=${days}`),
   });
 }
 

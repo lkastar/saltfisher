@@ -11,26 +11,26 @@ import AnalyticsPage from "./pages/AnalyticsPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import ItemsPage from "./pages/ItemsPage";
 import LoginPage from "./pages/LoginPage";
+import MonitorsPage from "./pages/MonitorsPage";
 import OverviewPage from "./pages/OverviewPage";
 import SettingsPage from "./pages/SettingsPage";
 import WatchlistPage from "./pages/WatchlistPage";
 
 const NAV: { to: string; label: string; icon: IconName }[] = [
   { to: "/", label: "总览", icon: "layout-dashboard" },
-  { to: "/#tasks", label: "监控任务", icon: "scan-search" },
+  { to: "/monitors", label: "监控任务", icon: "scan-search" },
   { to: "/items", label: "命中商品", icon: "package" },
   { to: "/watchlist", label: "收藏追踪", icon: "bookmark" },
   { to: "/analytics", label: "行情分析", icon: "chart-spline" },
   { to: "/settings", label: "设置", icon: "settings" },
 ];
 
-/** Plain Links with hand-computed active state, not NavLink: `/` and
- *  `/#tasks` share a pathname, so NavLink's matcher would mark BOTH 总览 and
- *  监控任务 aria-current at `/`. The hash is the tiebreaker.
+/** Plain Links with hand-computed active state, not NavLink: `/` is a prefix
+ *  of every other route, so NavLink's matcher marks 总览 active everywhere
+ *  unless it is exact-matched separately.
  */
 function navActive(to: string, location: Location): boolean {
-  if (to === "/") return location.pathname === "/" && location.hash !== "#tasks";
-  if (to === "/#tasks") return location.pathname === "/" && location.hash === "#tasks";
+  if (to === "/") return location.pathname === "/";
   return location.pathname === to || location.pathname.startsWith(`${to}/`);
 }
 
@@ -148,8 +148,7 @@ function AppShell() {
       <main className="page">
         <Routes>
           <Route path="/" element={<OverviewPage />} />
-          {/* Monitor CRUD now lives in the overview's #tasks card. */}
-          <Route path="/monitors" element={<Navigate to="/#tasks" replace />} />
+          <Route path="/monitors" element={<MonitorsPage />} />
           <Route path="/items" element={<ItemsPage />} />
           <Route path="/items/:itemId" element={<ItemDetailPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />

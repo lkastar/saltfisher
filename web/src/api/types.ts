@@ -297,6 +297,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stats/monitor-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Monitor Trend
+         * @description How the price level of one rule's listings has moved, day by day.
+         *
+         *     Rule-scoped, which is why it lives here and not in `api/analytics.py` —
+         *     every route there resolves a keyword through the `Keyword` dependency, and
+         *     a keyword can map to several rules watching it at different intervals.
+         *
+         *     Read `collected` before reading the prices: a day this rule never ran
+         *     carries no claim about the market. See `analytics.monitor_trend` for why
+         *     the series carries the last observation forward instead of averaging the
+         *     snapshots captured that day.
+         */
+        get: operations["monitor_trend_api_stats_monitor_trend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/session/import-ticket": {
         parameters: {
             query?: never;
@@ -1464,6 +1493,50 @@ export interface components {
             channel_ids: number[];
             /** Seller Nick */
             seller_nick?: string | null;
+        };
+        /**
+         * MonitorTrend
+         * @description Daily price level of what one monitor rule watches.
+         *
+         *     `sample_size` is the sum of per-day listing counts, i.e. observation-days,
+         *     not distinct listings — the same "how much is behind this chart" role it
+         *     plays in the analytics responses.
+         */
+        MonitorTrend: {
+            /** Monitor Id */
+            monitor_id: number;
+            /** Window Days */
+            window_days: number;
+            /** Sample Size */
+            sample_size: number;
+            /** Days */
+            days: components["schemas"]["MonitorTrendDay"][];
+        };
+        /**
+         * MonitorTrendDay
+         * @description One UTC calendar day of one rule's ledger.
+         *
+         *     `mean_cents` / `p25_cents` / `p75_cents` are null when the day has nothing
+         *     to average — no listing on sale yet, or fewer than two for the band. A null
+         *     is a gap the chart must leave open, never a zero and never a bridge.
+         *
+         *     `collected` false means this rule had no successful cycle that day. It is
+         *     reported separately from the price because "the market did not move" and
+         *     "we were not looking" are different facts.
+         */
+        MonitorTrendDay: {
+            /** Date */
+            date: string;
+            /** Mean Cents */
+            mean_cents?: number | null;
+            /** P25 Cents */
+            p25_cents?: number | null;
+            /** P75 Cents */
+            p75_cents?: number | null;
+            /** Listing Count */
+            listing_count: number;
+            /** Collected */
+            collected: boolean;
         };
         /**
          * MonitorUpdate
@@ -2673,6 +2746,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatsOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    monitor_trend_api_stats_monitor_trend_get: {
+        parameters: {
+            query: {
+                monitor_id: number;
+                days?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonitorTrend"];
                 };
             };
             /** @description Validation Error */

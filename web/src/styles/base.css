@@ -1077,6 +1077,13 @@ tbody tr:last-child td {
   transform: translateY(-2px);
 }
 
+/* The 监控任务 KPI is an <a> to /monitors -- whole card, so the hit target
+ * matches the hover lift that already promises one. `color: inherit` undoes
+ * the global link colour, which would otherwise tint every number in it. */
+a.card.kpi {
+  color: inherit;
+}
+
 .card-h {
   display: flex;
   align-items: baseline;
@@ -1257,6 +1264,17 @@ tbody tr:last-child td {
   gap: 9px;
   align-items: center;
   margin-top: 2px;
+  /* The 收藏走势 card puts four tokens on this row (price, change, status,
+   * age) next to a sparkline, and flex children shrank until each one broke
+   * ONE CJK CHARACTER PER LINE -- a vertical tower reading 持 / 平. Wrap
+   * between tokens; never inside one. Same failure and same fix as the
+   * nowrap on the tasks table's 已停用 cell. */
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.hit-meta > * {
+  white-space: nowrap;
 }
 
 .hit-price {
