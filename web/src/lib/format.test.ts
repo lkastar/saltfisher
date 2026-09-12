@@ -12,6 +12,7 @@ import {
   parseUtc,
   parseYuanToCents,
   shortTitle,
+  centsToYuanInput,
 } from "./format";
 
 describe("formatPrice", () => {
@@ -203,13 +204,19 @@ describe("apertureNote", () => {
     // Real case: `iPhone 15` has 264 ledger items and zero CollectRun rows,
     // because they were collected before the run log existed.
     expect(apertureNote(null, null, 30).caveat).toContain("没有采集记录");
-    expect(apertureNote(undefined, undefined, 30).caveat).toContain("没有采集记录");
+    expect(apertureNote(undefined, undefined, 30).caveat).toContain(
+      "没有采集记录",
+    );
   });
 
   it("never claims a disappearance was a purchase", () => {
     // Acceptance item. A listing stops coming back because it was bought,
     // because it was delisted, or because its rank fell past our pages.
-    for (const args of [[1, 1], [1, 2], [null, null]] as const) {
+    for (const args of [
+      [1, 1],
+      [1, 2],
+      [null, null],
+    ] as const) {
       const { aperture, caveat } = apertureNote(args[0], args[1], 30);
       for (const text of [aperture, caveat ?? ""]) {
         expect(text).not.toContain("成交");
@@ -252,5 +259,30 @@ describe("displayTitle", () => {
   it("falls back to a prefix when the title opens with a delimiter", () => {
     const weird = `，${"很长的描述文本".repeat(10)}`;
     expect(displayTitle(weird)).toBe(weird.slice(0, 24).trim());
+  });
+});
+
+describe("centsToYuanInput", () => {
+  it("round-trips through parseYuanToCents", () => {
+    // Money bugs live in the round trip, not in either direction alone.
+    for (const cents of [0, 1, 50, 99, 100, 250000, 288800, 123456789]) {
+      expect(parseYuanToCents(centsToYuanInput(cents))).toBe(cents);
+    }
+  });
+
+  it("shows whole yuan without a decimal tail", () => {
+    // "2000.00" in an edit form reads as something to clean up.
+    expect(centsToYuanInput(200000)).toBe("2000");
+  });
+
+  it("keeps the cents when there are any", () => {
+    expect(centsToYuanInput(199)).toBe("1.99");
+  });
+
+  it("returns empty for an absent price, not '0'", () => {
+    // A null price_min_cents means "no lower bound". Rendering 0 would turn
+    // an unbounded rule into one bounded at zero on the next save.
+    expect(centsToYuanInput(null)).toBe("");
+    expect(centsToYuanInput(undefined)).toBe("");
   });
 });

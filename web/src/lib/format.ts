@@ -186,6 +186,23 @@ export function parseYuanToCents(input: string): number | null {
   return Math.round(yuan * 100);
 }
 
+/** Cents back to what a <input type="number"> should show, in yuan.
+ *
+ *  The inverse of `parseYuanToCents`, and only for form defaults -- never for
+ *  display. `formatPrice` is the display path; its ¥ and thousands separators
+ *  are not a valid number input value, and putting one in `defaultValue`
+ *  silently blanks the field.
+ *
+ *  No trailing ".00": whole yuan is the overwhelmingly common case, and
+ *  showing "2000.00" in an edit form invites the user to "fix" it.
+ */
+export function centsToYuanInput(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined || !Number.isFinite(cents))
+    return "";
+  const yuan = cents / 100;
+  return Number.isInteger(yuan) ? String(yuan) : yuan.toFixed(2);
+}
+
 /** Real merchant titles run past 250 characters. Putting one in an aria-label
  *  makes a screen reader read the entire listing before it says which control
  *  this is, so labels built from titles identify the row with this short
