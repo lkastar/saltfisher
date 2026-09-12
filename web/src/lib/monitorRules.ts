@@ -26,7 +26,10 @@ const NAME_MAX = 100;
  *  empty nick, and the API returns `""`, not null, for them) — so the opaque
  *  base64 id is never the whole title.
  */
-export function sellerRuleName(nick: string | null | undefined, sellerId: string): string {
+export function sellerRuleName(
+  nick: string | null | undefined,
+  sellerId: string,
+): string {
   return `卖家：${sellerLabel(nick, sellerId)}`.slice(0, NAME_MAX);
 }
 
@@ -37,6 +40,35 @@ export function sellerRuleName(nick: string | null | undefined, sellerId: string
  *  rule for one seller: the backend constrains keyword-xor-seller, not
  *  one-rule-per-seller.
  */
-export function findSellerRule(monitors: Monitor[], sellerId: string): Monitor | undefined {
+export function findSellerRule(
+  monitors: Monitor[],
+  sellerId: string,
+): Monitor | undefined {
   return monitors.find((m) => m.seller_id === sellerId);
+}
+
+/** What to call a keyword on screen: the rule that watches it.
+ *
+ *  Analytics is scoped by KEYWORD, not by rule — `analytics.keyword_scope`
+ *  resolves one keyword to every rule using it — while the thing the user
+ *  named and recognises is the rule. So the keyword is what the API is asked
+ *  for and the rule name is what the page shows.
+ *
+ *  Three cases, and the middle one is why this is not a one-liner:
+ *  - no rule (a shared link whose rule was deleted): fall back to the keyword,
+ *    since there is no name left to show.
+ *  - one rule: its name.
+ *  - several rules sharing the keyword: naming just the first would credit one
+ *    rule with numbers drawn from all of them, so say how many.
+ */
+export function keywordRuleLabel(
+  monitors: readonly Monitor[],
+  keyword: string,
+): string {
+  const names = monitors
+    .filter((m) => m.keyword === keyword)
+    .map((m) => m.name);
+  if (names.length === 0) return keyword;
+  if (names.length === 1) return names[0]!;
+  return `${names[0]} 等 ${names.length} 条规则`;
 }

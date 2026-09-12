@@ -28,6 +28,7 @@ import {
   shortTitle,
 } from "../lib/format";
 import { useReveal } from "../lib/fx";
+import { keywordRuleLabel } from "../lib/monitorRules";
 import { marketReading, scenarioReady, billingNote } from "../lib/llm";
 
 /** Market analysis for one keyword.
@@ -571,7 +572,13 @@ function DurationBlock({ query }: { query: AnalyticsQuery }) {
  *  digest of the rendered prompt, so a hit says so in the footer rather than
  *  silently looking like a fresh answer.
  */
-function MarketPanel({ query }: { query: AnalyticsQuery }) {
+function MarketPanel({
+  query,
+  ruleLabel,
+}: {
+  query: AnalyticsQuery;
+  ruleLabel: string;
+}) {
   const config = useQuery(llmScenarioOptions("market"));
   const analyze = useMutation({ mutationFn: analyzeMarket });
   const result = analyze.data ?? null;
@@ -595,12 +602,11 @@ function MarketPanel({ query }: { query: AnalyticsQuery }) {
       title="AI 行情解读"
       intro={
         <>
-          把下面这些统计量（分位数、降价排行、供应量趋势、离开观测范围时长）交给模型，
-          让它回答「现在什么水位、该等还是该出手」。模型看不到原始商品列表。
+          将本页的统计量交给模型分析价格水位与出手时机，不含原始商品列表。
           {LLM_WAIT_NOTE}
         </>
       }
-      runLabel={`分析「${query.keyword}」最近 ${query.days} 天`}
+      runLabel={`分析「${ruleLabel}」最近 ${query.days} 天`}
       onRun={() => analyze.mutate({ keyword: query.keyword, days: query.days })}
       pending={analyze.isPending}
       error={analyze.error}
@@ -687,7 +693,13 @@ export default function AnalyticsPage() {
   // entry that produces a 422 is worse than one that is absent.
   const keywords = [
     ...new Set(
-      monitors.data.flatMap((m) => (m.keyword === null ? [] : [m.keyword])),
+      // `?? null` before the test, not just `=== null`: the generated type is
+      // `string | null | undefined`, so checking only null let `undefined`
+      // through and the list was (string | undefined)[] -- a blank option
+      // waiting to happen.
+      monitors.data.flatMap((m) =>
+        (m.keyword ?? null) === null ? [] : [m.keyword as string],
+      ),
     ),
   ];
   // `||`, not `??`: a hand-edited or truncated `?keyword=` gives the empty
@@ -710,6 +722,10 @@ export default function AnalyticsPage() {
   const orphan = !keywords.includes(keyword);
   const rawDays = Number(params.get("days"));
   const days = WINDOWS.includes(rawDays) ? rawDays : DEFAULT_DAYS;
+  // The URL and the API stay on `keyword` -- that is what the endpoints are
+  // scoped by. Only the LABEL becomes the rule name, because that is the thing
+  // the user named and can recognise.
+  const ruleLabel = keywordRuleLabel(monitors.data, keyword);
   const query: AnalyticsQuery = { keyword, days };
 
   function update(key: string, value: string) {
@@ -725,7 +741,7 @@ export default function AnalyticsPage() {
         ghost="MARKET"
         title={
           <>
-            行情分析<span className="thin"> / {shortTitle(keyword)}</span>
+            行情分析<span className="thin"> / {shortTitle(ruleLabel)}</span>
           </>
         }
         meta={
@@ -736,7 +752,7 @@ export default function AnalyticsPage() {
             </span>
             <span>
               <Icon name="database" size={12} />
-              {keywords.length} 个关键词可选
+              {keywords.length} 条规则可选
             </span>
             {orphan ? (
               <span>
@@ -751,14 +767,14 @@ export default function AnalyticsPage() {
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <form className="filterbar" onSubmit={(e) => e.preventDefault()}>
           <label className="field">
-            <span className="field-label">监控关键词</span>
+            <span className="field-label">监控任务</span>
             <select
               value={keyword}
               onChange={(e) => update("keyword", e.target.value)}
             >
               {(orphan ? [keyword, ...keywords] : keywords).map((kw) => (
                 <option key={kw} value={kw}>
-                  {kw}
+                  {keywordRuleLabel(monitors.data, kw)}
                   {orphan && kw === keyword ? "（规则已删除）" : ""}
                 </option>
               ))}
@@ -792,7 +808,7 @@ export default function AnalyticsPage() {
           <p className="filterbar-note">
             <Icon name="info" size={13} />
             <span>
-              数据来自「{keyword}
+              数据来自关键词「{keyword}
               」的搜索结果，含被价格区间与排除词挡掉的商品，非全站。日期与日界为
               UTC。
             </span>
@@ -802,7 +818,7 @@ export default function AnalyticsPage() {
         {/* Above the numbers it reads, not below them: it is a reading OF the
             four blocks, and burying the trigger at the bottom of a long scroll
             hides the one control on this page that costs money. */}
-        <MarketPanel query={query} />
+        <MarketPanel query={query} ruleLabel={ruleLabel} />
 
         <div className="grid-2">
           <DistributionBlock query={query} />
