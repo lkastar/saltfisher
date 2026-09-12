@@ -159,3 +159,51 @@ def test_daily_is_14_utc_days_ending_today(client):
     dates = [d["date"] for d in body["daily"]]
     assert dates[-1] == NOW.date().isoformat()
     assert dates == sorted(dates) and len(set(dates)) == 14
+
+
+# --------------------------------------------------------------------------- #
+# GET /api/stats/monitor-trend
+# --------------------------------------------------------------------------- #
+# The aggregation itself is covered in test_monitor_trend.py. These are the
+# route's own contract: auth, an unknown rule, and the window bounds.
+
+
+def test_monitor_trend_requires_auth(client):
+    c, _ = client
+    assert c.get("/api/stats/monitor-trend?monitor_id=1").status_code == 401
+
+
+def test_monitor_trend_404s_on_an_unknown_rule(client):
+    """404, not an empty series. A deleted rule still in a bookmarked URL is a
+    different fact from a rule with no history, and the panel shows different
+    things for each."""
+    c, _ = client
+    assert c.get("/api/stats/monitor-trend?monitor_id=999", headers=AUTH).status_code == 404
+
+
+def test_monitor_trend_window_is_bounded(client):
+    """`days` is the width of a chart, not a data request. 180 days is already
+    six months of a tool whose oldest row is days old; unbounded would let a
+    URL ask for a full-ledger scan per pixel."""
+    c, engine = client
+    with Session(engine) as s:
+        s.add(Monitor(name="rule", keyword="iPhone 15", interval_seconds=300))
+        s.commit()
+
+    assert c.get("/api/stats/monitor-trend?monitor_id=1&days=0", headers=AUTH).status_code == 422
+    assert c.get("/api/stats/monitor-trend?monitor_id=1&days=181", headers=AUTH).status_code == 422
+
+    body = c.get("/api/stats/monitor-trend?monitor_id=1&days=180", headers=AUTH).json()
+    assert len(body["days"]) == 180
+
+
+def test_monitor_trend_defaults_to_thirty_days(client):
+    c, engine = client
+    with Session(engine) as s:
+        s.add(Monitor(name="rule", keyword="iPhone 15", interval_seconds=300))
+        s.commit()
+
+    body = c.get("/api/stats/monitor-trend?monitor_id=1", headers=AUTH).json()
+    assert body["window_days"] == 30
+    assert len(body["days"]) == 30
+    assert body["sample_size"] == 0

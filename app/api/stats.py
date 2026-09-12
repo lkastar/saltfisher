@@ -12,14 +12,23 @@ cuts for the daily series, consistent with the analytics endpoints.
 """
 
 from datetime import timedelta
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func
 from sqlmodel import col, select
 
+from app import analytics
 from app.db import SessionDep
-from app.models import CollectRun, Item, NotifyChannel, NotifyLog, utcnow
-from app.schemas import OverviewDay, OverviewHits, OverviewPushes, OverviewRuns, StatsOverview
+from app.models import CollectRun, Item, Monitor, NotifyChannel, NotifyLog, utcnow
+from app.schemas import (
+    MonitorTrend,
+    OverviewDay,
+    OverviewHits,
+    OverviewPushes,
+    OverviewRuns,
+    StatsOverview,
+)
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -132,3 +141,25 @@ def overview(session: SessionDep) -> StatsOverview:
         items_total=items_total,
         daily=daily,
     )
+
+
+@router.get("/monitor-trend", response_model=MonitorTrend)
+def monitor_trend(
+    session: SessionDep,
+    monitor_id: Annotated[int, Query()],
+    days: Annotated[int, Query(ge=1, le=180)] = 30,
+) -> MonitorTrend:
+    """How the price level of one rule's listings has moved, day by day.
+
+    Rule-scoped, which is why it lives here and not in `api/analytics.py` —
+    every route there resolves a keyword through the `Keyword` dependency, and
+    a keyword can map to several rules watching it at different intervals.
+
+    Read `collected` before reading the prices: a day this rule never ran
+    carries no claim about the market. See `analytics.monitor_trend` for why
+    the series carries the last observation forward instead of averaging the
+    snapshots captured that day.
+    """
+    if session.get(Monitor, monitor_id) is None:
+        raise HTTPException(status_code=404, detail="monitor not found")
+    return MonitorTrend(**analytics.monitor_trend(session, monitor_id, days=days))

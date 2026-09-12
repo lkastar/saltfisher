@@ -621,3 +621,118 @@ def listing_duration(
         for b in _histogram(minutes, align=duration_align(max(minutes) - min(minutes)))
     ]
     return result
+
+
+def monitor_trend(
+    session: Session, monitor_id: int, *, days: int = 30, now: datetime | None = None
+) -> dict:
+    """Daily mean price and interquartile band of what one rule is watching.
+
+    Scoped to one rule, not to a keyword: two rules watch different products,
+    so a combined mean is arithmetic over unrelated things.
+
+    **Carry-forward, not same-day snapshots.** `PriceSnapshot` is appended only
+    when a price or status CHANGES (`models.PriceSnapshot`), so averaging the
+    rows captured on a given day averages the listings that happened to move
+    that day — a different population every day, and a line that swings on
+    repricing activity rather than on the market. Each listing therefore
+    contributes its most recent observation at or before the end of the day.
+
+    Two boundaries on that carry:
+
+    - A listing contributes only from the day of its first observation. Its
+      price is not projected backwards into days when we did not know it.
+    - A listing stops contributing once its carried status is not `on_sale`.
+      A sold listing is a fact about the past, not part of the current market.
+      This is the one direction `status` is trustworthy, same as the rest of
+      this module: only an observed `sold`/`removed` excludes.
+
+    `collected` marks days this rule never ran, copied from `supply_trend` for
+    the same reason: "no data" and "we were down" are different facts, and a
+    chart that bridges them reports a market that was never measured.
+
+    Day boundaries are UTC, like every other series here.
+    """
+    now = now or utcnow()
+    start = (now - timedelta(days=days - 1)).date() if days > 0 else now.date()
+    result: dict = {
+        "monitor_id": monitor_id,
+        "window_days": days,
+        "sample_size": 0,
+        "days": [],
+    }
+
+    # Subquery, not a Python list of ids: a rule with a few thousand ledger
+    # rows would otherwise blow past SQLite's bound-variable limit.
+    ledger = select(col(MonitorHit.item_id)).where(MonitorHit.monitor_id == monitor_id)
+
+    # Every snapshot this rule's ledger has, not just the window: day one needs
+    # the last observation BEFORE the window, or every listing sitting at a
+    # stable price is missing from it. The table is append-on-change, which is
+    # what keeps that affordable.
+    #
+    # ponytail: full ledger read, sorted in Python. A window-function query
+    # that carries only the pre-window tail would cost less; do that the day a
+    # single rule's snapshot count makes this measurably slow.
+    rows = session.exec(
+        select(
+            col(PriceSnapshot.item_id),
+            col(PriceSnapshot.price_cents),
+            col(PriceSnapshot.status),
+            col(PriceSnapshot.captured_at),
+        )
+        .where(col(PriceSnapshot.item_id).in_(ledger))
+        .order_by(col(PriceSnapshot.captured_at), col(PriceSnapshot.id))
+    ).all()
+
+    run_day = func.date(col(CollectRun.started_at))
+    runs_by_day: dict[str, int] = {
+        row[0]: int(row[1])
+        for row in session.exec(
+            select(run_day, func.sum(func.iif(col(CollectRun.ok), 1, 0)))
+            .where(CollectRun.monitor_id == monitor_id)
+            .where(run_day >= start.isoformat())
+            .group_by(run_day)
+        ).all()
+    }
+
+    # One forward pass: carry each listing's latest observation across days.
+    carried: dict[str, tuple[int, str]] = {}
+    cursor = 0
+    series: list[dict] = []
+    total = 0
+    for offset in range(max(days, 1)):
+        day = start + timedelta(days=offset)
+        day_end = datetime.combine(day + timedelta(days=1), datetime.min.time())
+        while cursor < len(rows) and _naive(rows[cursor][3]) < day_end:
+            item_id, price_cents, status, _ = rows[cursor]
+            carried[item_id] = (int(price_cents), status)
+            cursor += 1
+
+        prices = sorted(price for price, status in carried.values() if status == "on_sale")
+        quantiles = _quantiles(prices)
+        total += len(prices)
+        series.append(
+            {
+                "date": day.isoformat(),
+                "mean_cents": round(sum(prices) / len(prices)) if prices else None,
+                "p25_cents": quantiles.get("p25"),
+                "p75_cents": quantiles.get("p75"),
+                "listing_count": len(prices),
+                "collected": runs_by_day.get(day.isoformat(), 0) > 0,
+            }
+        )
+
+    result["days"] = series
+    result["sample_size"] = total
+    return result
+
+
+def _naive(value: datetime) -> datetime:
+    """Drop the tzinfo UtcDateTime attaches, so day boundaries compare.
+
+    The column is UTC by construction, so this loses no information -- it only
+    lets an aware timestamp be compared against the naive midnight the day walk
+    builds, instead of raising TypeError.
+    """
+    return value.replace(tzinfo=None) if value.tzinfo is not None else value

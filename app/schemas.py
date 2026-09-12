@@ -647,6 +647,40 @@ class OverviewDay(SQLModel):
     pushes: int
 
 
+class MonitorTrendDay(SQLModel):
+    """One UTC calendar day of one rule's ledger.
+
+    `mean_cents` / `p25_cents` / `p75_cents` are null when the day has nothing
+    to average — no listing on sale yet, or fewer than two for the band. A null
+    is a gap the chart must leave open, never a zero and never a bridge.
+
+    `collected` false means this rule had no successful cycle that day. It is
+    reported separately from the price because "the market did not move" and
+    "we were not looking" are different facts.
+    """
+
+    date: str
+    mean_cents: int | None = None
+    p25_cents: int | None = None
+    p75_cents: int | None = None
+    listing_count: int
+    collected: bool
+
+
+class MonitorTrend(SQLModel):
+    """Daily price level of what one monitor rule watches.
+
+    `sample_size` is the sum of per-day listing counts, i.e. observation-days,
+    not distinct listings — the same "how much is behind this chart" role it
+    plays in the analytics responses.
+    """
+
+    monitor_id: int
+    window_days: int
+    sample_size: int
+    days: list[MonitorTrendDay]
+
+
 class StatsOverview(SQLModel):
     """The overview page's KPI row, from the real tables in one request.
 
