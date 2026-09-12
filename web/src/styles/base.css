@@ -1648,6 +1648,26 @@ tr:hover .cell-edit .row-edit-btn,
   margin-bottom: var(--space-3);
 }
 
+/* The edit form expands as a row directly under the rule it edits, so it has
+ * to read as part of that row rather than as a card floating in the table:
+ * no cell padding around it, no shadow lifting it off, and an accent edge
+ * tying it to the row above. */
+.row-form > td {
+  padding: 0 0 var(--space-3);
+  background: none;
+}
+
+.row-form .form-panel {
+  margin-bottom: 0;
+  box-shadow: none;
+  border-top: 2px solid var(--acc);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+.row-form:hover > td {
+  background: none;
+}
+
 .form-section {
   padding: 18px 0;
 }

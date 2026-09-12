@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link } from "react-router";
 
 import { ApiError } from "../api/client";
@@ -608,21 +608,13 @@ export default function MonitorsPage() {
           </div>
         </div>
 
-        {formFor === null ? null : (
+        {formFor === "new" ? (
           <MonitorForm
-            // Remount when the target changes: the inputs are uncontrolled, so
-            // defaultValue is only read at mount.
-            key={formFor}
-            monitor={
-              typeof formFor === "number"
-                ? rules.find((m) => m.id === formFor)
-                : undefined
-            }
             onDone={() => setFormFor(null)}
             sessionUsable={sessionUsable}
             channels={channels}
           />
-        )}
+        ) : null}
 
         {run.isError ? (
           <ErrorState title="立即运行失败" error={run.error} />
@@ -685,99 +677,122 @@ export default function MonitorsPage() {
               </thead>
               <tbody>
                 {rules.map((m) => (
-                  <tr key={m.id}>
-                    <td>{m.name}</td>
-                    <td>
-                      <RuleTarget m={m} />
-                    </td>
-                    <td className="num">
-                      {formatPriceRange(m.price_min_cents, m.price_max_cents)}
-                    </td>
-                    <td className="num">{m.interval_seconds}s</td>
-                    <td className="num">
-                      <Link to={`/items?monitor_id=${m.id}`}>
-                        {m.hit_count}
-                      </Link>
-                    </td>
-                    <td className="mono" style={{ fontSize: 12 }}>
-                      {formatRelativeTime(m.last_run_at)}
-                    </td>
-                    <td className="muted">{m.last_collector ?? "—"}</td>
-                    <td>
-                      <Health m={m} />
-                    </td>
-                    <td>
-                      {/* A rule with no channel collects and then tells nobody.
+                  <Fragment key={m.id}>
+                    <tr>
+                      <td>{m.name}</td>
+                      <td>
+                        <RuleTarget m={m} />
+                      </td>
+                      <td className="num">
+                        {formatPriceRange(m.price_min_cents, m.price_max_cents)}
+                      </td>
+                      <td className="num">{m.interval_seconds}s</td>
+                      <td className="num">
+                        <Link to={`/items?monitor_id=${m.id}`}>
+                          {m.hit_count}
+                        </Link>
+                      </td>
+                      <td className="mono" style={{ fontSize: 12 }}>
+                        {formatRelativeTime(m.last_run_at)}
+                      </td>
+                      <td className="muted">{m.last_collector ?? "—"}</td>
+                      <td>
+                        <Health m={m} />
+                      </td>
+                      <td>
+                        {/* A rule with no channel collects and then tells nobody.
                         That is worth a warning, not a blank cell. */}
-                      {m.channel_ids.length === 0 ? (
-                        <span
-                          className="pill"
-                          data-tone="warn"
-                          title="未关联推送渠道"
-                        >
-                          无渠道
-                        </span>
-                      ) : (
-                        <span className="muted">{m.channel_ids.length} 个</span>
-                      )}
-                    </td>
-                    <td>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "var(--space-1)",
-                          alignItems: "center",
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setFormFor(formFor === m.id ? null : m.id)
-                          }
-                          aria-expanded={formFor === m.id}
-                        >
-                          {formFor === m.id ? "收起" : "编辑"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => run.mutate(m.id)}
-                          disabled={run.isPending}
-                        >
-                          {run.isPending && run.variables === m.id
-                            ? "运行中…"
-                            : "立即运行"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            toggle.mutate({ id: m.id, enabled: !m.enabled })
-                          }
-                          disabled={toggle.isPending}
-                        >
-                          {m.enabled ? "停用" : "启用"}
-                        </button>
-                        {/* Inline confirmation rather than confirm(): a native
-                          dialog blocks the event loop, which would also make
-                          the panel unresponsive to any automated check. */}
-                        {confirming === m.id ? (
-                          <ConfirmInline
-                            verb="删除"
-                            pending={remove.isPending}
-                            onConfirm={() => remove.mutate(m.id)}
-                            onCancel={() => setConfirming(null)}
-                          />
+                        {m.channel_ids.length === 0 ? (
+                          <span
+                            className="pill"
+                            data-tone="warn"
+                            title="未关联推送渠道"
+                          >
+                            无渠道
+                          </span>
                         ) : (
+                          <span className="muted">
+                            {m.channel_ids.length} 个
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "var(--space-1)",
+                            alignItems: "center",
+                          }}
+                        >
                           <button
                             type="button"
-                            data-variant="danger"
-                            onClick={() => setConfirming(m.id)}
+                            onClick={() =>
+                              setFormFor(formFor === m.id ? null : m.id)
+                            }
+                            aria-expanded={formFor === m.id}
                           >
-                            删除
+                            {formFor === m.id ? "收起" : "编辑"}
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                          <button
+                            type="button"
+                            onClick={() => run.mutate(m.id)}
+                            disabled={run.isPending}
+                          >
+                            {run.isPending && run.variables === m.id
+                              ? "运行中…"
+                              : "立即运行"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              toggle.mutate({ id: m.id, enabled: !m.enabled })
+                            }
+                            disabled={toggle.isPending}
+                          >
+                            {m.enabled ? "停用" : "启用"}
+                          </button>
+                          {/* Inline confirmation rather than confirm(): a native
+                          dialog blocks the event loop, which would also make
+                          the panel unresponsive to any automated check. */}
+                          {confirming === m.id ? (
+                            <ConfirmInline
+                              verb="删除"
+                              pending={remove.isPending}
+                              onConfirm={() => remove.mutate(m.id)}
+                              onCancel={() => setConfirming(null)}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              data-variant="danger"
+                              onClick={() => setConfirming(m.id)}
+                            >
+                              删除
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {/* Directly under the row it edits. The create form keeps
+                      the slot at the top of the card, but an edit opened
+                      there means a mis-click costs a trip back up the page to
+                      find and dismiss it. */}
+                    {formFor === m.id ? (
+                      <tr className="row-form">
+                        <td colSpan={10}>
+                          <MonitorForm
+                            // Uncontrolled inputs read defaultValue once, so the
+                            // form must remount when it retargets.
+                            key={m.id}
+                            monitor={m}
+                            onDone={() => setFormFor(null)}
+                            sessionUsable={sessionUsable}
+                            channels={channels}
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
