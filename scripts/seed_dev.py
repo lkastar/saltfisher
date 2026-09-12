@@ -39,7 +39,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from sqlmodel import Session, col, delete, select  # noqa: E402
+from sqlmodel import Session, SQLModel, col, select  # noqa: E402
 
 from app.collector.base import (  # noqa: E402
     RawItem,
@@ -492,7 +492,9 @@ def seed_ledger(
                     ),
                 )
             )
-        rule.hit_count = len(item_ids)
+        # No hit_count to set: the MonitorHit rows written above ARE the
+        # count now (api/monitors._hit_count derives it). Stamping a number
+        # here is what the dropped column used to do, and what let it drift.
         session.add(rule)
     session.commit()
 
@@ -713,23 +715,22 @@ def seed_notify(session: Session, rules: dict[str, Monitor], now: datetime) -> d
     return ids
 
 
-def reset(session: Session) -> None:
-    # Child tables first: every foreign key here points at Monitor, Item,
-    # Seller or NotifyChannel.
-    for table in (
-        MonitorChannel,
-        NotifyLog,
-        NotifyChannel,
-        CollectRun,
-        MonitorHit,
-        Watchlist,
-        PriceSnapshot,
-        Monitor,
-        Item,
-        Seller,
-    ):
-        session.exec(delete(table))  # type: ignore[call-overload]
-    session.commit()
+def reset() -> None:
+    """Rebuild the schema, not just empty it.
+
+    Deleting rows leaves the TABLES as they were, so a dev database outlives
+    the schema it was built for and then fails in a way that looks like a bug
+    in the seeder. It did: this file was first run before migration 002
+    dropped `monitor.hit_count`, and the next `--reset` died on
+    `NOT NULL constraint failed: monitor.hit_count` because the stale column
+    survived the delete while the model had stopped writing it.
+
+    A disposable dataset should be able to rebuild itself, and dropping is
+    safe here precisely because `main()` has already refused to run anywhere
+    but a dev data dir.
+    """
+    SQLModel.metadata.drop_all(engine)
+    SQLModel.metadata.create_all(engine)
 
 
 def main() -> int:
@@ -773,10 +774,12 @@ def main() -> int:
     for item, (shape_name, first_day_ago) in zip(pool, POOL_PLAN, strict=False):
         plan.append((item, shape_name, first_day_ago))
 
-    with Session(engine) as session:
-        if args.reset:
-            reset(session)
+    # Before the session opens: dropping tables under a live Session means
+    # reasoning about what its connection still holds.
+    if args.reset:
+        reset()
 
+    with Session(engine) as session:
         if detail_seller is not None:
             upsert_seller_profile(session, detail_seller)
             session.commit()
