@@ -547,11 +547,7 @@ export default function MonitorsPage() {
       <PageHero
         eyebrow="MONITOR RULES"
         ghost="RULES"
-        title={
-          <>
-            监控任务<span className="thin"> / 规则台</span>
-          </>
-        }
+        title="监控任务"
         meta={
           <>
             <span>

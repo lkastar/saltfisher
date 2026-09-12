@@ -12,7 +12,10 @@ import { useHeroDrift } from "../lib/fx";
 type PageHeroProps = {
   /** Uppercased mono line above the title, e.g. "SYSTEM OVERVIEW". */
   eyebrow: string;
-  /** May carry a <span className="thin"> suffix per the prototype. */
+  /** May carry a `<span className="thin"> / …</span>` suffix, but ONLY when
+   *  that suffix is data: the keyword a chart is scoped to, the filter a list
+   *  is narrowed by. A suffix that just renames the page ("设置 / 系统控制台")
+   *  is decoration wearing a slash and was removed on 2026-09-13. */
   title: ReactNode;
   /** Oversized outlined background word. Purely decorative. */
   ghost?: string;

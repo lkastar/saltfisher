@@ -971,14 +971,20 @@ tbody tr:last-child td {
 }
 
 /* Per-character masked rise. PageHero wraps each glyph in .ch > .ch-i and
- * sets --i; the outer span is the mask. The bottom padding/margin pair keeps
- * Latin descenders out of the clip without shifting the baseline. */
+ * sets --i; the outer span is the mask.
+ *
+ * Padding/negative-margin pairs on every side, not just the bottom. The mask
+ * clips whatever leaves the glyph's advance width, and h1 runs at
+ * letter-spacing -0.03em, which makes that box NARROWER than the glyph. A
+ * slash is the case that shows it: "行情分析 / iPhone 15" had the top-right
+ * corner of the slash sliced off flat. The negative margins cancel the
+ * padding, so metrics and baseline are exactly where they were. */
 .hero h1 .ch {
   display: inline-block;
   overflow: hidden;
   vertical-align: bottom;
-  padding-bottom: 0.1em;
-  margin-bottom: -0.1em;
+  padding: 0.14em 0.08em 0.1em;
+  margin: -0.14em -0.08em -0.1em;
 }
 
 .hero h1 .ch-i {

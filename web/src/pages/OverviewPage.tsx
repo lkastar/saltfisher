@@ -22,7 +22,11 @@ import Spark from "../components/Spark";
 import { StatusPill } from "../components/StatusPill";
 import { Empty, ErrorState, Loading } from "../components/States";
 import { Ticker } from "../components/Ticker";
-import { formatChangeRatio, formatPrice, formatRelativeTime } from "../lib/format";
+import {
+  formatChangeRatio,
+  formatPrice,
+  formatRelativeTime,
+} from "../lib/format";
 import { useCountUp, useReveal } from "../lib/fx";
 import { recentWatch } from "../lib/watchlist";
 
@@ -61,7 +65,14 @@ function WatchSpark({ itemId, color }: { itemId: string; color: string }) {
   // A PriceSnapshot is written only when price or status CHANGES, so a stable
   // listing has exactly one point and an item observed once has none. Spark
   // handles both (one point parks a dot at mid-height, zero returns null).
-  return <Spark values={prices.data.map((p) => p.price_cents)} color={color} width={90} height={22} />;
+  return (
+    <Spark
+      values={prices.data.map((p) => p.price_cents)}
+      color={color}
+      width={90}
+      height={22}
+    />
+  );
 }
 
 /** What the user pinned, newest first -- the overview's answer to "what do I
@@ -120,7 +131,12 @@ function WatchTrend() {
               : "var(--red)";
         return (
           <div className="hit-item" key={entry.item_id}>
-            <RemoteImage src={entry.cover_url} alt={entry.title} width={48} height={48} />
+            <RemoteImage
+              src={entry.cover_url}
+              alt={entry.title}
+              width={48}
+              height={48}
+            />
             <div className="hit-body">
               <div className="hit-title">
                 <Link to={`/items/${entry.item_id}`} title={entry.title}>
@@ -128,7 +144,9 @@ function WatchTrend() {
                 </Link>
               </div>
               <div className="hit-meta">
-                <span className="hit-price">{formatPrice(entry.price_cents)}</span>
+                <span className="hit-price">
+                  {formatPrice(entry.price_cents)}
+                </span>
                 <span className="mono" style={{ color: tone }}>
                   {formatChangeRatio(entry.change_ratio)}
                 </span>
@@ -149,7 +167,10 @@ export default function OverviewPage() {
   const navigate = useNavigate();
   const reveal = useReveal();
   const monitors = useQuery({ ...monitorsOptions(), refetchInterval: POLL });
-  const recent = useQuery({ ...itemsOptions(RECENT_ITEMS), refetchInterval: POLL });
+  const recent = useQuery({
+    ...itemsOptions(RECENT_ITEMS),
+    refetchInterval: POLL,
+  });
   const logs = useQuery({ ...notifyLogsOptions(), refetchInterval: POLL });
   const stats = useQuery({ ...statsOverviewOptions(), refetchInterval: POLL });
   const session = useQuery(sessionOptions());
@@ -166,7 +187,9 @@ export default function OverviewPage() {
   const enabledRules = rules.filter((m) => m.enabled);
   const failing = rules.filter((m) => m.last_error !== null);
   const fastest =
-    enabledRules.length > 0 ? Math.min(...enabledRules.map((m) => m.interval_seconds)) : null;
+    enabledRules.length > 0
+      ? Math.min(...enabledRules.map((m) => m.interval_seconds))
+      : null;
 
   // Every count below comes from `/api/stats/overview` (server-side, no row
   // cap), which retired the old client-side derivations in lib/overview.ts
@@ -184,7 +207,8 @@ export default function OverviewPage() {
     .map((d) => 1 - d.runs_failed / d.runs_total);
 
   const runs = stats.data?.runs_24h;
-  const successRate = runs !== undefined && runs.total > 0 ? 1 - runs.failed / runs.total : null;
+  const successRate =
+    runs !== undefined && runs.total > 0 ? 1 - runs.failed / runs.total : null;
   const pushes = stats.data?.pushes_24h;
 
   return (
@@ -194,16 +218,14 @@ export default function OverviewPage() {
       <PageHero
         eyebrow="SYSTEM OVERVIEW"
         ghost="SIGNAL"
-        title={
-          <>
-            总览<span className="thin"> / 信号台</span>
-          </>
-        }
+        title="总览"
         meta={
           <>
             <span>
               <Icon name="timer" size={12} />
-              {fastest !== null ? `最快每 ${fastest} 秒轮询` : "没有启用中的规则"}
+              {fastest !== null
+                ? `最快每 ${fastest} 秒轮询`
+                : "没有启用中的规则"}
             </span>
             {session.data ? (
               <span>
@@ -261,8 +283,16 @@ export default function OverviewPage() {
             ) : null}
           </div>
           <span className="kpi-value">
-            {monitors.isPending ? "…" : monitors.isError ? "—" : <CountUp value={enabledRules.length} />}
-            {monitors.isSuccess ? <span className="unit">/ {rules.length} 启用</span> : null}
+            {monitors.isPending ? (
+              "…"
+            ) : monitors.isError ? (
+              "—"
+            ) : (
+              <CountUp value={enabledRules.length} />
+            )}
+            {monitors.isSuccess ? (
+              <span className="unit">/ {rules.length} 启用</span>
+            ) : null}
           </span>
           <span className="kpi-sub">
             {monitors.isError
@@ -286,7 +316,13 @@ export default function OverviewPage() {
             </span>
           </div>
           <span className="kpi-value">
-            {stats.isPending ? "…" : stats.isError ? "—" : <CountUp value={stats.data.hits.today} />}
+            {stats.isPending ? (
+              "…"
+            ) : stats.isError ? (
+              "—"
+            ) : (
+              <CountUp value={stats.data.hits.today} />
+            )}
           </span>
           <span className="kpi-sub">
             {stats.isError
@@ -348,7 +384,13 @@ export default function OverviewPage() {
             </span>
           </div>
           <span className="kpi-value">
-            {stats.isPending ? "…" : stats.isError ? "—" : <CountUp value={stats.data.pushes_24h.total} />}
+            {stats.isPending ? (
+              "…"
+            ) : stats.isError ? (
+              "—"
+            ) : (
+              <CountUp value={stats.data.pushes_24h.total} />
+            )}
             {stats.isSuccess ? <span className="unit">次</span> : null}
           </span>
           <span className="kpi-sub">
@@ -369,7 +411,13 @@ export default function OverviewPage() {
       </section>
 
       <div className="grid-21">
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-3)",
+          }}
+        >
           <MonitorTrend monitors={rules} />
           <WatchTrend />
         </div>
@@ -399,7 +447,12 @@ export default function OverviewPage() {
             ) : null}
             {(recent.data ?? []).slice(0, 5).map((item) => (
               <div className="hit-item" key={item.id}>
-                <RemoteImage src={item.cover_url} alt={item.title} width={48} height={48} />
+                <RemoteImage
+                  src={item.cover_url}
+                  alt={item.title}
+                  width={48}
+                  height={48}
+                />
                 <div className="hit-body">
                   <div className="hit-title">
                     <Link to={`/items/${item.id}`} title={item.title}>
@@ -407,7 +460,9 @@ export default function OverviewPage() {
                     </Link>
                   </div>
                   <div className="hit-meta">
-                    <span className="hit-price">{formatPrice(item.price_cents)}</span>
+                    <span className="hit-price">
+                      {formatPrice(item.price_cents)}
+                    </span>
                     <span>{formatRelativeTime(item.first_seen_at)}</span>
                   </div>
                 </div>
@@ -435,7 +490,11 @@ export default function OverviewPage() {
               <Empty message="还没有推送过。命中要配了渠道才会推送出去。" />
             ) : null}
             {(logs.data ?? []).slice(0, 6).map((log) => (
-              <div className="push-item" key={log.id} title={log.error ?? undefined}>
+              <div
+                className="push-item"
+                key={log.id}
+                title={log.error ?? undefined}
+              >
                 {/* The word carries the failure; the dot only accelerates it. */}
                 <span
                   className="dot"

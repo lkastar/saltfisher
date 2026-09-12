@@ -1486,11 +1486,7 @@ export default function SettingsPage() {
       <PageHero
         eyebrow="SYSTEM PREFERENCES · CREDENTIAL VAULT"
         ghost="CONFIG"
-        title={
-          <>
-            设置<span className="thin"> / 系统控制台</span>
-          </>
-        }
+        title="设置"
         meta={
           <>
             <span>

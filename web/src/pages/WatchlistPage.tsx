@@ -34,7 +34,10 @@ function Change({ entry }: { entry: WatchEntry }) {
       // Colour only accelerates reading this; the arrow and the number carry
       // the meaning. Green means cheaper here, the inverse of the red-up
       // convention a Chinese user brings with them.
-      style={{ color: cheaper ? "var(--green)" : "var(--red)", fontWeight: 600 }}
+      style={{
+        color: cheaper ? "var(--green)" : "var(--red)",
+        fontWeight: 600,
+      }}
     >
       {formatChangeRatio(entry.change_ratio)}
       <span className="dim" style={{ fontWeight: 400 }}>
@@ -65,9 +68,15 @@ function AddByLink() {
           const url = value.trim();
           if (url) add.mutate(url);
         }}
-        style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-2)",
+        }}
       >
-        <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+        <div
+          style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}
+        >
           <input
             aria-label="闲鱼链接或分享文案"
             value={value}
@@ -92,7 +101,6 @@ function AddByLink() {
     </section>
   );
 }
-
 
 /* 意图备注 and 降价轮询 edit independently, one cell at a time. Editors are
  * mounted only while their cell edits, so draft state initializes fresh from
@@ -177,10 +185,13 @@ function NoteEditor({ entry, saving, onSave, onCancel }: CellEditorProps) {
 
 function IntervalEditor({ entry, saving, onSave, onCancel }: CellEditorProps) {
   const [enabled, setEnabled] = useState(entry.price_watch_enabled);
-  const [intervalStr, setIntervalStr] = useState(String(entry.interval_seconds));
+  const [intervalStr, setIntervalStr] = useState(
+    String(entry.interval_seconds),
+  );
   const seconds = Number(intervalStr);
   const valid = Number.isInteger(seconds) && seconds >= MIN_INTERVAL;
-  const save = () => onSave({ price_watch_enabled: enabled, interval_seconds: seconds });
+  const save = () =>
+    onSave({ price_watch_enabled: enabled, interval_seconds: seconds });
   return (
     <span
       className="cell-editing"
@@ -188,7 +199,14 @@ function IntervalEditor({ entry, saving, onSave, onCancel }: CellEditorProps) {
         if (event.key === "Escape") onCancel();
       }}
     >
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+      <label
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 12,
+        }}
+      >
         <input
           type="checkbox"
           data-switch
@@ -213,7 +231,12 @@ function IntervalEditor({ entry, saving, onSave, onCancel }: CellEditorProps) {
       <span className="dim mono" style={{ fontSize: 11 }}>
         s
       </span>
-      <EditActions saving={saving} valid={valid} onSave={save} onCancel={onCancel} />
+      <EditActions
+        saving={saving}
+        valid={valid}
+        onSave={save}
+        onCancel={onCancel}
+      />
     </span>
   );
 }
@@ -222,14 +245,21 @@ export default function WatchlistPage() {
   const queryClient = useQueryClient();
   const query = useQuery(watchlistOptions());
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ id: string; field: "note" | "interval" } | null>(
-    null,
-  );
+  const [editing, setEditing] = useState<{
+    id: string;
+    field: "note" | "interval";
+  } | null>(null);
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: keys.watchlist });
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: keys.watchlist });
   const patch = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: Parameters<typeof updateWatch>[1] }) =>
-      updateWatch(id, body),
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: Parameters<typeof updateWatch>[1];
+    }) => updateWatch(id, body),
     onSuccess: invalidate,
   });
   const remove = useMutation({
@@ -247,7 +277,9 @@ export default function WatchlistPage() {
   const watching = entries.filter((e) => e.price_watch_enabled).length;
   const deepest = entries.reduce<number | null>(
     (acc, e) =>
-      e.change_ratio < 0 && (acc === null || e.change_ratio < acc) ? e.change_ratio : acc,
+      e.change_ratio < 0 && (acc === null || e.change_ratio < acc)
+        ? e.change_ratio
+        : acc,
     null,
   );
 
@@ -256,11 +288,7 @@ export default function WatchlistPage() {
       <PageHero
         eyebrow="ITEM WATCHLIST · PER-ITEM PRICE TRACKER"
         ghost="TRACK"
-        title={
-          <>
-            收藏与降价追踪<span className="thin"> / 独立比价池</span>
-          </>
-        }
+        title="收藏与降价追踪"
         meta={
           query.data === undefined ? undefined : (
             <>
@@ -275,7 +303,9 @@ export default function WatchlistPage() {
               {deepest === null ? null : (
                 <span>
                   <Icon name="tag" size={12} />
-                  <span className="ok">已捕获最大跌幅 {formatChangeRatio(deepest)}</span>
+                  <span className="ok">
+                    已捕获最大跌幅 {formatChangeRatio(deepest)}
+                  </span>
                 </span>
               )}
             </>
@@ -294,8 +324,12 @@ export default function WatchlistPage() {
             onRetry={() => void query.refetch()}
           />
         ) : null}
-        {patch.isError ? <ErrorState title="保存失败" error={patch.error} /> : null}
-        {remove.isError ? <ErrorState title="移出失败" error={remove.error} /> : null}
+        {patch.isError ? (
+          <ErrorState title="保存失败" error={patch.error} />
+        ) : null}
+        {remove.isError ? (
+          <ErrorState title="移出失败" error={remove.error} />
+        ) : null}
 
         {query.data?.length === 0 ? (
           <Empty message="收藏夹是空的。贴一个链接就能开始追踪它的价格。" />
@@ -355,10 +389,15 @@ export default function WatchlistPage() {
                           {entry.seller_is_shop ? " · 商家" : ""}
                         </div>
                       </td>
-                      <td className="num" style={{ fontSize: 15, fontWeight: 600 }}>
+                      <td
+                        className="num"
+                        style={{ fontSize: 15, fontWeight: 600 }}
+                      >
                         {formatPrice(entry.price_cents)}
                       </td>
-                      <td className="num dim">{formatPrice(entry.added_price_cents)}</td>
+                      <td className="num dim">
+                        {formatPrice(entry.added_price_cents)}
+                      </td>
                       <td className="num">
                         <Change entry={entry} />
                       </td>
@@ -367,7 +406,8 @@ export default function WatchlistPage() {
                       </td>
                       <td className="num">{entry.listed_days.toFixed(1)} 天</td>
                       <td>
-                        {editing?.id === entry.item_id && editing.field === "note" ? (
+                        {editing?.id === entry.item_id &&
+                        editing.field === "note" ? (
                           <NoteEditor
                             entry={entry}
                             saving={patch.isPending}
@@ -401,7 +441,9 @@ export default function WatchlistPage() {
                             <button
                               type="button"
                               className="btn-text row-edit-btn"
-                              onClick={() => setEditing({ id: entry.item_id, field: "note" })}
+                              onClick={() =>
+                                setEditing({ id: entry.item_id, field: "note" })
+                              }
                               aria-label={`编辑备注：${shortTitle(entry.title)}`}
                             >
                               <Icon name="edit" size={13} />
@@ -410,7 +452,8 @@ export default function WatchlistPage() {
                         )}
                       </td>
                       <td>
-                        {editing?.id === entry.item_id && editing.field === "interval" ? (
+                        {editing?.id === entry.item_id &&
+                        editing.field === "interval" ? (
                           <IntervalEditor
                             entry={entry}
                             saving={patch.isPending}
@@ -433,7 +476,10 @@ export default function WatchlistPage() {
                               type="button"
                               className="btn-text row-edit-btn"
                               onClick={() =>
-                                setEditing({ id: entry.item_id, field: "interval" })
+                                setEditing({
+                                  id: entry.item_id,
+                                  field: "interval",
+                                })
                               }
                               aria-label={`编辑降价轮询：${shortTitle(entry.title)}`}
                             >
@@ -442,11 +488,18 @@ export default function WatchlistPage() {
                           </span>
                         )}
                       </td>
-                      <td className="mono muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                      <td
+                        className="mono muted"
+                        style={{ fontSize: 12, whiteSpace: "nowrap" }}
+                      >
                         {formatRelativeTime(entry.last_run_at)}
                         {entry.last_error ? (
                           <div>
-                            <span className="pill" data-tone="warn" title={entry.last_error}>
+                            <span
+                              className="pill"
+                              data-tone="warn"
+                              title={entry.last_error}
+                            >
                               <Icon name="alert-triangle" size={11} />
                               检查报错
                             </span>
