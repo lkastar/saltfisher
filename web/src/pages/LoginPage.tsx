@@ -76,7 +76,7 @@ export default function LoginPage({
             aria-invalid={error ? true : undefined}
             autoFocus
           />
-          <span className="muted" style={{ fontSize: 11.5 }}>
+          <span className="field-hint">
             与后端 SFD_API_TOKEN 一致。
           </span>
         </div>

@@ -165,41 +165,42 @@ export default function ItemsPage() {
             </select>
           </label>
 
-          <label className="field">
-            <span className="field-label">价格下限</span>
-            <input
-              type="number"
-              min={0}
-              className="mono"
-              placeholder="下限 元"
-              style={{ width: 96 }}
-              defaultValue={
-                filters.min_price_cents === undefined ? "" : filters.min_price_cents / 100
-              }
-              onBlur={(e) => {
-                const cents = parseYuanToCents(e.target.value);
-                update("min_price_cents", cents === null ? undefined : String(cents));
-              }}
-            />
-          </label>
-
-          <label className="field">
-            <span className="field-label">价格上限</span>
-            <input
-              type="number"
-              min={0}
-              className="mono"
-              placeholder="上限 元"
-              style={{ width: 96 }}
-              defaultValue={
-                filters.max_price_cents === undefined ? "" : filters.max_price_cents / 100
-              }
-              onBlur={(e) => {
-                const cents = parseYuanToCents(e.target.value);
-                update("max_price_cents", cents === null ? undefined : String(cents));
-              }}
-            />
-          </label>
+          <div className="field">
+            <span className="field-label">价格区间（元）</span>
+            <div className="join-pair">
+              <input
+                type="number"
+                min={0}
+                className="mono"
+                placeholder="下限"
+                aria-label="价格下限（元）"
+                defaultValue={
+                  filters.min_price_cents === undefined ? "" : filters.min_price_cents / 100
+                }
+                onBlur={(e) => {
+                  const cents = parseYuanToCents(e.target.value);
+                  update("min_price_cents", cents === null ? undefined : String(cents));
+                }}
+              />
+              <span className="join-sep" aria-hidden="true">
+                –
+              </span>
+              <input
+                type="number"
+                min={0}
+                className="mono"
+                placeholder="上限"
+                aria-label="价格上限（元）"
+                defaultValue={
+                  filters.max_price_cents === undefined ? "" : filters.max_price_cents / 100
+                }
+                onBlur={(e) => {
+                  const cents = parseYuanToCents(e.target.value);
+                  update("max_price_cents", cents === null ? undefined : String(cents));
+                }}
+              />
+            </div>
+          </div>
 
           <label className="field">
             <span className="field-label">状态</span>
@@ -231,6 +232,7 @@ export default function ItemsPage() {
 
           <button
             type="button"
+            className="btn-ghost"
             onClick={() => setParams(new URLSearchParams(), { replace: true })}
           >
             <Icon name="rotate-ccw" size={14} />
@@ -316,7 +318,8 @@ export default function ItemsPage() {
           )}
 
           {!showsHitColumns ? (
-            <p className="muted" style={{ margin: 0, fontSize: 11.5, flexBasis: "100%" }}>
+            <p className="filterbar-note">
+              <Icon name="info" size={13} />
               选中某个监控任务后，会显示该规则命中时「因数据缺失而保守放行」的筛选条件。
             </p>
           ) : null}

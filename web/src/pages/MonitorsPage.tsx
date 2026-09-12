@@ -54,7 +54,7 @@ function RuleTarget({ m }: { m: Monitor }) {
         alignItems: "baseline",
       }}
     >
-      <span className="pill" title="盯这个卖家的全部在售商品，不按关键词搜索">
+      <span className="pill" title="盯该卖家全部在售商品">
         卖家
       </span>
       {/* URLSearchParams, not string concatenation: a seller id is base64 and
@@ -105,11 +105,7 @@ function Health({ m }: { m: Monitor }) {
   }
   if (!m.baseline_done) {
     return (
-      <span
-        className="pill"
-        data-tone="warn"
-        title="首轮只建立基线，不推送，避免把存量商品当成新命中"
-      >
+      <span className="pill" data-tone="warn" title="首轮建立基线，不推送">
         建立基线
       </span>
     );
@@ -120,12 +116,6 @@ function Health({ m }: { m: Monitor }) {
     </span>
   );
 }
-
-const FIELD: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-1)",
-};
 
 /** Create and edit in one form.
  *
@@ -212,289 +202,273 @@ function MonitorForm({
   }
 
   return (
-    <form
-      onSubmit={submit}
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-        gap: "var(--space-3)",
-        background: "var(--surface)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius)",
-        padding: "var(--space-4)",
-        marginBottom: "var(--space-3)",
-      }}
-    >
-      <label style={FIELD}>
-        名称
-        <input
-          name="name"
-          required
-          maxLength={100}
-          defaultValue={monitor?.name ?? ""}
-          aria-describedby={fieldError("name") ? "err-name" : undefined}
-          aria-invalid={fieldError("name") ? true : undefined}
-        />
-        {fieldError("name") ? (
-          <span
-            id="err-name"
-            role="alert"
-            style={{ color: "var(--danger)", fontSize: 11.5 }}
-          >
-            {fieldError("name")}
-          </span>
-        ) : null}
-      </label>
+    <form onSubmit={submit} className="form-panel">
+      {/* ---------- 监控目标 ---------- */}
+      <section className="form-section">
+        <div className="form-section-h">
+          <h3>
+            <Icon name="target" size={14} />
+            监控目标
+          </h3>
+        </div>
+        <div className="form-grid">
+          <label className="field span-2">
+            <span className="field-label">名称</span>
+            <input
+              name="name"
+              required
+              maxLength={100}
+              defaultValue={monitor?.name ?? ""}
+              aria-describedby={fieldError("name") ? "err-name" : undefined}
+              aria-invalid={fieldError("name") ? true : undefined}
+            />
+            {fieldError("name") ? (
+              <span id="err-name" role="alert" className="field-error">
+                {fieldError("name")}
+              </span>
+            ) : null}
+          </label>
 
-      {sellerRule ? (
-        <label style={FIELD}>
-          盯的卖家
-          {/* Read-only on purpose. Every other field here is editable, but the
-              TARGET is not: swapping a rule between a seller and a keyword
-              would silently re-point a ledger built from the old one. Delete
-              and rebuild if that is really the intent. */}
-          <span className="pill" style={{ alignSelf: "start" }}>
-            {sellerLabel(monitor.seller_nick, monitor.seller_id ?? "")}
-          </span>
-          <span className="muted" style={{ fontSize: 11 }}>
-            这是一条卖家规则，盯的对象不能在这里改；其余条件照常编辑。
-          </span>
-        </label>
-      ) : (
-        <label style={FIELD}>
-          关键词
-          <input
-            name="keyword"
-            required
-            maxLength={100}
-            placeholder="iPhone 13 128G"
-            defaultValue={monitor?.keyword ?? ""}
-          />
-          {fieldError("keyword") ? (
-            <span
-              role="alert"
-              style={{ color: "var(--danger)", fontSize: 11.5 }}
-            >
-              {fieldError("keyword")}
-            </span>
-          ) : null}
-          {/* This form only builds keyword rules. Without saying where the other
-              kind comes from, a user reads "keyword required" as "watching a
-              seller is not possible". */}
-          {editing ? null : (
-            <span className="muted" style={{ fontSize: 11 }}>
-              想盯某个卖家的全部在售商品？去<Link to="/items">命中商品</Link>
-              页筛出那个卖家，从那里创建——卖家规则不在这个表单里建。
-            </span>
-          )}
-        </label>
-      )}
-
-      <label style={FIELD}>
-        排除词（空格分隔）
-        <input
-          name="exclude_words"
-          placeholder="碎屏 主板 拆机"
-          defaultValue={monitor?.exclude_words ?? ""}
-        />
-      </label>
-
-      <label style={FIELD}>
-        最低价（元）
-        <input
-          name="price_min"
-          type="number"
-          min={0}
-          // Yuan with cents. Without an explicit step the browser validates
-          // against step=1 and rejects "2999.50" outright -- while
-          // parseYuanToCents deliberately handles decimals ("12.345 typed by
-          // hand should not silently become 12.34"). The edit form made the
-          // contradiction visible: a price stored as 199 renders as "1.99"
-          // and the form then refused to save back what it had just shown.
-          step="0.01"
-          defaultValue={centsToYuanInput(monitor?.price_min_cents)}
-        />
-      </label>
-
-      <label style={FIELD}>
-        最高价（元）
-        <input
-          name="price_max"
-          type="number"
-          min={0}
-          // Yuan with cents. Without an explicit step the browser validates
-          // against step=1 and rejects "2999.50" outright -- while
-          // parseYuanToCents deliberately handles decimals ("12.345 typed by
-          // hand should not silently become 12.34"). The edit form made the
-          // contradiction visible: a price stored as 199 renders as "1.99"
-          // and the form then refused to save back what it had just shown.
-          step="0.01"
-          defaultValue={centsToYuanInput(monitor?.price_max_cents)}
-        />
-        {fieldError("price_max_cents") ? (
-          <span role="alert" style={{ color: "var(--danger)", fontSize: 11.5 }}>
-            {fieldError("price_max_cents")}
-          </span>
-        ) : null}
-      </label>
-
-      <label style={FIELD}>
-        发布时间窗（小时）
-        <input
-          name="published_within_hours"
-          type="number"
-          min={1}
-          placeholder="不限"
-          defaultValue={monitor?.published_within_hours ?? ""}
-        />
-      </label>
-
-      <label style={FIELD}>
-        地区
-        <input
-          name="region"
-          placeholder="不限"
-          defaultValue={monitor?.region ?? ""}
-        />
-      </label>
-
-      <label style={FIELD}>
-        成色
-        <select name="condition" defaultValue={monitor?.condition ?? ""}>
-          <option value="">不限</option>
-          {CONDITIONS.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label style={FIELD}>
-        包邮
-        <select
-          name="free_shipping"
-          defaultValue={
-            monitor?.free_shipping === null ||
-            monitor?.free_shipping === undefined
-              ? ""
-              : String(monitor.free_shipping)
-          }
-        >
-          <option value="">不限</option>
-          <option value="true">只要包邮</option>
-          <option value="false">只要不包邮</option>
-        </select>
-        <span className="muted" style={{ fontSize: 11 }}>
-          「不限」与「只要包邮」不同：包邮是从描述推测的，不限才不会漏掉说不清的
-        </span>
-      </label>
-
-      <label style={FIELD}>
-        卖家信用下限
-        <input
-          name="min_seller_credit"
-          type="number"
-          min={0}
-          defaultValue={monitor?.min_seller_credit ?? ""}
-          disabled={!sessionUsable}
-          placeholder={sessionUsable ? "不限" : "需要先导入凭证"}
-        />
-        {!sessionUsable ? (
-          <span className="muted" style={{ fontSize: 11 }}>
-            没有可用会话就抓不到卖家画像，这条规则会被保守放行并标注。先去
-            <Link to="/settings">设置</Link>导入凭证。
-          </span>
-        ) : null}
-      </label>
-
-      <label style={FIELD}>
-        采集间隔（秒）
-        <input
-          name="interval_seconds"
-          type="number"
-          min={MIN_INTERVAL}
-          defaultValue={monitor?.interval_seconds ?? 300}
-          aria-describedby="hint-interval"
-          aria-invalid={fieldError("interval_seconds") ? true : undefined}
-        />
-        <span id="hint-interval" className="muted" style={{ fontSize: 11 }}>
-          下限 {MIN_INTERVAL} 秒，是防封规则不是装饰
-        </span>
-        {fieldError("interval_seconds") ? (
-          <span role="alert" style={{ color: "var(--danger)", fontSize: 11.5 }}>
-            {fieldError("interval_seconds")}
-          </span>
-        ) : null}
-      </label>
-
-      <label
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          alignItems: "center",
-          alignSelf: "end",
-        }}
-      >
-        <input
-          name="exclude_shop"
-          type="checkbox"
-          data-switch
-          defaultChecked={monitor?.exclude_shop ?? false}
-        />
-        排除鱼小铺（商家）
-      </label>
-
-      <fieldset style={{ gridColumn: "1 / -1" }}>
-        <legend>推送到哪些渠道</legend>
-        {channels.length === 0 ? (
-          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-            还没有通知渠道。命中只会留在这个页面里，不会推送给你——先去
-            <Link to="/settings#channels">通知渠道</Link>建一个。
-          </p>
-        ) : (
-          <div
-            style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-3)" }}
-          >
-            {channels.map((ch) => (
-              <label
-                key={ch.id}
-                style={{
-                  display: "flex",
-                  gap: "var(--space-1)",
-                  alignItems: "center",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  name="channel_ids"
-                  value={ch.id}
-                  // On edit this is what the rule ACTUALLY notifies. Carrying
-                  // the create default (ch.enabled) over would silently
-                  // rewrite the link set on the next save.
-                  defaultChecked={
-                    editing ? monitor.channel_ids.includes(ch.id) : ch.enabled
-                  }
-                />
-                {ch.label}
-                <span className="muted" style={{ fontSize: 11 }}>
-                  （{ch.kind === "email" ? "邮件" : "Telegram"}
-                  {ch.enabled ? "" : " · 已停用"}）
+          {sellerRule ? (
+            <div className="field span-2">
+              <span className="field-label">盯的卖家</span>
+              {/* Read-only on purpose. Every other field here is editable, but the
+                  TARGET is not: swapping a rule between a seller and a keyword
+                  would silently re-point a ledger built from the old one. Delete
+                  and rebuild if that is really the intent. */}
+              <span className="pill" style={{ alignSelf: "start" }}>
+                {sellerLabel(monitor.seller_nick, monitor.seller_id ?? "")}
+              </span>
+              <span className="field-hint">不可修改</span>
+            </div>
+          ) : (
+            <label className="field span-2">
+              <span className="field-label">关键词</span>
+              <input
+                name="keyword"
+                required
+                maxLength={100}
+                placeholder="iPhone 13 128G"
+                defaultValue={monitor?.keyword ?? ""}
+              />
+              {fieldError("keyword") ? (
+                <span role="alert" className="field-error">
+                  {fieldError("keyword")}
                 </span>
-              </label>
-            ))}
-          </div>
-        )}
-      </fieldset>
+              ) : null}
+              {/* This form only builds keyword rules. Without saying where the other
+                  kind comes from, a user reads "keyword required" as "watching a
+                  seller is not possible". */}
+              {editing ? null : (
+                <span className="field-hint">
+                  卖家规则在<Link to="/items">命中商品</Link>页创建
+                </span>
+              )}
+            </label>
+          )}
 
-      <div
-        style={{
-          gridColumn: "1 / -1",
-          display: "flex",
-          gap: "var(--space-2)",
-          alignItems: "center",
-        }}
-      >
+          <label className="field span-2">
+            <span className="field-label">排除词（空格分隔）</span>
+            <input
+              name="exclude_words"
+              placeholder="碎屏 主板 拆机"
+              defaultValue={monitor?.exclude_words ?? ""}
+            />
+          </label>
+        </div>
+      </section>
+
+      {/* ---------- 筛选条件 ---------- */}
+      <section className="form-section">
+        <div className="form-section-h">
+          <h3>
+            <Icon name="sliders-horizontal" size={14} />
+            筛选条件
+          </h3>
+        </div>
+        <div className="form-grid">
+          <div className="field span-2">
+            <span className="field-label">价格区间（元）</span>
+            <div className="join-pair">
+              {/* Yuan with cents. Without an explicit step the browser validates
+                  against step=1 and rejects "2999.50" outright -- while
+                  parseYuanToCents deliberately handles decimals ("12.345 typed by
+                  hand should not silently become 12.34"). The edit form made the
+                  contradiction visible: a price stored as 199 renders as "1.99"
+                  and the form then refused to save back what it had just shown. */}
+              <input
+                name="price_min"
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="最低价"
+                aria-label="最低价（元）"
+                defaultValue={centsToYuanInput(monitor?.price_min_cents)}
+              />
+              <span className="join-sep" aria-hidden="true">
+                –
+              </span>
+              <input
+                name="price_max"
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="最高价"
+                aria-label="最高价（元）"
+                defaultValue={centsToYuanInput(monitor?.price_max_cents)}
+              />
+            </div>
+            {fieldError("price_max_cents") ? (
+              <span role="alert" className="field-error">
+                {fieldError("price_max_cents")}
+              </span>
+            ) : null}
+          </div>
+
+          <label className="field">
+            <span className="field-label">发布时间窗（小时）</span>
+            <input
+              name="published_within_hours"
+              type="number"
+              min={1}
+              placeholder="不限"
+              defaultValue={monitor?.published_within_hours ?? ""}
+            />
+          </label>
+
+          <label className="field">
+            <span className="field-label">地区</span>
+            <input
+              name="region"
+              placeholder="不限"
+              defaultValue={monitor?.region ?? ""}
+            />
+          </label>
+
+          <label className="field">
+            <span className="field-label">成色</span>
+            <select name="condition" defaultValue={monitor?.condition ?? ""}>
+              <option value="">不限</option>
+              {CONDITIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span className="field-label">包邮</span>
+            <select
+              name="free_shipping"
+              defaultValue={
+                monitor?.free_shipping === null ||
+                monitor?.free_shipping === undefined
+                  ? ""
+                  : String(monitor.free_shipping)
+              }
+            >
+              <option value="">不限</option>
+              <option value="true">只要包邮</option>
+              <option value="false">只要不包邮</option>
+            </select>
+          </label>
+
+          <label className="switch-row">
+            <input
+              name="exclude_shop"
+              type="checkbox"
+              data-switch
+              defaultChecked={monitor?.exclude_shop ?? false}
+            />
+            排除鱼小铺（商家）
+          </label>
+
+          <label className="field">
+            <span className="field-label">卖家信用下限</span>
+            <input
+              name="min_seller_credit"
+              type="number"
+              min={0}
+              defaultValue={monitor?.min_seller_credit ?? ""}
+              disabled={!sessionUsable}
+              placeholder={sessionUsable ? "不限" : "需要先导入凭证"}
+            />
+            {!sessionUsable ? (
+              <span className="field-hint">
+                需要先在<Link to="/settings">设置</Link>导入采集凭证
+              </span>
+            ) : null}
+          </label>
+        </div>
+      </section>
+
+      {/* ---------- 运行与推送 ---------- */}
+      <section className="form-section">
+        <div className="form-section-h">
+          <h3>
+            <Icon name="send" size={14} />
+            运行与推送
+          </h3>
+        </div>
+        <div className="form-grid">
+          <label className="field">
+            <span className="field-label">采集间隔（秒）</span>
+            <input
+              name="interval_seconds"
+              type="number"
+              min={MIN_INTERVAL}
+              defaultValue={monitor?.interval_seconds ?? 300}
+              aria-describedby="hint-interval"
+              aria-invalid={fieldError("interval_seconds") ? true : undefined}
+            />
+            <span id="hint-interval" className="field-hint">
+              最小 {MIN_INTERVAL} 秒
+            </span>
+            {fieldError("interval_seconds") ? (
+              <span role="alert" className="field-error">
+                {fieldError("interval_seconds")}
+              </span>
+            ) : null}
+          </label>
+
+          <fieldset className="chip-group span-all">
+            <legend className="field-label">推送渠道</legend>
+            {channels.length === 0 ? (
+              <p className="field-hint" style={{ margin: 0 }}>
+                还没有渠道，去<Link to="/settings#channels">通知渠道</Link>创建
+              </p>
+            ) : (
+              <div className="chip-row">
+                {channels.map((ch) => (
+                  <label key={ch.id} className="chip-check">
+                    <input
+                      type="checkbox"
+                      name="channel_ids"
+                      value={ch.id}
+                      // On edit this is what the rule ACTUALLY notifies. Carrying
+                      // the create default (ch.enabled) over would silently
+                      // rewrite the link set on the next save.
+                      defaultChecked={
+                        editing
+                          ? monitor.channel_ids.includes(ch.id)
+                          : ch.enabled
+                      }
+                    />
+                    {ch.label}
+                    <span className="chip-note">
+                      {ch.kind === "email" ? "邮件" : "Telegram"}
+                      {ch.enabled ? "" : " · 已停用"}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </fieldset>
+        </div>
+      </section>
+
+      <div className="form-actions">
         <button type="submit" data-variant="primary" disabled={save.isPending}>
           {save.isPending
             ? editing
@@ -511,7 +485,7 @@ function MonitorForm({
 
       {save.isError &&
       !(save.error instanceof ApiError && save.error.status === 422) ? (
-        <div style={{ gridColumn: "1 / -1" }}>
+        <div style={{ marginTop: "var(--space-3)" }}>
           <ErrorState
             title={editing ? "保存失败" : "创建失败"}
             error={save.error}
@@ -739,7 +713,7 @@ export default function MonitorsPage() {
                         <span
                           className="pill"
                           data-tone="warn"
-                          title="命中不会推送给任何人，只会留在命中列表里"
+                          title="未关联推送渠道"
                         >
                           无渠道
                         </span>

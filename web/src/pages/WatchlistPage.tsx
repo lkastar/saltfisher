@@ -84,7 +84,7 @@ function AddByLink() {
             {add.isPending ? "抓取中…" : "加入追踪"}
           </button>
         </div>
-        <span className="dim mono" style={{ fontSize: 11.5 }}>
+        <span className="field-hint">
           加入时会立刻抓一次，作为后续比价的基准价。短链和混着中文的分享文案都能识别。
         </span>
         {add.isError ? <ErrorState title="加入失败" error={add.error} /> : null}

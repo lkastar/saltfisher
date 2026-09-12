@@ -83,13 +83,6 @@ const COL: React.CSSProperties = {
   gap: "var(--space-3)",
 };
 
-const CHECKBOX: React.CSSProperties = {
-  display: "flex",
-  gap: "var(--space-2)",
-  alignItems: "center",
-  fontSize: 13,
-};
-
 /* ============================== 通知渠道 ==============================
  * Folded in from the former ChannelsPage (step 7). The backend redacts
  * secrets before they leave the process; this page adds a second layer by
@@ -164,7 +157,10 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
     >
       <label className="field">
         <span className="field-label">类型</span>
-        <select value={kind} onChange={(e) => setKind(e.target.value as ChannelCreate["kind"])}>
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as ChannelCreate["kind"])}
+        >
           <option value="email">邮件</option>
           <option value="telegram">Telegram</option>
         </select>
@@ -172,18 +168,33 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
 
       <label className="field">
         <span className="field-label">名称</span>
-        <input name="label" required maxLength={60} placeholder="给自己看的备注" />
+        <input
+          name="label"
+          required
+          maxLength={60}
+          placeholder="给自己看的备注"
+        />
       </label>
 
       {kind === "email" ? (
         <>
           <label className="field">
             <span className="field-label">SMTP 主机</span>
-            <input name="smtp_host" required placeholder="smtp-relay.brevo.com" />
+            <input
+              name="smtp_host"
+              required
+              placeholder="smtp-relay.brevo.com"
+            />
           </label>
           <label className="field">
             <span className="field-label">端口</span>
-            <input name="smtp_port" type="number" min={1} max={65535} defaultValue={587} />
+            <input
+              name="smtp_port"
+              type="number"
+              min={1}
+              max={65535}
+              defaultValue={587}
+            />
           </label>
           <label className="field">
             <span className="field-label">用户名</span>
@@ -191,15 +202,19 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
           </label>
           <label className="field">
             <span className="field-label">密码 / SMTP key</span>
-            <input name="password" type="password" autoComplete="new-password" />
-            <span className="muted" style={{ fontSize: 11 }}>
+            <input
+              name="password"
+              type="password"
+              autoComplete="new-password"
+            />
+            <span className="field-hint">
               多数服务商的 SMTP key 与 API key 不是一个东西，填错会得到 535
             </span>
           </label>
           <label className="field">
             <span className="field-label">发件地址</span>
             <input name="from_addr" required placeholder="bot@example.com" />
-            <span className="muted" style={{ fontSize: 11 }}>
+            <span className="field-hint">
               域名需通过发信认证，否则会被静默丢弃
             </span>
           </label>
@@ -207,11 +222,16 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
             <span className="field-label">收件地址（逗号分隔）</span>
             <input name="to_addrs" required />
           </label>
-          <label style={CHECKBOX}>
-            <input name="use_starttls" type="checkbox" data-switch defaultChecked />
+          <label className="switch-row">
+            <input
+              name="use_starttls"
+              type="checkbox"
+              data-switch
+              defaultChecked
+            />
             STARTTLS（587 端口）
           </label>
-          <label style={CHECKBOX}>
+          <label className="switch-row">
             <input name="use_ssl" type="checkbox" data-switch />
             直接 SSL（465 端口）
           </label>
@@ -220,7 +240,12 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
         <>
           <label className="field">
             <span className="field-label">Bot Token</span>
-            <input name="bot_token" type="password" autoComplete="new-password" required />
+            <input
+              name="bot_token"
+              type="password"
+              autoComplete="new-password"
+              required
+            />
           </label>
           <label className="field">
             <span className="field-label">Chat ID</span>
@@ -229,8 +254,12 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
         </>
       )}
 
-      <div style={{ gridColumn: "1 / -1", display: "flex", gap: "var(--space-2)" }}>
-        <button type="submit" data-variant="primary" disabled={create.isPending}>
+      <div className="form-actions span-all">
+        <button
+          type="submit"
+          data-variant="primary"
+          disabled={create.isPending}
+        >
           {create.isPending ? "创建中…" : "创建渠道"}
         </button>
         <button type="button" onClick={onDone}>
@@ -240,7 +269,10 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
 
       {create.isError ? (
         <div style={{ gridColumn: "1 / -1" }}>
-          <ErrorState title="创建失败" error={fieldError("config") ?? create.error} />
+          <ErrorState
+            title="创建失败"
+            error={fieldError("config") ?? create.error}
+          />
         </div>
       ) : null}
     </form>
@@ -250,17 +282,22 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
 function ChannelCard({ channel }: { channel: Channel }) {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: keys.channels });
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: keys.channels });
 
   const test = useMutation({
     mutationFn: () => testChannel(channel.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.notifyLogs }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: keys.notifyLogs }),
   });
   const toggle = useMutation({
     mutationFn: (enabled: boolean) => updateChannel(channel.id, { enabled }),
     onSuccess: invalidate,
   });
-  const remove = useMutation({ mutationFn: () => deleteChannel(channel.id), onSuccess: invalidate });
+  const remove = useMutation({
+    mutationFn: () => deleteChannel(channel.id),
+    onSuccess: invalidate,
+  });
 
   const config = channel.config as Record<string, unknown>;
   const secretKey = channel.kind === "email" ? "password" : "bot_token";
@@ -274,9 +311,18 @@ function ChannelCard({ channel }: { channel: Channel }) {
             stays reserved for collector degradation. */}
         <span
           className="pill"
-          data-tone={channel.enabled ? (channel.kind === "email" ? "success" : "acc") : undefined}
+          data-tone={
+            channel.enabled
+              ? channel.kind === "email"
+                ? "success"
+                : "acc"
+              : undefined
+          }
         >
-          <Icon name={channel.kind === "email" ? "mail" : "message-square"} size={11} />
+          <Icon
+            name={channel.kind === "email" ? "mail" : "message-square"}
+            size={11}
+          />
           {channel.kind === "email" ? "邮件 SMTP" : "Telegram"}
           {channel.enabled ? "" : " · 已停用"}
         </span>
@@ -301,7 +347,11 @@ function ChannelCard({ channel }: { channel: Channel }) {
       </dl>
 
       <div className="actions-row">
-        <button type="button" onClick={() => test.mutate()} disabled={test.isPending}>
+        <button
+          type="button"
+          onClick={() => test.mutate()}
+          disabled={test.isPending}
+        >
           <Icon name="send" size={13} />
           {test.isPending ? "发送中…" : "测试发送"}
         </button>
@@ -338,15 +388,23 @@ function ChannelCard({ channel }: { channel: Channel }) {
           <p style={{ margin: 0, fontSize: 12.5, color: "var(--success)" }}>
             已交给服务器。
             <span className="muted">
-              注意：SMTP 回 250 只代表对方接收了，不代表送进了收件箱——去邮箱确认一次。
+              注意：SMTP 回 250
+              只代表对方接收了，不代表送进了收件箱——去邮箱确认一次。
             </span>
           </p>
         ) : (
-          <ErrorState title="测试发送失败" error={test.data.error ?? "未知错误"} />
+          <ErrorState
+            title="测试发送失败"
+            error={test.data.error ?? "未知错误"}
+          />
         )
       ) : null}
-      {test.isError ? <ErrorState title="测试发送失败" error={test.error} /> : null}
-      {remove.isError ? <ErrorState title="删除失败" error={remove.error} /> : null}
+      {test.isError ? (
+        <ErrorState title="测试发送失败" error={test.error} />
+      ) : null}
+      {remove.isError ? (
+        <ErrorState title="删除失败" error={remove.error} />
+      ) : null}
     </article>
   );
 }
@@ -365,7 +423,11 @@ function ChannelsSection() {
         </h2>
         <div className="actions">
           {!creating ? (
-            <button type="button" data-variant="primary" onClick={() => setCreating(true)}>
+            <button
+              type="button"
+              data-variant="primary"
+              onClick={() => setCreating(true)}
+            >
               <Icon name="plus" size={13} />
               新建渠道
             </button>
@@ -400,7 +462,9 @@ function ChannelsSection() {
         最近发送记录
       </div>
       {logs.isPending ? <Loading rows={2} /> : null}
-      {logs.isError ? <ErrorState title="拉取发送记录失败" error={logs.error} /> : null}
+      {logs.isError ? (
+        <ErrorState title="拉取发送记录失败" error={logs.error} />
+      ) : null}
       {logs.data?.length === 0 ? (
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
           还没有发送过。
@@ -427,11 +491,17 @@ function ChannelsSection() {
                   <td>{log.kind}</td>
                   <td className="num">{log.item_count}</td>
                   <td>
-                    <span className="pill" data-tone={log.ok ? "success" : "danger"}>
+                    <span
+                      className="pill"
+                      data-tone={log.ok ? "success" : "danger"}
+                    >
                       {log.ok ? "成功" : "失败"}
                     </span>
                   </td>
-                  <td className="muted" style={{ wordBreak: "break-word", maxWidth: 320 }}>
+                  <td
+                    className="muted"
+                    style={{ wordBreak: "break-word", maxWidth: 320 }}
+                  >
                     {log.error ?? "—"}
                   </td>
                 </tr>
@@ -521,7 +591,7 @@ function ModelPicker({
       </div>
 
       {endpointId === null ? (
-        <span className="muted" style={{ fontSize: 11.5 }}>
+        <span className="field-hint">
           先选择端点才能拉取它的模型列表。模型名也可以直接手填。
         </span>
       ) : null}
@@ -530,14 +600,21 @@ function ModelPicker({
           a user who does not know any model name never sees the result of the
           button they just pressed. */}
       {found.length > 0 ? (
-        <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
+        <div
+          style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}
+        >
           {found.map((name) => (
             <button
               key={name}
               type="button"
               className="mono"
               onClick={() => onChange(name)}
-              style={{ fontSize: 11.5, minHeight: 26, padding: "1px 8px", borderRadius: 999 }}
+              style={{
+                fontSize: 11.5,
+                minHeight: 26,
+                padding: "1px 8px",
+                borderRadius: 999,
+              }}
             >
               {name}
             </button>
@@ -546,19 +623,19 @@ function ModelPicker({
       ) : null}
 
       {/* Our request failed (network, 401, our 404) -- that IS an error. */}
-      {models.isError ? <ErrorState title="拉取模型列表失败" error={models.error} /> : null}
+      {models.isError ? (
+        <ErrorState title="拉取模型列表失败" error={models.error} />
+      ) : null}
 
       {/* Their route failed. Not an error: state the reason and move on. */}
       {models.data?.error ? (
-        <span className="muted" style={{ fontSize: 11.5 }}>
+        <span className="field-hint">
           没能拉到模型列表：{models.data.error}
           。很多中转网关不实现这个接口，直接手填模型名就行。
         </span>
       ) : null}
       {models.data && found.length === 0 && !models.data.error ? (
-        <span className="muted" style={{ fontSize: 11.5 }}>
-          端点返回了空列表。手填模型名即可。
-        </span>
+        <span className="field-hint">端点返回了空列表。手填模型名即可。</span>
       ) : null}
     </div>
   );
@@ -585,7 +662,8 @@ function EndpointForm({
           })
         : updateLlmEndpoint(endpoint.id, body),
     onSuccess: onDone,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.llmEndpoints }),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: keys.llmEndpoints }),
   });
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -643,7 +721,7 @@ function EndpointForm({
           defaultValue={endpoint?.base_url}
           placeholder="https://api.deepseek.com"
         />
-        <span className="muted" style={{ fontSize: 11 }}>
+        <span className="field-hint">
           不带
           <span className="mono"> /chat/completions </span>
           之类的路径，适配层自己拼。
@@ -662,7 +740,7 @@ function EndpointForm({
           <option value="openai">OpenAI 兼容</option>
           <option value="anthropic">Anthropic</option>
         </select>
-        <span className="muted" style={{ fontSize: 11 }}>
+        <span className="field-hint">
           本地 Ollama、中转网关、自建 vLLM 基本都是 OpenAI 兼容。
         </span>
       </div>
@@ -688,20 +766,24 @@ function EndpointForm({
           }
         />
         {endpoint?.api_key_configured ? (
-          <span style={CHECKBOX}>
+          <span className="switch-row">
             <input id={`${prefix}-clear`} name="clear_key" type="checkbox" />
             <label htmlFor={`${prefix}-clear`}>清除已保存的密钥</label>
           </span>
         ) : null}
-        <span className="muted" style={{ fontSize: 11 }}>
+        <span className="field-hint">
           密钥只写不读：任何接口响应、页面 HTML、输入框默认值里都不会出现它。
         </span>
       </div>
 
-      <div style={{ gridColumn: "1 / -1", display: "flex", gap: "var(--space-2)" }}>
+      <div className="form-actions span-all">
         <button type="submit" data-variant="primary" disabled={save.isPending}>
           <Icon name="save" size={13} />
-          {save.isPending ? "保存中…" : endpoint === undefined ? "创建端点" : "保存"}
+          {save.isPending
+            ? "保存中…"
+            : endpoint === undefined
+              ? "创建端点"
+              : "保存"}
         </button>
         <button type="button" onClick={onDone}>
           取消
@@ -723,7 +805,9 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
   const [confirming, setConfirming] = useState(false);
   const [model, setModel] = useState("");
 
-  const test = useMutation({ mutationFn: () => testLlmEndpoint(endpoint.id, model.trim()) });
+  const test = useMutation({
+    mutationFn: () => testLlmEndpoint(endpoint.id, model.trim()),
+  });
   const remove = useMutation({
     mutationFn: () => deleteLlmEndpoint(endpoint.id),
     // keys.llm, not just the endpoint list: deleting an endpoint detaches and
@@ -731,14 +815,19 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: keys.llm }),
   });
 
-  if (editing) return <EndpointForm endpoint={endpoint} onDone={() => setEditing(false)} />;
+  if (editing)
+    return (
+      <EndpointForm endpoint={endpoint} onDone={() => setEditing(false)} />
+    );
 
   return (
     <article className="inner-card">
       <header className="inner-h">
         <span className="name">{endpoint.label}</span>
         <span className="pill mono">{endpoint.wire_format}</span>
-        <span className="built">建于 {formatDateTime(endpoint.created_at)}</span>
+        <span className="built">
+          建于 {formatDateTime(endpoint.created_at)}
+        </span>
       </header>
 
       <dl className="dl">
@@ -800,7 +889,9 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
       ) : null}
 
       {test.isPending ? (
-        <p style={{ margin: 0, fontSize: 12.5 }}>正在发一次真实调用，可能要几十秒。</p>
+        <p style={{ margin: 0, fontSize: 12.5 }}>
+          正在发一次真实调用，可能要几十秒。
+        </p>
       ) : null}
       {test.data ? (
         test.data.ok ? (
@@ -810,11 +901,18 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
         ) : (
           // The server's own wording: "budget went to reasoning" and "wrong
           // model id" have different fixes and it already told them apart.
-          <ErrorState title="测试连接失败" error={test.data.error ?? "未知错误"} />
+          <ErrorState
+            title="测试连接失败"
+            error={test.data.error ?? "未知错误"}
+          />
         )
       ) : null}
-      {test.isError ? <ErrorState title="测试连接失败" error={test.error} /> : null}
-      {remove.isError ? <ErrorState title="删除失败" error={remove.error} /> : null}
+      {test.isError ? (
+        <ErrorState title="测试连接失败" error={test.error} />
+      ) : null}
+      {remove.isError ? (
+        <ErrorState title="删除失败" error={remove.error} />
+      ) : null}
     </article>
   );
 }
@@ -873,7 +971,8 @@ function ScenarioForm({
         max_tokens: draft.max_tokens.trim() ? Number(draft.max_tokens) : null,
         enabled: draft.enabled,
       }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.llmScenario(scenario) }),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: keys.llmScenario(scenario) }),
   });
 
   const prefix = `llm-scenario-${scenario}`;
@@ -903,7 +1002,11 @@ function ScenarioForm({
           event.preventDefault();
           save.mutate();
         }}
-        style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-3)",
+        }}
       >
         <div className="field">
           <label className="field-label" htmlFor={`${prefix}-endpoint`}>
@@ -916,7 +1019,8 @@ function ScenarioForm({
             onChange={(event) =>
               setDraft((old) => ({
                 ...old,
-                endpoint_id: event.target.value === "" ? null : Number(event.target.value),
+                endpoint_id:
+                  event.target.value === "" ? null : Number(event.target.value),
               }))
             }
           >
@@ -944,12 +1048,19 @@ function ScenarioForm({
             id={`${prefix}-prompt`}
             value={draft.prompt_template}
             onChange={(event) =>
-              setDraft((old) => ({ ...old, prompt_template: event.target.value }))
+              setDraft((old) => ({
+                ...old,
+                prompt_template: event.target.value,
+              }))
             }
             rows={10}
             maxLength={20000}
             placeholder="留空表示使用内置默认模板"
-            style={{ fontFamily: "var(--font-mono)", fontSize: 12, resize: "vertical" }}
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
+              resize: "vertical",
+            }}
             aria-describedby={`${prefix}-placeholders`}
           />
           <div className="actions-row">
@@ -958,7 +1069,8 @@ function ScenarioForm({
               onClick={() =>
                 setDraft((old) => ({
                   ...old,
-                  prompt_template: defaults.data?.prompt_template ?? old.prompt_template,
+                  prompt_template:
+                    defaults.data?.prompt_template ?? old.prompt_template,
                 }))
               }
               disabled={defaults.data === undefined}
@@ -969,7 +1081,9 @@ function ScenarioForm({
             {draft.prompt_template ? (
               <button
                 type="button"
-                onClick={() => setDraft((old) => ({ ...old, prompt_template: "" }))}
+                onClick={() =>
+                  setDraft((old) => ({ ...old, prompt_template: "" }))
+                }
               >
                 <Icon name="eraser" size={13} />
                 清空（改用内置默认）
@@ -982,7 +1096,7 @@ function ScenarioForm({
               `prompts.render` substitutes with str.replace, so a typo'd
               {plcaeholder} survives into the prompt as literal text and the
               answer just quietly degrades -- no error anywhere. */}
-          <div id={`${prefix}-placeholders`} className="muted" style={{ fontSize: 11.5 }}>
+          <div id={`${prefix}-placeholders`} className="field-hint">
             {defaults.isError ? (
               <ErrorState title="拉取默认模板失败" error={defaults.error} />
             ) : defaults.data === undefined ? (
@@ -991,7 +1105,11 @@ function ScenarioForm({
               <>
                 可用占位符（会被替换成真实数据）：
                 {defaults.data.placeholders.map((name) => (
-                  <span key={name} className="mono" style={{ color: "var(--acc2)" }}>
+                  <span
+                    key={name}
+                    className="mono"
+                    style={{ color: "var(--acc2)" }}
+                  >
                     {" "}
                     {`{${name}}`}
                   </span>
@@ -1004,24 +1122,25 @@ function ScenarioForm({
 
         {scenario === "item" ? (
           <div className="field">
-            <span style={CHECKBOX}>
+            <span className="switch-row">
               <input
                 id={`${prefix}-images`}
                 type="checkbox"
                 data-switch
                 checked={draft.send_images}
                 onChange={(event) =>
-                  setDraft((old) => ({ ...old, send_images: event.target.checked }))
+                  setDraft((old) => ({
+                    ...old,
+                    send_images: event.target.checked,
+                  }))
                 }
               />
               <label htmlFor={`${prefix}-images`}>附带商品图片</label>
             </span>
             {/* What it costs, measured, rather than presented as free. */}
-            <span className="muted" style={{ fontSize: 11.5 }}>
-              实测一件商品的 3 张图约 1.3 MB base64，而 327 件里有 325 件只有 1 张图（就是封面），
-              所以多数情况下只会发 1 张。是否真的用得上取决于模型有没有视觉能力——
-              这一点没有任何地方记录，后端只能按模型名猜；猜不支持时会降级为纯文本，
-              并在结果里说明降级了。
+            <span className="field-hint">
+              最多 3 张，通常只有封面 1
+              张；模型不支持视觉时自动降级为纯文本并在结果中标注
             </span>
           </div>
         ) : null}
@@ -1040,39 +1159,50 @@ function ScenarioForm({
             placeholder="留空用默认值 16384"
             style={{ maxWidth: 280 }}
             value={draft.max_tokens}
-            onChange={(event) => setDraft((old) => ({ ...old, max_tokens: event.target.value }))}
+            onChange={(event) =>
+              setDraft((old) => ({ ...old, max_tokens: event.target.value }))
+            }
           />
           {/* This field exists because the starved answer's own advice is
               "raise max_tokens". Before it, taking that advice meant editing
               Python -- an error naming a knob the product does not offer is
               not actionable. The numbers are measured, not guessed. */}
-          <span className="muted" style={{ fontSize: 11.5 }}>
-            这些模型会先"想"再答，想的部分也算在这个上限里。实测 4096 时行情分析
-            只想不答（返回空回答），16384 才答得出来。看到「预算被推理用光」的提示就调大这里。
+          <span className="field-hint">
+            推理模型的思考过程占用同一预算，建议 ≥ 16384
           </span>
         </div>
 
-        <span style={CHECKBOX}>
+        <span className="switch-row">
           <input
             id={`${prefix}-enabled`}
             type="checkbox"
             data-switch
             checked={draft.enabled}
-            onChange={(event) => setDraft((old) => ({ ...old, enabled: event.target.checked }))}
+            onChange={(event) =>
+              setDraft((old) => ({ ...old, enabled: event.target.checked }))
+            }
           />
           <label htmlFor={`${prefix}-enabled`}>启用这个场景</label>
         </span>
 
         <div className="actions-row">
-          <button type="submit" data-variant="primary" disabled={save.isPending}>
+          <button
+            type="submit"
+            data-variant="primary"
+            disabled={save.isPending}
+          >
             <Icon name="save" size={13} />
             {save.isPending ? "保存中…" : "保存配置"}
           </button>
           {save.isSuccess && !save.isPending ? (
-            <span style={{ fontSize: 12.5, color: "var(--success)" }}>已保存</span>
+            <span style={{ fontSize: 12.5, color: "var(--success)" }}>
+              已保存
+            </span>
           ) : null}
         </div>
-        {save.isError ? <ErrorState title="保存配置失败" error={save.error} /> : null}
+        {save.isError ? (
+          <ErrorState title="保存配置失败" error={save.error} />
+        ) : null}
       </form>
     </>
   );
@@ -1133,7 +1263,11 @@ function LlmSection() {
           </h2>
           <div className="actions">
             {!creating ? (
-              <button type="button" data-variant="primary" onClick={() => setCreating(true)}>
+              <button
+                type="button"
+                data-variant="primary"
+                onClick={() => setCreating(true)}
+              >
                 <Icon name="plus" size={13} />
                 新建端点
               </button>
@@ -1141,8 +1275,9 @@ function LlmSection() {
           </div>
         </div>
         <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
-          任何 OpenAI 兼容或 Anthropic 格式的端点都行，包括本地 Ollama 和自建 vLLM。
-          「测试连接」会发一次真实调用——它测的是这条路真的通，不是 base_url 能解析。
+          任何 OpenAI 兼容或 Anthropic 格式的端点都行，包括本地 Ollama 和自建
+          vLLM。 「测试连接」会发一次真实调用——它测的是这条路真的通，不是
+          base_url 能解析。
         </p>
 
         {creating ? <EndpointForm onDone={() => setCreating(false)} /> : null}
@@ -1170,13 +1305,13 @@ function LlmSection() {
         id="ai"
         scenario="market"
         title="行情分析"
-        intro="喂给模型的是已聚合的统计量（分位数、降价排行、供应量趋势、离开观测范围时长），不是原始商品列表。入口在行情分析页，只在你点击时才调用。"
+        intro="入口在行情分析页，手动触发"
         endpoints={endpoints.data ?? []}
       />
       <ScenarioSection
         scenario="item"
         title="单品建议"
-        intro="喂给模型的是单件商品、它的价格史、卖家画像、收藏备注，以及它所属关键词的行情统计。入口在商品详情页，只在你点击时才调用。"
+        intro="入口在商品详情页，手动触发"
         endpoints={endpoints.data ?? []}
       />
     </>
@@ -1197,7 +1332,9 @@ function LlmSection() {
  */
 function BookmarkletBlock() {
   const mint = useMutation({ mutationFn: mintImportTicket });
-  const script = mint.data ? buildBookmarklet(window.location.origin, mint.data.ticket) : "";
+  const script = mint.data
+    ? buildBookmarklet(window.location.origin, mint.data.ticket)
+    : "";
   // An https goofish page cannot fetch a plain-http panel -- mixed content,
   // blocked in the browser, nothing the backend can send fixes it. localhost
   // and 127.0.0.1 are the exception browsers make. Detectable exactly, so the
@@ -1209,7 +1346,8 @@ function BookmarkletBlock() {
   return (
     <div className="bookmarklet">
       <p className="muted" style={{ margin: 0 }}>
-        生成一个书签拖到书签栏，之后在<strong>已登录的闲鱼页面</strong>上点它，就会把
+        生成一个书签拖到书签栏，之后在<strong>已登录的闲鱼页面</strong>
+        上点它，就会把
         <span className="mono"> document.cookie </span>
         直接送回面板，不用再走开发者工具。
       </p>
@@ -1218,18 +1356,20 @@ function BookmarkletBlock() {
           one the cookies came from; that is worth one sentence rather than a
           surprise for anyone who reads the script below. */}
       <p className="muted" style={{ margin: 0 }}>
-        它同时会捎上这台浏览器的<strong>环境信息</strong>（UA、语言、时区、屏幕尺寸），让采集
+        它同时会捎上这台浏览器的<strong>环境信息</strong>
+        （UA、语言、时区、屏幕尺寸），让采集
         请求和凭证来自同一台机器。都是页面上已经能读到的只读属性，不做任何额外探测。
       </p>
       {blockedByMixedContent ? (
         <p className="muted" style={{ margin: 0 }}>
           <strong>这台面板用不了书签脚本</strong>：它开在明文 http 的
           <span className="mono"> {window.location.host} </span>
-          上，而闲鱼页面是 https——浏览器不允许 https 页面去 fetch http 地址，后端加什么头都
+          上，而闲鱼页面是 https——浏览器不允许 https 页面去 fetch http
+          地址，后端加什么头都
           绕不过去。请用下面的开发者工具流程，或者给面板配上 https。仓库里的
           <span className="mono"> extension/ </span>
-          扩展不在页面里发请求，所以不受这一条限制（但 Chrome 的本地网络访问限制是否管得到
-          扩展还没有定论，见 docs/operations.md）。
+          扩展不在页面里发请求，所以不受这一条限制（但 Chrome
+          的本地网络访问限制是否管得到 扩展还没有定论，见 docs/operations.md）。
         </p>
       ) : null}
       <button
@@ -1267,20 +1407,25 @@ function BookmarkletBlock() {
           </a>
           <p className="muted" style={{ margin: 0 }}>
             这张票据<strong>只能用一次</strong>，
-            {formatDateTime(mint.data.expires_at)} 过期（约 10 分钟）。用过或过期后再点一次
+            {formatDateTime(mint.data.expires_at)} 过期（约 10
+            分钟）。用过或过期后再点一次
             「重新生成」换一张——旧书签会明确告诉你是过期还是已用过。票据本身是密钥，别贴给别人。
           </p>
           {/* Same rule as everywhere else: the import is not the result. And
               the "unusable" this leaves behind is expected, not a failure --
               without saying so here the page contradicts docs/operations.md. */}
           <p style={{ margin: 0 }}>
-            导入成功只代表 cookie 收下了。<strong>去「监控任务」点一次「立即运行」</strong>
+            导入成功只代表 cookie 收下了。
+            <strong>去「监控任务」点一次「立即运行」</strong>
             ，跑通了才算恢复。
           </p>
           <p className="muted" style={{ margin: 0 }}>
-            书签导入后上面会显示「会话不可用 ·<span className="mono"> no _m_h5_tk </span>
-            」，这是<strong>正常的</strong>：签名 token 只存在于 taobao 域，闲鱼页面上读不到，
-            由下一个周期的浏览器兜底去领。那个周期会慢一些、只看第 1 页，之后就恢复正常。
+            书签导入后上面会显示「会话不可用 ·
+            <span className="mono"> no _m_h5_tk </span>
+            」，这是<strong>正常的</strong>：签名 token 只存在于 taobao
+            域，闲鱼页面上读不到，
+            由下一个周期的浏览器兜底去领。那个周期会慢一些、只看第 1
+            页，之后就恢复正常。
           </p>
           <details>
             <summary className="muted">书签里是什么（可复制）</summary>
@@ -1333,7 +1478,8 @@ export default function SettingsPage() {
     document.getElementById(location.hash.slice(1))?.scrollIntoView();
   }, [location]);
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: keys.session });
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: keys.session });
   const doImport = useMutation({
     mutationFn: (cookie_header: string) =>
       // origin is spelled out because the generated type requires it;
@@ -1368,7 +1514,9 @@ export default function SettingsPage() {
           <>
             <span>
               <Icon name="shield-check" size={12} />
-              <span className="ok">密钥永不回显：页面只显示「已设置 / 未设置」</span>
+              <span className="ok">
+                密钥永不回显：页面只显示「已设置 / 未设置」
+              </span>
             </span>
             {endpoints.data ? (
               <span>
@@ -1379,8 +1527,8 @@ export default function SettingsPage() {
             {channels.data ? (
               <span>
                 <Icon name="bell" size={12} />
-                通知渠道 {channels.data.filter((c) => c.enabled).length}/{channels.data.length}{" "}
-                启用
+                通知渠道 {channels.data.filter((c) => c.enabled).length}/
+                {channels.data.length} 启用
               </span>
             ) : null}
           </>
@@ -1449,14 +1597,24 @@ export default function SettingsPage() {
                   <div role="alert" className="alert" data-tone="warn">
                     <Icon name="alert-triangle" size={15} />
                     <span>
-                      <strong>需要人工验证。</strong> 上游对这些接口出了风控挑战：
-                      <span className="mono"> {state.challenged_apis.join("、")}</span>
+                      <strong>需要人工验证。</strong>{" "}
+                      上游对这些接口出了风控挑战：
+                      <span className="mono">
+                        {" "}
+                        {state.challenged_apis.join("、")}
+                      </span>
                       。自动重试不会好转，请按下面的步骤在自己的浏览器里过一次验证，再重新导入
                       cookie。
                     </span>
                   </div>
                 ) : !state.usable ? (
-                  <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: 13,
+                      color: "var(--text-muted)",
+                    }}
+                  >
                     没有可用会话，采集只能走浏览器兜底或直接失败。
                   </p>
                 ) : state.proven ? (
@@ -1471,7 +1629,8 @@ export default function SettingsPage() {
                     }}
                   >
                     <span className="dot dot-pulse" />
-                    会话可用，最近一次采集成功于 {formatRelativeTime(state.last_success_at)}。
+                    会话可用，最近一次采集成功于{" "}
+                    {formatRelativeTime(state.last_success_at)}。
                   </p>
                 ) : (
                   /* The distinction that matters: importing a cookie clears the
@@ -1482,7 +1641,8 @@ export default function SettingsPage() {
                   <div className="inner-card" style={{ fontSize: 13 }}>
                     <span>
                       <strong>凭证已导入，但还没有被验证过。</strong>{" "}
-                      导入只是收下了 cookie；要等一次真实采集成功，这里才会变成「会话可用」。
+                      导入只是收下了
+                      cookie；要等一次真实采集成功，这里才会变成「会话可用」。
                       去「监控任务」页对任一规则点「立即运行」，或等下一轮调度。
                     </span>
                   </div>
@@ -1502,11 +1662,15 @@ export default function SettingsPage() {
                       : "—"}
                   </dd>
                   <dt>最近错误</dt>
-                  <dd style={{ wordBreak: "break-word" }}>{state.last_error ?? "—"}</dd>
+                  <dd style={{ wordBreak: "break-word" }}>
+                    {state.last_error ?? "—"}
+                  </dd>
                   <dt>已导入 cookie</dt>
                   {/* Names only. The values never leave the backend. */}
                   <dd style={{ color: "var(--acc2)" }}>
-                    {state.cookie_names.length > 0 ? state.cookie_names.join(" ") : "—"}{" "}
+                    {state.cookie_names.length > 0
+                      ? state.cookie_names.join(" ")
+                      : "—"}{" "}
                     {state.cookie_names.length > 0 ? (
                       <span className="dim">（仅名称，永不回显值）</span>
                     ) : null}
@@ -1517,15 +1681,18 @@ export default function SettingsPage() {
                       the backend -- rendering them here would hand a page's worth
                       of fingerprint to anything that can read this panel. */}
                   <dd style={{ wordBreak: "break-word" }}>
-                    {state.fingerprint ?? "内置默认值（开发者工具导入不带环境信息）"}
+                    {state.fingerprint ??
+                      "内置默认值（开发者工具导入不带环境信息）"}
                     {state.fingerprint && !state.fingerprint_applied ? (
                       <span className="muted">
                         {" "}
                         ——<strong>已记录，但没有采用</strong>
-                        。这份快照来自移动端浏览器，而本工具驱动的每一个页面和接口都是 PC 版（
+                        。这份快照来自移动端浏览器，而本工具驱动的每一个页面和接口都是
+                        PC 版（
                         <span className="mono">pc.search</span> /{" "}
                         <span className="mono">pc.detail</span>
-                        ）。带着手机 UA 去请求 PC 接口，是把一种不一致换成更糟的一种，所以采集仍
+                        ）。带着手机 UA 去请求 PC
+                        接口，是把一种不一致换成更糟的一种，所以采集仍
                         然用内置默认值。想让它生效，请在电脑浏览器上重新点一次书签。
                       </span>
                     ) : null}
@@ -1550,7 +1717,11 @@ export default function SettingsPage() {
                 const value = paste.trim();
                 if (value) doImport.mutate(value);
               }}
-              style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-2)",
+              }}
             >
               <label className="field-label" htmlFor="cookie-paste">
                 Cookie 键值对字符串
@@ -1561,14 +1732,18 @@ export default function SettingsPage() {
                 onChange={(event) => setPaste(event.target.value)}
                 rows={4}
                 placeholder="cookie2=…; unb=…; _m_h5_tk=…"
-                style={{ fontFamily: "var(--font-mono)", fontSize: 12, resize: "vertical" }}
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  resize: "vertical",
+                }}
                 aria-describedby="cookie-help"
               />
-              <div id="cookie-help" className="muted" style={{ fontSize: 11.5 }}>
-                <p style={{ margin: 0 }}>
-                  在自己的浏览器里登录闲鱼，开发者工具 → Network → 任一请求 → 复制整个
-                  <span className="mono"> Cookie </span>
-                  请求头，粘贴到这里。值只存在后端，页面上永远只显示 cookie 名字。
+              <div id="cookie-help" className="field-hint">
+                <p>
+                  1. 登录闲鱼，打开任一商品详情页（
+                  <span className="mono">goofish.com/item?id=…</span>
+                  ），出现滑块则完成验证。
                 </p>
                 {/* Copy the header from the request being reproduced, rather than
                     hunting for a particular cookie name. Which cookie carries a
@@ -1577,22 +1752,15 @@ export default function SettingsPage() {
                     got no such cookie. The request's own header sidesteps the
                     question: it is by definition the complete credential set that
                     endpoint receives, on the right domain. */}
-                <p style={{ margin: "var(--space-2) 0 0" }}>
-                  <strong>只登录往往不够</strong>
-                  ，风控挑战出现在<strong>商品详情</strong>那条路上。所以：先在浏览器里打开一个
-                  商品详情页（<span className="mono">goofish.com/item?id=…</span>），出现滑块就
-                  完成它，刷新，然后在 Network 里过滤
-                  <span className="mono"> detail </span>
-                  ，找到
-                  <span className="mono"> mtop.taobao.idle.pc.detail </span>
-                  这个请求，复制<strong>它的</strong>
+                <p>
+                  2. 刷新后打开开发者工具 → Network → 过滤
+                  <span className="mono"> detail </span>→ 选中
+                  <span className="mono"> mtop.taobao.idle.pc.detail </span>→
+                  复制它的
                   <span className="mono"> Cookie </span>
-                  请求头。
+                  请求头，粘贴到这里。
                 </p>
-                <p style={{ margin: "var(--space-1) 0 0" }}>
-                  为什么要指定这个请求：它的 Cookie 头按定义就是详情端点实际收到的完整凭证集，
-                  域也一定是对的，不需要判断哪个 cookie 名字才是关键。
-                </p>
+                <p>值仅存于后端，页面只显示 cookie 名。</p>
               </div>
               <div className="actions-row">
                 <button
@@ -1622,10 +1790,16 @@ export default function SettingsPage() {
                   </button>
                 )}
               </div>
-              {doImport.isError ? <ErrorState title="导入失败" error={doImport.error} /> : null}
-              {doClear.isError ? <ErrorState title="清除失败" error={doClear.error} /> : null}
+              {doImport.isError ? (
+                <ErrorState title="导入失败" error={doImport.error} />
+              ) : null}
+              {doClear.isError ? (
+                <ErrorState title="清除失败" error={doClear.error} />
+              ) : null}
               {doImport.isSuccess ? (
-                <p style={{ margin: 0, fontSize: 12.5, color: "var(--success)" }}>
+                <p
+                  style={{ margin: 0, fontSize: 12.5, color: "var(--success)" }}
+                >
                   已导入。若上面仍显示没有可用会话，通常是缺少
                   <span className="mono"> _m_h5_tk </span>
                   ——采集器会自己取一个，等一轮再看。

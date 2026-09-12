@@ -49,7 +49,7 @@ import { ErrorState } from "./States";
  *  broken-looking button this panel exists to avoid.
  */
 export const LLM_WAIT_NOTE =
-  "调用通常要 30–60 秒；模型第一次输出不合格式时服务端会自动重试一次，那就要两倍时间。期间不要重复点击——每次点击都是一次真实计费。";
+  "通常 30–60 秒，需要重试时约两倍。请勿重复点击，每次调用均计费。";
 
 type LlmPanelProps = {
   title: string;
@@ -109,9 +109,7 @@ function PendingNotice() {
       }}
     >
       <strong>正在调用模型，已等待 {seconds} 秒。</strong>
-      <span className="muted">
-        {LLM_WAIT_NOTE}实测：行情分析一次过约 59 秒、需要重试时到过 152 秒，单品建议约 6 秒。
-      </span>
+      <span className="muted">{LLM_WAIT_NOTE}</span>
       {/* ponytail: a counter and no progress bar. Nothing streams, so any bar
           here would be elapsed time wearing a progress costume -- and with a
           retry in play the honest denominator is 152s, which means a bar
@@ -156,7 +154,14 @@ export default function LlmPanel({
         {intro}
       </p>
 
-      <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-3)",
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
         <button
           type="button"
           data-variant="primary"

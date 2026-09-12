@@ -197,8 +197,9 @@ input,
 select,
 textarea {
   font: inherit;
-  min-height: 32px;
-  padding: var(--space-1) var(--space-2);
+  font-size: 13px;
+  min-height: 36px;
+  padding: 7px 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   /* background-color, not the shorthand: the focus underline below rides as
@@ -213,9 +214,17 @@ textarea {
   background-position: 0 100%;
   background-size: 0% 2px;
   transition:
-    border-color 0.25s,
-    box-shadow 0.25s,
+    border-color 0.25s var(--ease),
+    box-shadow 0.25s var(--ease),
     background-size 0.35s var(--ease);
+}
+
+/* Hover acknowledges the pointer before focus: the outline warms to accent.
+ * Focus keeps its own (stronger) pair of cues below. */
+input:hover:not(:disabled):not(:focus),
+select:hover:not(:disabled):not(:focus),
+textarea:hover:not(:disabled):not(:focus) {
+  border-color: var(--acc);
 }
 
 input:focus,
@@ -224,6 +233,29 @@ textarea:focus {
   border-color: var(--acc);
   box-shadow: 0 0 0 3px var(--acc-soft);
   background-size: 100% 2px;
+}
+
+/* The global :focus-visible outline exists for controls with no other focus
+ * cue. Text controls already show three (accent border, soft halo, underline
+ * sweep); stacking the offset outline on top draws a second concentric frame
+ * with a gap between them. Small controls (checkbox, switch, chip) keep the
+ * outline — they have no border-colour change to carry focus alone. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+::placeholder {
+  color: var(--text3);
+  opacity: 1; /* Firefox dims placeholders by default */
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 select option {
@@ -272,7 +304,7 @@ select:focus {
   /* base-select draws the UA picker icon; the custom chevron layer and its
    * reserved padding must go, or the arrow renders twice. */
   select {
-    padding-right: var(--space-2);
+    padding-right: 12px;
     background-image: linear-gradient(90deg, var(--acc), var(--acc3));
     background-position: 0 100%;
     background-size: 0% 2px;
@@ -395,6 +427,8 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
+  /* Prices and intervals align like the table's .num columns do. */
+  font-variant-numeric: tabular-nums;
 }
 
 label {
@@ -1528,7 +1562,7 @@ tr:hover .cell-edit .row-edit-btn,
   box-shadow: var(--card-shadow);
   display: flex;
   align-items: flex-end;
-  gap: 16px;
+  gap: 12px 16px;
   flex-wrap: wrap;
 }
 
@@ -1536,18 +1570,328 @@ tr:hover .cell-edit .row-edit-btn,
   flex: 1;
 }
 
+/* One control height across the bar; the seg strip grows its buttons to
+ * match the 36px inputs instead of sitting a notch shorter. */
+.filterbar button {
+  min-height: 36px;
+}
+
+.filterbar select {
+  min-width: 150px;
+}
+
+.filterbar .seg {
+  min-height: 36px;
+  align-items: center;
+}
+
+.filterbar .seg-btn {
+  min-height: 30px;
+}
+
+.filterbar .join-pair input {
+  flex: none;
+  width: 92px;
+}
+
 .field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
+  min-width: 0;
 }
 
+/* Form labels are mostly CJK, and CJK has no case to transform — the old
+ * mono/uppercase/0.14em eyebrow treatment shattered a label like 价格区间
+ * into spaced-out glyphs. Sans, sentence-case, normal tracking. The mono
+ * eyebrow style stays where the text is genuinely Latin (PageHero, .sub-h). */
 .field-label {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text2);
+}
+
+/* The two companions of every field. Hints used to be inline-styled 11px
+ * grey spans scattered across three pages; now there is one class each. */
+.field-hint {
+  font-size: 12px;
+  line-height: 1.55;
   color: var(--text3);
+}
+
+.field-hint p {
+  margin: 0;
+}
+
+.field-hint p + p {
+  margin-top: var(--space-2);
+}
+
+.field-error {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--red);
+}
+
+/* ---------- form layer: panels, sections, joined pairs, chips ----------
+ * The big rule form (MonitorForm) reads as one panel of a few labelled
+ * sections instead of a flat 14-field grid where every input shouts at the
+ * same volume. */
+
+.form-panel {
+  background: var(--card-gradient);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 24px 20px;
+  box-shadow: var(--card-shadow);
+  margin-bottom: var(--space-3);
+}
+
+.form-section {
+  padding: 18px 0;
+}
+
+.form-section + .form-section {
+  border-top: 1px solid var(--line);
+}
+
+.form-section-h {
+  margin: 0 0 14px;
+}
+
+.form-section-h h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.form-section-h h3 svg {
+  color: var(--acc2);
+}
+
+.form-section-h .desc {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px 16px;
+  align-items: start;
+}
+
+.form-grid > * {
+  min-width: 0;
+}
+
+/* Wide fields (name, keyword). On a one-column grid `span 2` clamps to the
+ * single track on its own — no media query needed. */
+.span-2 {
+  grid-column: span 2;
+}
+
+.span-all {
+  grid-column: 1 / -1;
+}
+
+/* Joined input pair (price min/max): two fields, one visual control. The
+ * pair owns the border and the focus ring; each input drops its own chrome
+ * but keeps the accent underline sweep under the half being edited. */
+.join-pair {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  transition:
+    border-color 0.25s var(--ease),
+    box-shadow 0.25s var(--ease);
+}
+
+.join-pair:hover:not(:has(:focus)) {
+  border-color: var(--acc);
+}
+
+.join-pair:focus-within {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+
+.join-pair input {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 34px;
+  border-color: transparent;
+  background-color: transparent;
+}
+
+.join-pair input:hover:not(:disabled) {
+  border-color: transparent;
+}
+
+.join-pair input:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* The pair's focus-within ring IS the focus indicator; a per-half outline
+ * would slice the shared control back into two boxes. */
+.join-pair input:focus-visible {
+  outline: none;
+}
+
+.join-sep {
+  align-self: center;
+  padding: 0 2px;
+  color: var(--text3);
+  user-select: none;
+  flex: none;
+}
+
+/* Chip multi-select (notification channels). The real checkbox stays in the
+ * DOM, focusable but invisible; the pill is its label, so click, keyboard,
+ * and FormData all behave exactly like the old bare checkbox list. */
+.chip-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip-check {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--input-bg);
+  color: var(--text2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    border-color 0.2s var(--ease),
+    background-color 0.2s var(--ease),
+    color 0.2s var(--ease);
+}
+
+.chip-check input[type="checkbox"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chip-check:hover {
+  border-color: var(--acc);
+  color: var(--text);
+}
+
+.chip-check:has(input:focus-visible) {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+
+.chip-check:has(input:checked) {
+  border-color: var(--acc);
+  background: var(--acc-soft);
+  color: var(--acc2);
+}
+
+/* The accent dot makes "on" legible at a glance; border + fill + text all
+ * change too, so colour is never the only carrier. */
+.chip-check:has(input:checked)::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 8px var(--acc-glow);
+  flex: none;
+}
+
+.chip-check .chip-note {
+  color: var(--text3);
+  font-size: 11px;
+}
+
+/* Switch + label on one baseline (exclude_shop, the settings toggles). */
+.switch-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  min-height: 36px;
+}
+
+/* In the form grid the switch bottoms out against the neighbouring inputs;
+ * scoped so a flex-column context never reads `end` as right-aligned. */
+.form-grid > .switch-row {
+  align-self: end;
+}
+
+/* Form footer: commit/cancel under a hairline, after the last section. */
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 2px;
+}
+
+/* Quiet button for low-stakes actions (清空筛选): invisible until hovered. */
+button.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text2);
+}
+
+button.btn-ghost:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg3);
+  color: var(--text);
+  box-shadow: none;
+}
+
+/* Explanatory line under a filterbar; the icon is decorative, words carry it. */
+.filterbar-note {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text3);
+}
+
+.filterbar-note svg {
+  flex: none;
+  margin-top: 2px;
 }
 
 /* Two-line clamped listing title. Real captured titles run past 250 chars;

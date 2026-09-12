@@ -706,11 +706,14 @@ export default function AnalyticsPage() {
           {/* The one caveat that applies to every number below. A keyword is
               not a product category: these are the listings OUR searches saw,
               not the market. */}
-          <p className="muted" style={{ margin: 0, fontSize: 11.5, flexBasis: "100%" }}>
-            以下数字都来自「{keyword}
-            」这个关键词的搜索结果，包含被规则价格区间和排除词挡掉的商品——市场是市场，规则是规则。
-            不是整个闲鱼。日期与日界均为 UTC。四块内容里「{days}
-            天」的含义各不相同，见每块自己的口径。
+          <p className="filterbar-note">
+            <Icon name="info" size={13} />
+            <span>
+              以下数字都来自「{keyword}
+              」这个关键词的搜索结果，包含被规则价格区间和排除词挡掉的商品——市场是市场，规则是规则。
+              不是整个闲鱼。日期与日界均为 UTC。四块内容里「{days}
+              天」的含义各不相同，见每块自己的口径。
+            </span>
           </p>
         </form>
 
