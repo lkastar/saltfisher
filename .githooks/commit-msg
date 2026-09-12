@@ -37,8 +37,15 @@ echo "$header" | grep -Eq "^($TYPES)(\(($SCOPES)\))?: .+" || fail "bad type or s
 
 subject=${header#*': '}
 [ ${#subject} -le 50 ] || fail "subject is ${#subject} chars, limit is 50"
+# The 26 letters spelled out, NOT the range [A-Z]. Under a UTF-8 locale,
+# /bin/sh on macOS (bash 3.2) expands a bracket RANGE by collation order --
+# aAbBcC... -- so [A-Z] matches every letter except a lone leading `a`, and
+# this check rejected every subject not starting with "a" (`fix: guard ...`,
+# `chore: bump ruff`). Six of this file's own tests had been failing on it.
+# Forcing LC_ALL=C would also fix the glob, but it switches ${#subject} from
+# characters to bytes, and this project writes Chinese commit bodies.
 case "$subject" in
-	[A-Z]*) fail "subject must start lowercase" ;;
+	[ABCDEFGHIJKLMNOPQRSTUVWXYZ]*) fail "subject must start lowercase" ;;
 	*.) fail "subject must not end with a period" ;;
 esac
 
