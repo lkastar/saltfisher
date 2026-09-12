@@ -637,13 +637,17 @@ tbody tr:last-child td {
   transition: background-color 0.3s;
 }
 
-/* Reading-progress hairline (fx.ts sets scaleX). Sits on the topbar's bottom
- * edge, over the border. */
+/* Reading-progress hairline (fx.ts sets scaleX). Pinned to the topbar's TOP
+ * edge, not the bottom one: the bottom is where `.main-nav a.active::after`
+ * draws the current-page underline, at the same 2px height and the same accent
+ * colour, and the two drew over each other — a half-scrolled page cut the
+ * active underline in half and read as a rendering fault. Top is also where a
+ * reading-progress line conventionally lives. */
 .scroll-progress {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -1px;
+  top: 0;
   height: 2px;
   background: linear-gradient(90deg, var(--acc), var(--acc2), var(--acc3));
   transform: scaleX(0);
