@@ -10,8 +10,10 @@
  */
 
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 
 import { ApiError } from "../api/client";
+import { remediationFor } from "../lib/apiErrors";
 import { Icon } from "./Icon";
 
 /** A skeleton that appears only if the wait is actually perceptible. Showing
@@ -60,18 +62,32 @@ export function ErrorState({
   onRetry?: () => void;
   tone?: "danger" | "warn";
   /** Extra escape hatch beyond retry, e.g. "查看任务" on the items page's
-   *  broken-rule fork. */
+   *  broken-rule fork. Supplying it suppresses the automatic remediation
+   *  link, so a caller with a better next step always wins. */
   action?: React.ReactNode;
 }) {
+  // Every caller gets this, rather than each one remembering: an error whose
+  // own text names the fix ("import a fresh cookie session") should carry the
+  // way to it. See lib/apiErrors.
+  const fix = action === undefined ? remediationFor(error) : null;
   return (
     <div role="alert" className="alert" data-tone={tone}>
-      <Icon name={tone === "warn" ? "alert-triangle" : "alert-circle"} size={15} />
+      <Icon
+        name={tone === "warn" ? "alert-triangle" : "alert-circle"}
+        size={15}
+      />
       <strong>{title}</strong>
       <code className="alert-msg">{messageOf(error)}</code>
       {onRetry ? (
         <button type="button" onClick={onRetry}>
           重试
         </button>
+      ) : null}
+      {fix ? (
+        <Link className="btn-text" to={fix.to}>
+          {fix.label}
+          <Icon name="arrow-right" size={13} />
+        </Link>
       ) : null}
       {action}
     </div>
