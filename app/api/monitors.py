@@ -10,7 +10,15 @@ from sqlmodel import select
 
 from app.collector.base import ChallengeError, CollectorError
 from app.db import SessionDep
-from app.models import Monitor, MonitorChannel, MonitorHit, NotifyChannel, Seller, utcnow
+from app.models import (
+    CollectRun,
+    Monitor,
+    MonitorChannel,
+    MonitorHit,
+    NotifyChannel,
+    Seller,
+    utcnow,
+)
 from app.scheduler import COLLECT_SEMAPHORE, record_manual_run, run_monitor_cycle
 from app.schemas import CycleResult, MonitorCreate, MonitorPublic, MonitorUpdate
 
@@ -162,6 +170,13 @@ def delete_monitor(monitor_id: int, session: SessionDep) -> None:
     # No ON DELETE CASCADE on SQLite by default, so the dependents go first.
     for hit in session.exec(select(MonitorHit).where(MonitorHit.monitor_id == monitor_id)).all():
         session.delete(hit)
+    # CollectRun too, and leaving it out was not merely untidy: SQLite REUSES a
+    # rowid after a delete, so the next rule created inherits the id -- and with
+    # it the run log of the rule that is gone. Measured on the developer's
+    # database: a rule created 2026-09-12 showed "采集正常" on 09-04, eight days
+    # before it existed, because 37 runs of a deleted rule still carried id 1.
+    for run in session.exec(select(CollectRun).where(CollectRun.monitor_id == monitor_id)).all():
+        session.delete(run)
     for link in session.exec(
         select(MonitorChannel).where(MonitorChannel.monitor_id == monitor_id)
     ).all():

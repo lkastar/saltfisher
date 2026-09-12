@@ -84,7 +84,11 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
   return (
     <section
       className="card"
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-3)",
+      }}
     >
       <div className="card-h" style={{ marginBottom: 0 }}>
         <h2>
@@ -102,7 +106,12 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
         {change !== 0 ? (
           <>
             {" · "}较首次观测{" "}
-            <span style={{ color: change < 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
+            <span
+              style={{
+                color: change < 0 ? "var(--green)" : "var(--red)",
+                fontWeight: 600,
+              }}
+            >
               {change < 0 ? "▼" : "▲"} {formatPrice(Math.abs(change))} ·{" "}
               {formatChangeRatio(change / first.price_cents)}
             </span>
@@ -110,7 +119,8 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
         ) : (
           <> · 与首次观测持平</>
         )}
-        {" · "}最后观测 {formatRelativeTime(last.captured_at)} · 共 {points.length} 次
+        {" · "}最后观测 {formatRelativeTime(last.captured_at)} · 共{" "}
+        {points.length} 次
       </div>
 
       <div className="table-scroll" style={{ padding: "var(--space-2)" }}>
@@ -162,7 +172,9 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
           >
             {formatDateTime(last.captured_at).slice(0, 10)}
           </text>
-          {areaPath === null ? null : <path d={areaPath} fill="var(--chart-band)" stroke="none" />}
+          {areaPath === null ? null : (
+            <path d={areaPath} fill="var(--chart-band)" stroke="none" />
+          )}
           <path
             d={linePath}
             fill="none"
@@ -195,7 +207,15 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
 
       <div className="table-scroll">
         <table>
-          <caption className="muted" style={{ captionSide: "top", textAlign: "left", padding: "var(--space-2)", fontSize: 12 }}>
+          <caption
+            className="muted"
+            style={{
+              captionSide: "top",
+              textAlign: "left",
+              padding: "var(--space-2)",
+              fontSize: 12,
+            }}
+          >
             每次观测的价格。曲线经过每个观测点，点与点之间是插值；精确数值以本表为准。
           </caption>
           <thead>
@@ -212,7 +232,9 @@ export default function PriceChart({ points }: { points: PricePoint[] }) {
               .map((point, i) => ({ point, prev: points[i - 1] }))
               .reverse()
               .map(({ point, prev }) => {
-                const delta = prev ? point.price_cents - prev.price_cents : null;
+                const delta = prev
+                  ? point.price_cents - prev.price_cents
+                  : null;
                 return (
                   <tr key={point.captured_at}>
                     <td className="mono" style={{ fontSize: 12 }}>

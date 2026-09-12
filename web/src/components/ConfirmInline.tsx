@@ -15,12 +15,22 @@ type ConfirmInlineProps = {
  *  spec — and wraps the armed state in a danger-tinted cluster so it is
  *  unmistakable which button is now live.
  */
-export function ConfirmInline({ verb, pending, onConfirm, onCancel }: ConfirmInlineProps) {
+export function ConfirmInline({
+  verb,
+  pending,
+  onConfirm,
+  onCancel,
+}: ConfirmInlineProps) {
   return (
     <span className="confirm-inline">
       <Icon name="alert-triangle" size={13} />
       <span className="confirm-verb">{verb}？</span>
-      <button type="button" data-variant="danger" onClick={onConfirm} disabled={pending}>
+      <button
+        type="button"
+        data-variant="danger"
+        onClick={onConfirm}
+        disabled={pending}
+      >
         {pending ? `${verb}中…` : `确认${verb}`}
       </button>
       <button type="button" onClick={onCancel} disabled={pending}>

@@ -1332,9 +1332,24 @@ a.card.kpi {
  * so a 60-character listing name ellipses instead of pushing the numbers out. */
 .watch-row {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 108px auto auto;
+  /* Every track sized to its content, and the LEFTOVER width spread evenly
+   * between them by justify-content rather than dumped into one column.
+   *
+   * Both earlier attempts put the slack in a single track and both looked
+   * broken: a 1fr title column held 300px of nothing after shortTitle clipped
+   * the name to 18 characters, and a 1fr spark column stretched a flat
+   * one-point series across 360px of empty chart while the price, the change
+   * and the status pill stayed jammed together at the right edge.
+   *
+   * Track widths stay identical from row to row, so the columns still line up
+   * down the card -- which is the whole reason this is a grid. */
+  grid-template-columns: 44px minmax(0, 250px) 150px auto auto;
+  justify-content: space-between;
   align-items: center;
-  gap: 14px;
+  /* 18px, not 14: the right-hand cluster (price, change, status pill) is
+   * three separate readings sitting side by side, and at 14 they read as one
+   * run-on token. */
+  column-gap: 18px;
   padding: 10px 6px;
   margin: 0 -6px;
   border-bottom: 1px solid var(--line);
@@ -1382,9 +1397,9 @@ a.card.kpi {
 
 .watch-figures {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 12px;
   font-size: 12px;
   white-space: nowrap;
 }

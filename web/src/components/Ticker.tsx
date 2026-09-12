@@ -1,5 +1,5 @@
 import type { Item } from "../api/queries";
-import { formatPrice, formatRelativeTime } from "../lib/format";
+import { formatPrice, formatRelativeTime, shortTitle } from "../lib/format";
 import { Icon } from "./Icon";
 
 type TickerProps = {
@@ -22,7 +22,7 @@ export function Ticker({ items }: TickerProps) {
 
   const cells = items.map((item) => (
     <span className="tk" key={item.id} title={item.title}>
-      <b>{item.title}</b>
+      <b>{shortTitle(item.title)}</b>
       <span className="mono">{formatPrice(item.price_cents)}</span>
       <span className="dim">{formatRelativeTime(item.first_seen_at)}</span>
     </span>

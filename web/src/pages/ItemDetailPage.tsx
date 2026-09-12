@@ -99,12 +99,23 @@ function AdvicePanel({ itemId }: { itemId: string }) {
       {advice === null ? (
         <pre
           className="mono"
-          style={{ margin: 0, fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+          style={{
+            margin: 0,
+            fontSize: 12,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
         >
           {result?.text}
         </pre>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-2)",
+          }}
+        >
           {/* Untoned pill for the verdict, like the market panel: the model
               answers in free text and 「谨慎考虑」 is a good answer. */}
           <div
@@ -125,9 +136,13 @@ function AdvicePanel({ itemId }: { itemId: string }) {
               建议出价 {formatPrice(advice.offerPriceCents)}
             </span>
           </div>
-          <p style={{ margin: 0, fontSize: 13.5, whiteSpace: "pre-wrap" }}>{advice.summary}</p>
+          <p style={{ margin: 0, fontSize: 13.5, whiteSpace: "pre-wrap" }}>
+            {advice.summary}
+          </p>
           {advice.risks.length > 0 ? (
-            <ul style={{ margin: 0, paddingLeft: "var(--space-4)", fontSize: 13 }}>
+            <ul
+              style={{ margin: 0, paddingLeft: "var(--space-4)", fontSize: 13 }}
+            >
               {advice.risks.map((risk) => (
                 <li key={risk}>{risk}</li>
               ))}
@@ -152,7 +167,8 @@ export default function ItemDetailPage() {
 
   const watch = useMutation({
     mutationFn: () => addWatch({ item_id: itemId, interval_seconds: 300 }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.watchlist }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: keys.watchlist }),
   });
 
   // On-demand seller-profile fetch (prd round-2 item 5). The seller fields
@@ -162,7 +178,8 @@ export default function ItemDetailPage() {
   // the fresh item arrives (hook-guidelines).
   const refresh = useMutation({
     mutationFn: refreshSeller,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.item(itemId) }),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: keys.item(itemId) }),
   });
 
   // Auto-fetch the seller profile once when it is clearly unfetched: every
@@ -234,13 +251,17 @@ export default function ItemDetailPage() {
             margin: "12px 0 8px",
           }}
         >
-          <span className="mono" style={{ fontSize: "clamp(32px, 3.2vw, 44px)", fontWeight: 600 }}>
+          <span
+            className="mono"
+            style={{ fontSize: "clamp(32px, 3.2vw, 44px)", fontWeight: 600 }}
+          >
             {formatPrice(data.price_cents)}
           </span>
           <StatusPill status={data.status} />
         </div>
         <div className="dim mono" style={{ fontSize: 12 }}>
-          {data.region ?? "地区未知"} · 发布 {formatRelativeTime(data.publish_time)} · 首次入库{" "}
+          {data.region ?? "地区未知"} · 发布{" "}
+          {formatRelativeTime(data.publish_time)} · 首次入库{" "}
           {formatDateTime(data.first_seen_at)}
           {prices.data ? ` · 观测 ${prices.data.length} 次` : ""}
         </div>
@@ -258,7 +279,9 @@ export default function ItemDetailPage() {
           </div>
         ) : null}
 
-        <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+        <div
+          style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}
+        >
           <a
             href={`${GOOFISH_ITEM}${data.id}`}
             target="_blank"
@@ -283,16 +306,27 @@ export default function ItemDetailPage() {
             disabled={watch.isPending}
           >
             <Icon name="bookmark-plus" size={14} />
-            {watch.isPending ? "加入中…" : watch.isSuccess ? "已加入收藏" : "加入收藏并追踪降价"}
+            {watch.isPending
+              ? "加入中…"
+              : watch.isSuccess
+                ? "已加入收藏"
+                : "加入收藏并追踪降价"}
           </button>
         </div>
-        {watch.isError ? <ErrorState title="加入收藏失败" error={watch.error} /> : null}
+        {watch.isError ? (
+          <ErrorState title="加入收藏失败" error={watch.error} />
+        ) : null}
 
         <div className="grid-21">
           {/* min-width:0 comes from the global `.grid-21 > *` rule. */}
           <div className="side-stack">
             <section className="card">
-              <RemoteImage src={cover} alt={data.title} width="100%" height={360} />
+              <RemoteImage
+                src={cover}
+                alt={data.title}
+                width="100%"
+                height={360}
+              />
               {data.image_urls.length > 1 ? (
                 <div
                   style={{
@@ -318,10 +352,16 @@ export default function ItemDetailPage() {
                         opacity: cover === url ? 1 : 0.55,
                         // boxShadow, not outline: an inline outline would
                         // override the :focus-visible ring.
-                        boxShadow: cover === url ? "0 0 0 1.5px var(--acc)" : undefined,
+                        boxShadow:
+                          cover === url ? "0 0 0 1.5px var(--acc)" : undefined,
                       }}
                     >
-                      <RemoteImage src={url} alt={data.title} width={64} height={64} />
+                      <RemoteImage
+                        src={url}
+                        alt={data.title}
+                        width={64}
+                        height={64}
+                      />
                     </button>
                   ))}
                 </div>
@@ -337,7 +377,9 @@ export default function ItemDetailPage() {
                   </h2>
                   {/* Honest label: this source had no separate description,
                       the body below is the title's full text. */}
-                  {data.description ? null : <span className="note">标题全文（该来源无独立描述）</span>}
+                  {data.description ? null : (
+                    <span className="note">标题全文（该来源无独立描述）</span>
+                  )}
                 </div>
                 <div
                   style={{

@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from app.db import get_session
 from app.main import app
-from app.models import Item, Monitor, MonitorHit, Seller
+from app.models import CollectRun, Item, Monitor, MonitorHit, Seller
 
 AUTH = {"Authorization": "Bearer testtoken123"}
 
@@ -163,6 +163,57 @@ def test_delete_takes_its_hits_with_it(client):
         assert s.exec(select(MonitorHit)).all() == []
         # the item itself is shared data and must survive
         assert s.get(Item, "i1") is not None
+
+
+def test_delete_takes_its_run_log_with_it(client):
+    """SQLite REUSES a rowid after a delete.
+
+    So a run log left behind does not merely dangle -- the next rule created
+    inherits the id and the panel credits it with the deleted rule's history.
+    Measured before this was fixed: a rule created 2026-09-12 reported
+    successful collection on 09-04, from 37 runs of a rule that no longer
+    existed.
+    """
+    c, engine = client
+    monitor_id = c.post("/api/monitors", json=VALID, headers=AUTH).json()["id"]
+    with Session(engine) as s:
+        s.add(CollectRun(monitor_id=monitor_id, ok=True, item_count=3, collector="mtop"))
+        s.commit()
+
+    assert c.delete(f"/api/monitors/{monitor_id}", headers=AUTH).status_code == 204
+    with Session(engine) as s:
+        assert s.exec(select(CollectRun)).all() == []
+
+    # The reused id must start clean: same id, no inherited history.
+    reborn = c.post("/api/monitors", json=VALID, headers=AUTH).json()
+    with Session(engine) as s:
+        inherited = s.exec(select(CollectRun).where(CollectRun.monitor_id == reborn["id"])).all()
+        assert inherited == []
+
+
+def test_delete_leaves_another_rules_runs_alone(client):
+    """Only this rule's runs. A watch-cycle run has no monitor_id at all and
+    must survive too, or deleting a search rule would erase watchlist history.
+    """
+    c, engine = client
+    keep_id = c.post("/api/monitors", json={**VALID, "keyword": "另一条"}, headers=AUTH).json()[
+        "id"
+    ]
+    doomed_id = c.post("/api/monitors", json=VALID, headers=AUTH).json()["id"]
+    with Session(engine) as s:
+        s.add(Seller(id="s1", nick="老王"))
+        s.add(Item(id="i1", title="t", seller_id="s1", seller_nick="老王"))
+        s.add(CollectRun(monitor_id=keep_id, ok=True, item_count=1))
+        s.add(CollectRun(monitor_id=doomed_id, ok=True, item_count=1))
+        s.add(CollectRun(item_id="i1", ok=True, item_count=1))
+        s.commit()
+
+    assert c.delete(f"/api/monitors/{doomed_id}", headers=AUTH).status_code == 204
+    with Session(engine) as s:
+        left = s.exec(select(CollectRun)).all()
+        # A set: the two survivors are (watch cycle, other rule) and None does
+        # not order against an int.
+        assert {(r.monitor_id, r.item_id) for r in left} == {(None, "i1"), (keep_id, None)}
 
 
 def test_health_fields_are_exposed_for_the_management_page(client):

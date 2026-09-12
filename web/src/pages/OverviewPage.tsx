@@ -26,6 +26,7 @@ import {
   formatChangeRatio,
   formatPrice,
   formatRelativeTime,
+  shortTitle,
 } from "../lib/format";
 import { useCountUp, useReveal } from "../lib/fx";
 import { recentWatch } from "../lib/watchlist";
@@ -140,16 +141,20 @@ function WatchTrend() {
             <div className="watch-main">
               <div className="watch-title">
                 <Link to={`/items/${entry.item_id}`} title={entry.title}>
-                  {entry.title}
+                  {shortTitle(entry.title)}
                 </Link>
               </div>
-              <span className="watch-age">{formatRelativeTime(entry.added_at)}</span>
+              <span className="watch-age">
+                {formatRelativeTime(entry.added_at)}
+              </span>
             </div>
             <div className="watch-spark">
               <WatchSpark itemId={entry.item_id} color={tone} />
             </div>
             <div className="watch-figures">
-              <span className="watch-price">{formatPrice(entry.price_cents)}</span>
+              <span className="watch-price">
+                {formatPrice(entry.price_cents)}
+              </span>
               <span className="mono" style={{ color: tone }}>
                 {formatChangeRatio(entry.change_ratio)}
               </span>
@@ -456,7 +461,7 @@ export default function OverviewPage() {
                 <div className="hit-body">
                   <div className="hit-title">
                     <Link to={`/items/${item.id}`} title={item.title}>
-                      {item.title}
+                      {shortTitle(item.title)}
                     </Link>
                   </div>
                   <div className="hit-meta">

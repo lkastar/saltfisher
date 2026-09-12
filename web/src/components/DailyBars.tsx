@@ -1,4 +1,5 @@
 import type { SupplyDay } from "../api/queries";
+import { firstWatchedIndex } from "../lib/supplyTrend";
 import {
   bandPath,
   dayTicks,
@@ -35,12 +36,19 @@ import {
 const W = 720;
 const H = 180;
 const PAD = { top: 14, right: 14, bottom: 30, left: 44 };
-const PLOT = { left: PAD.left, right: W - PAD.right, top: PAD.top, bottom: H - PAD.bottom };
+const PLOT = {
+  left: PAD.left,
+  right: W - PAD.right,
+  top: PAD.top,
+  bottom: H - PAD.bottom,
+};
 
 function stateOf(day: SupplyDay): TrendState {
   if (day.collected) return "ok";
   return day.runs_failed > 0 ? "fail" : "idle";
 }
+
+const PRE_HISTORY = "尚未监控";
 
 const LEGEND: Record<TrendState, string> = {
   ok: "采集正常",
@@ -48,9 +56,18 @@ const LEGEND: Record<TrendState, string> = {
   idle: "无采集记录",
 };
 
-export default function DailyBars({ days }: { days: SupplyDay[] }) {
+export default function DailyBars({
+  days,
+  dataDays,
+}: {
+  days: SupplyDay[];
+  /** From the API's `data_days`: how many days of history this keyword has. */
+  dataDays: number;
+}) {
   const lastDay = days[days.length - 1];
   if (!lastDay) return null;
+
+  const watchedFrom = firstWatchedIndex(days, dataDays);
 
   const values = days.map((d) => d.new_count);
   const states = days.map(stateOf);
@@ -63,7 +80,8 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
   const x = (i: number) => scale(i, 0, days.length - 1, PLOT.left, PLOT.right);
   // Math.max(peak, 1): a window where nothing was ever new has peak 0, and
   // scale() centres a zero-width domain -- the axis would float mid-chart.
-  const y = (v: number) => scale(v, 0, Math.max(peak, 1), PLOT.bottom, PLOT.top);
+  const y = (v: number) =>
+    scale(v, 0, Math.max(peak, 1), PLOT.bottom, PLOT.top);
   const pixels = values.map((v, i) => ({ x: x(i), y: y(v) }));
   const lastPixel = pixels[pixels.length - 1]!;
 
@@ -86,7 +104,13 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
   const columns = stateColumns(states, PLOT);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-3)",
+      }}
+    >
       <div className="table-scroll" style={{ padding: "var(--space-2)" }}>
         <svg
           viewBox={`0 0 ${W} ${H}`}
@@ -106,7 +130,14 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
               patternTransform="rotate(45)"
               patternUnits="userSpaceOnUse"
             >
-              <line x1="0" y1="0" x2="0" y2="6" stroke="var(--border-strong)" strokeWidth="1" />
+              <line
+                x1="0"
+                y1="0"
+                x2="0"
+                y2="6"
+                stroke="var(--border-strong)"
+                strokeWidth="1"
+              />
             </pattern>
             <pattern
               id="sfd-hatch-fail"
@@ -115,7 +146,14 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
               patternTransform="rotate(45)"
               patternUnits="userSpaceOnUse"
             >
-              <line x1="0" y1="0" x2="0" y2="4" stroke="var(--red)" strokeWidth="1.5" />
+              <line
+                x1="0"
+                y1="0"
+                x2="0"
+                y2="4"
+                stroke="var(--red)"
+                strokeWidth="1.5"
+              />
             </pattern>
           </defs>
 
@@ -152,7 +190,9 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
             </text>
           ))}
 
-          {areaPath === null ? null : <path d={areaPath} fill="var(--chart-band)" stroke="none" />}
+          {areaPath === null ? null : (
+            <path d={areaPath} fill="var(--chart-band)" stroke="none" />
+          )}
           <path
             d={linePath}
             fill="none"
@@ -192,7 +232,9 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
                 key={day.date}
                 x={pixels[i]!.x}
                 y={H - 10}
-                textAnchor={i === 0 ? "start" : i === days.length - 1 ? "end" : "middle"}
+                textAnchor={
+                  i === 0 ? "start" : i === days.length - 1 ? "end" : "middle"
+                }
                 fontSize="11"
                 fill="var(--text3)"
                 fontFamily="var(--font-mono)"
@@ -250,8 +292,9 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
             </tr>
           </thead>
           <tbody>
-            {[...days].reverse().map((day) => {
+            {[...days].reverse().map((day, reversedIndex) => {
               const state = stateOf(day);
+              const preHistory = days.length - 1 - reversedIndex < watchedFrom;
               return (
                 <tr key={day.date}>
                   <td className="mono" style={{ fontSize: 12 }}>
@@ -259,7 +302,9 @@ export default function DailyBars({ days }: { days: SupplyDay[] }) {
                   </td>
                   <td className="num">{day.new_count}</td>
                   <td>
-                    {state !== "fail" ? (
+                    {preHistory ? (
+                      <span className="muted">{PRE_HISTORY}</span>
+                    ) : state !== "fail" ? (
                       // --warn is reserved for risk control and a degraded
                       // collector (styling-guidelines.md). Thirty rows of
                       // "no record" is history, not an alarm, and spending

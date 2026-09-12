@@ -382,7 +382,7 @@ export default function WatchlistPage() {
                            * and 现价 that read as an empty column. */
                           style={{ maxWidth: 420, fontSize: 13 }}
                         >
-                          {entry.title}
+                          {shortTitle(entry.title)}
                         </Link>
                         <div className="dim mono" style={{ fontSize: 11 }}>
                           {entry.seller_nick}

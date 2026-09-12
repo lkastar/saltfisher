@@ -16,7 +16,12 @@ type SparkProps = {
   height?: number;
 };
 
-export default function Spark({ values, color = "var(--acc)", width = 160, height = 26 }: SparkProps) {
+export default function Spark({
+  values,
+  color = "var(--acc)",
+  width = 160,
+  height = 26,
+}: SparkProps) {
   const { line, area, end } = sparkPaths(values, width, height);
   if (end === null) return null;
 
@@ -28,8 +33,16 @@ export default function Spark({ values, color = "var(--acc)", width = 160, heigh
       aria-hidden="true"
       style={{ display: "block", overflow: "visible" }}
     >
-      {area === "" ? null : <path d={area} fill={color} opacity="0.12" stroke="none" />}
-      <path d={line} fill="none" stroke={color} strokeWidth="1.4" opacity="0.85" />
+      {area === "" ? null : (
+        <path d={area} fill={color} opacity="0.12" stroke="none" />
+      )}
+      <path
+        d={line}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.4"
+        opacity="0.85"
+      />
       <circle cx={end.x} cy={end.y} r="2.2" fill={color} />
     </svg>
   );

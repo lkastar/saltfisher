@@ -20,6 +20,7 @@ import {
   formatPrice,
   parseUtc,
   parseYuanToCents,
+  shortTitle,
 } from "../lib/format";
 import {
   nextParams,
@@ -440,7 +441,7 @@ export default function ItemsPage() {
                           }`}
                           title={item.title}
                         >
-                          {item.title}
+                          {shortTitle(item.title)}
                         </Link>
                       </td>
                       <td

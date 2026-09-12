@@ -1,6 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Link, Navigate, Route, Routes, useLocation, type Location } from "react-router";
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  type Location,
+} from "react-router";
 
 import { clearToken, getToken } from "./api/client";
 import { sessionOptions } from "./api/queries";
@@ -72,7 +79,10 @@ function TopbarStatus() {
     if (!session.data.usable) {
       tone = "err";
       label = "会话不可用";
-    } else if (session.data.needs_verification || session.data.challenged_apis.length > 0) {
+    } else if (
+      session.data.needs_verification ||
+      session.data.challenged_apis.length > 0
+    ) {
       tone = "warn";
       label = "风控";
     } else {
@@ -154,7 +164,10 @@ function AppShell() {
           <Route path="/watchlist" element={<WatchlistPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           {/* Channel CRUD lives in the settings page's 通知渠道 section. */}
-          <Route path="/channels" element={<Navigate to="/settings#channels" replace />} />
+          <Route
+            path="/channels"
+            element={<Navigate to="/settings#channels" replace />}
+          />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<p className="muted">没有这个页面。</p>} />
         </Routes>

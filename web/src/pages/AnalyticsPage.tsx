@@ -322,7 +322,7 @@ function DropsBlock({ query }: { query: AnalyticsQuery }) {
                         title={row.title}
                         style={{ maxWidth: 200, fontSize: 13 }}
                       >
-                        {row.title}
+                        {shortTitle(row.title)}
                       </Link>
                       {row.is_fresh ? null : (
                         // Not a colour-only hint: without the words, a user
@@ -421,7 +421,7 @@ function TrendBlock({ query }: { query: AnalyticsQuery }) {
       note="NEW ITEMS PER DAY · UTC"
       caption={caption}
     >
-      <DailyBars days={days} />
+      <DailyBars days={days} dataDays={data_days} />
     </Block>
   );
 }

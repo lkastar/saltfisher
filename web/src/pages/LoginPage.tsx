@@ -76,9 +76,7 @@ export default function LoginPage({
             aria-invalid={error ? true : undefined}
             autoFocus
           />
-          <span className="field-hint">
-            与后端 SFD_API_TOKEN 一致。
-          </span>
+          <span className="field-hint">与后端 SFD_API_TOKEN 一致。</span>
         </div>
 
         {error ? (

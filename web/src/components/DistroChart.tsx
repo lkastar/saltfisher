@@ -21,7 +21,12 @@ const PAD = { top: 26, right: 12, bottom: 24, left: 12 };
 const AXIS_Y = H - PAD.bottom;
 const RUG_TOP = AXIS_Y - 30;
 /** Where the curve lives; the 30px strip below it belongs to the rug. */
-const CURVE_BOX = { left: PAD.left, right: W - PAD.right, top: PAD.top, bottom: RUG_TOP };
+const CURVE_BOX = {
+  left: PAD.left,
+  right: W - PAD.right,
+  top: PAD.top,
+  bottom: RUG_TOP,
+};
 const TICKS = 5;
 
 type DistroChartProps = {
@@ -57,7 +62,9 @@ export default function DistroChart({
 
   // A dense 120-point polyline, not smoothPath: at ~6px per segment the
   // Bézier version is visually identical and three times the path string.
-  const pts = geo ? geo.curve.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ") : null;
+  const pts = geo
+    ? geo.curve.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ")
+    : null;
   const first = geo?.curve[0];
   const last = geo?.curve[geo.curve.length - 1];
   const area =
@@ -70,10 +77,18 @@ export default function DistroChart({
   // The label is clamped so a median near an edge does not push its text out
   // of the viewBox; the line itself stays where the value is.
   const medianLabelX =
-    medianX === null ? null : Math.max(CURVE_BOX.left + 40, Math.min(CURVE_BOX.right - 40, medianX));
+    medianX === null
+      ? null
+      : Math.max(CURVE_BOX.left + 40, Math.min(CURVE_BOX.right - 40, medianX));
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-3)",
+      }}
+    >
       {geo && min !== undefined && max !== undefined ? (
         <div className="table-scroll" style={{ padding: "var(--space-2)" }}>
           <svg
@@ -86,9 +101,16 @@ export default function DistroChart({
             // scrolls instead of squeezing, and the page body never does.
             style={{ display: "block", minWidth: 480 }}
           >
-            {area === null ? null : <path d={area} fill="var(--chart-band)" stroke="none" />}
+            {area === null ? null : (
+              <path d={area} fill="var(--chart-band)" stroke="none" />
+            )}
             {line === null ? null : (
-              <path d={line} fill="none" stroke="var(--acc)" strokeWidth="1.6" />
+              <path
+                d={line}
+                fill="none"
+                stroke="var(--acc)"
+                strokeWidth="1.6"
+              />
             )}
 
             {/* Beeswarm rug: one dot per sample, stacking upward where values
@@ -144,7 +166,9 @@ export default function DistroChart({
                   key={t}
                   x={geo.x(value)}
                   y={H - 8}
-                  textAnchor={t === 0 ? "start" : t === TICKS - 1 ? "end" : "middle"}
+                  textAnchor={
+                    t === 0 ? "start" : t === TICKS - 1 ? "end" : "middle"
+                  }
                   fontSize="11"
                   fill="var(--text3)"
                   fontFamily="var(--font-mono)"
@@ -162,8 +186,8 @@ export default function DistroChart({
           headline sample count. */}
       {samples.length < sampleSize ? (
         <p className="dim" style={{ fontSize: 11.5, margin: 0 }}>
-          曲线与散点由均匀降采样的 {samples.length} 个样本绘制（保留首尾）；分位数与下表按全部{" "}
-          {sampleSize} 件计算。
+          曲线与散点由均匀降采样的 {samples.length}{" "}
+          个样本绘制（保留首尾）；分位数与下表按全部 {sampleSize} 件计算。
         </p>
       ) : null}
 
@@ -171,7 +195,10 @@ export default function DistroChart({
           .grid-2 row partner, leaving a void in the other column. The chart
           above shows the shape; the table scrolls for the exact numbers. The
           global `thead th` sticky rule keeps the header visible while it does. */}
-      <div className="table-scroll" style={{ maxHeight: 320, overflowY: "auto" }}>
+      <div
+        className="table-scroll"
+        style={{ maxHeight: 320, overflowY: "auto" }}
+      >
         <table>
           <caption
             className="muted"
@@ -194,12 +221,17 @@ export default function DistroChart({
           <tbody>
             {buckets.map((bucket) => (
               <tr key={bucket.lo}>
-                <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                <td
+                  className="mono"
+                  style={{ fontSize: 12, whiteSpace: "nowrap" }}
+                >
                   {format(bucket.lo)} – {format(bucket.hi)}
                 </td>
                 <td className="num">{bucket.count}</td>
                 <td className="num muted">
-                  {total === 0 ? "—" : `${((bucket.count / total) * 100).toFixed(1)}%`}
+                  {total === 0
+                    ? "—"
+                    : `${((bucket.count / total) * 100).toFixed(1)}%`}
                 </td>
               </tr>
             ))}
