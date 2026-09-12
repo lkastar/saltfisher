@@ -427,13 +427,23 @@ def xor_db(request, tmp_path) -> Path:
 
 
 def _insert(path: Path, keyword: str | None, seller_id: str | None) -> None:
-    """A rule written by hand through sqlite3, bypassing every app layer."""
+    """A rule written by hand through sqlite3, bypassing every app layer.
+
+    `hit_count` is read off the ACTUAL schema rather than hardcoded, because
+    the two fixtures below are at different schema versions on purpose: the
+    `migrated` database stops at 001 and still carries the column (NOT NULL,
+    no default, so it cannot simply be omitted), while `fresh` is built from
+    today's models, where 002 dropped it. Both must still prove the CHECK.
+    """
     con = sqlite3.connect(path, isolation_level=None)
     try:
+        columns = [row[1] for row in con.execute("PRAGMA table_info(monitor)")]
+        extra = ", hit_count" if "hit_count" in columns else ""
+        extra_value = ", 0" if "hit_count" in columns else ""
         con.execute(
             "INSERT INTO monitor (name, keyword, seller_id, exclude_words, exclude_shop, "
-            "interval_seconds, enabled, baseline_done, consecutive_failures, hit_count, "
-            "created_at) VALUES ('x', ?, ?, '', 0, 300, 1, 0, 0, 0, "
+            f"interval_seconds, enabled, baseline_done, consecutive_failures{extra}, "
+            f"created_at) VALUES ('x', ?, ?, '', 0, 300, 1, 0, 0{extra_value}, "
             "'2026-09-08 00:00:00.000000')",
             (keyword, seller_id),
         )

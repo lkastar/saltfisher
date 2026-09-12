@@ -242,7 +242,9 @@ def _sync_persist_cycle(
         hits = persist_cycle(session, monitor_id, candidates, baseline_done=baseline_done)
         monitor = session.get(Monitor, monitor_id)
         if monitor is not None:
-            monitor.hit_count += len(hits)
+            # Nothing to increment: the hit count is read from MonitorHit.
+            # It used to be `+= len(hits)`, and `hits` is the NOTIFIABLE
+            # subset -- the ledger rows persist_cycle wrote are not all of it.
             if not monitor.baseline_done:
                 # Flipped in the SAME transaction that wrote the baseline hits,
                 # so a crash mid-baseline cannot turn into a full-volume push

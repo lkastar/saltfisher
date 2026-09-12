@@ -18,6 +18,24 @@ docker compose down            # 停机时会 checkpoint WAL，留下自包含�
 docker compose up -d --build   # 改了代码后重建
 ```
 
+### 升级已有实例：先跑迁移，再起新代码
+
+绝大多数结构变更是「加一个可空列」，启动时 `db.add_missing_columns()` 自己就补了，什么都不用做。
+**只有 `scripts/migrations/` 里有编号脚本时才需要手动一步**，而且顺序不能反：
+
+```bash
+docker compose stop                                                   # 必须先停
+uv run python scripts/migrations/002_drop_monitor_hit_count.py --i-stopped-the-app
+docker compose up -d --build
+```
+
+002 **必须在新代码之前跑完**。它删掉的 `monitor.hit_count` 在老库里是 `NOT NULL` 且没有默认值，
+而新代码不再写这一列——顺序反了的话，**新建监控规则会直接报
+`NOT NULL constraint failed: monitor.hit_count`**（实测过）。读取和采集不受影响，只有新建会炸。
+
+脚本自己会先备份（走 `scripts/backup.py`，不是 `cp`）、拒绝在有连接占用时运行、并在事务里核对完
+才 COMMIT；重复跑是安全的，第二次只会打印 already migrated。
+
 镜像基于 `mcr.microsoft.com/playwright/python`，但**浏览器是从 `uv.lock` 里那个 playwright
 包装的**（`uv run playwright install chromium`），不是用镜像自带的。理由：镜像 tag 和锁文件
 是同一个版本号的两个来源，实测漂移过一次，容器起不来。基础镜像只保留它的系统库价值。

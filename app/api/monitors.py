@@ -5,6 +5,7 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from sqlalchemy import func
 from sqlmodel import select
 
 from app.collector.base import ChallengeError, CollectorError
@@ -26,6 +27,20 @@ def _channel_ids(session: SessionDep, monitor_id: int) -> list[int]:
     )
 
 
+def _hit_count(session: SessionDep, monitor_id: int) -> int:
+    """How many listings this rule has ever matched, counted from the ledger.
+
+    Not a stored column. `MonitorHit` IS the answer, and the covering index
+    `ix_hit_monitor_time` makes the count an index scan -- cheaper than the
+    class of bug a denormalised copy produced here for real.
+    """
+    return int(
+        session.exec(
+            select(func.count()).select_from(MonitorHit).where(MonitorHit.monitor_id == monitor_id)
+        ).one()
+    )
+
+
 def _public(session: SessionDep, monitor: Monitor) -> MonitorPublic:
     """Monitor row plus its channel links.
 
@@ -41,6 +56,7 @@ def _public(session: SessionDep, monitor: Monitor) -> MonitorPublic:
     seller = None if monitor.seller_id is None else session.get(Seller, monitor.seller_id)
     return MonitorPublic(
         **monitor.model_dump(),
+        hit_count=_hit_count(session, monitor.id),
         channel_ids=_channel_ids(session, monitor.id),
         seller_nick=None if seller is None else seller.nick,
     )

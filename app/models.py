@@ -116,7 +116,12 @@ class Monitor(SQLModel, table=True):
     last_error: str | None = None
     last_collector: str | None = None
     consecutive_failures: int = 0
-    hit_count: int = 0
+    # No hit_count column: it is count(MonitorHit) for this rule, and a stored
+    # copy is a second truth that only ever drifts. It did -- it was
+    # incremented with the NOTIFIABLE subset of a cycle, so a rule's first
+    # (baseline) cycle showed 0 next to a link listing 60 items, and every
+    # later cycle undercounted by whatever was deduped or in cooldown.
+    # `MonitorPublic.hit_count` is derived in api/monitors._public.
     created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
 
 
