@@ -1321,6 +1321,82 @@ a.card.kpi {
   white-space: nowrap;
 }
 
+/* 收藏走势 rows on the overview. A GRID, not .hit-item's flex row: that one
+ * is built for the narrow aside card, and here it collapsed outright --
+ * `.hit-body` is flex-basis 0 next to a `width="100%"` sparkline svg, so the
+ * body measured 0px wide and every meta token wrapped onto its own line (the
+ * title vanished, the numbers became a vertical stack). Fixed tracks also make
+ * the prices and badges line up down the card, which a flex row never does.
+ *
+ * The spark track is a fixed width and `min-width: 0` guards the title track,
+ * so a 60-character listing name ellipses instead of pushing the numbers out. */
+.watch-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 108px auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 6px;
+  margin: 0 -6px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.watch-row:hover {
+  background: var(--bg2);
+}
+
+.watch-row:last-child {
+  border-bottom: none;
+}
+
+.watch-main {
+  min-width: 0;
+}
+
+.watch-title {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.watch-title a {
+  color: var(--text);
+}
+
+.watch-title a:hover {
+  color: var(--acc2);
+}
+
+.watch-age {
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+/* The svg inside is width:100% -- it needs a track that bounds it, which is
+ * exactly what the flex row failed to give it. */
+.watch-spark {
+  min-width: 0;
+}
+
+.watch-figures {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.watch-price {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 .hit-price {
   font-family: var(--font-mono);
   font-size: 13px;

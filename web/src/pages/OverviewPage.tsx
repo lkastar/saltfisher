@@ -130,31 +130,31 @@ function WatchTrend() {
               ? "var(--green)"
               : "var(--red)";
         return (
-          <div className="hit-item" key={entry.item_id}>
+          <div className="watch-row" key={entry.item_id}>
             <RemoteImage
               src={entry.cover_url}
               alt={entry.title}
-              width={48}
-              height={48}
+              width={44}
+              height={44}
             />
-            <div className="hit-body">
-              <div className="hit-title">
+            <div className="watch-main">
+              <div className="watch-title">
                 <Link to={`/items/${entry.item_id}`} title={entry.title}>
                   {entry.title}
                 </Link>
               </div>
-              <div className="hit-meta">
-                <span className="hit-price">
-                  {formatPrice(entry.price_cents)}
-                </span>
-                <span className="mono" style={{ color: tone }}>
-                  {formatChangeRatio(entry.change_ratio)}
-                </span>
-                <StatusPill status={entry.status} />
-                <span>{formatRelativeTime(entry.added_at)}</span>
-              </div>
+              <span className="watch-age">{formatRelativeTime(entry.added_at)}</span>
             </div>
-            <WatchSpark itemId={entry.item_id} color={tone} />
+            <div className="watch-spark">
+              <WatchSpark itemId={entry.item_id} color={tone} />
+            </div>
+            <div className="watch-figures">
+              <span className="watch-price">{formatPrice(entry.price_cents)}</span>
+              <span className="mono" style={{ color: tone }}>
+                {formatChangeRatio(entry.change_ratio)}
+              </span>
+            </div>
+            <StatusPill status={entry.status} />
           </div>
         );
       })}
