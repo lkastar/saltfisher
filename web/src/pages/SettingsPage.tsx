@@ -168,12 +168,7 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
 
       <label className="field">
         <span className="field-label">名称</span>
-        <input
-          name="label"
-          required
-          maxLength={60}
-          placeholder="给自己看的备注"
-        />
+        <input name="label" required maxLength={60} placeholder="备注" />
       </label>
 
       {kind === "email" ? (
@@ -207,16 +202,12 @@ function ChannelForm({ onDone }: { onDone: () => void }) {
               type="password"
               autoComplete="new-password"
             />
-            <span className="field-hint">
-              多数服务商的 SMTP key 与 API key 不是一个东西，填错会得到 535
-            </span>
+            <span className="field-hint">需填 SMTP 专用密码，非 API key</span>
           </label>
           <label className="field">
             <span className="field-label">发件地址</span>
             <input name="from_addr" required placeholder="bot@example.com" />
-            <span className="field-hint">
-              域名需通过发信认证，否则会被静默丢弃
-            </span>
+            <span className="field-hint">域名需通过发信认证</span>
           </label>
           <label className="field">
             <span className="field-label">收件地址（逗号分隔）</span>
@@ -388,8 +379,7 @@ function ChannelCard({ channel }: { channel: Channel }) {
           <p style={{ margin: 0, fontSize: 12.5, color: "var(--success)" }}>
             已交给服务器。
             <span className="muted">
-              注意：SMTP 回 250
-              只代表对方接收了，不代表送进了收件箱——去邮箱确认一次。
+              SMTP 返回 250 仅表示对方已接收，请到邮箱确认。
             </span>
           </p>
         ) : (
@@ -512,7 +502,7 @@ function ChannelsSection() {
       ) : null}
 
       <p className="dim" style={{ margin: 0, fontSize: 11.5 }}>
-        密钥永不回显：页面上只显示「已设置 / 未设置」，要更换就重建渠道。
+        密钥不回显，更换需重建渠道。
       </p>
     </section>
   );
@@ -704,7 +694,7 @@ function EndpointForm({
           required
           maxLength={60}
           defaultValue={endpoint?.label}
-          placeholder="给自己看的备注"
+          placeholder="备注"
         />
       </div>
 
@@ -884,7 +874,7 @@ function EndpointCard({ endpoint }: { endpoint: LlmEndpoint }) {
 
       {confirming ? (
         <p className="muted" style={{ margin: 0, fontSize: 11.5 }}>
-          删除会把指向它的场景配置解绑并停用——那些场景没有端点就跑不了。
+          删除后，引用它的场景配置将被解绑并停用。
         </p>
       ) : null}
 
@@ -1275,9 +1265,8 @@ function LlmSection() {
           </div>
         </div>
         <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
-          任何 OpenAI 兼容或 Anthropic 格式的端点都行，包括本地 Ollama 和自建
-          vLLM。 「测试连接」会发一次真实调用——它测的是这条路真的通，不是
-          base_url 能解析。
+          支持 OpenAI 兼容与 Anthropic 格式的端点，含本地 Ollama、自建
+          vLLM。「测试连接」会发起一次真实调用。
         </p>
 
         {creating ? <EndpointForm onDone={() => setCreating(false)} /> : null}
@@ -1356,20 +1345,17 @@ function BookmarkletBlock() {
           one the cookies came from; that is worth one sentence rather than a
           surprise for anyone who reads the script below. */}
       <p className="muted" style={{ margin: 0 }}>
-        它同时会捎上这台浏览器的<strong>环境信息</strong>
-        （UA、语言、时区、屏幕尺寸），让采集
-        请求和凭证来自同一台机器。都是页面上已经能读到的只读属性，不做任何额外探测。
+        同时提交该浏览器的
+        UA、语言、时区与屏幕尺寸，使采集请求与凭证来自同一环境。
       </p>
       {blockedByMixedContent ? (
         <p className="muted" style={{ margin: 0 }}>
-          <strong>这台面板用不了书签脚本</strong>：它开在明文 http 的
-          <span className="mono"> {window.location.host} </span>
-          上，而闲鱼页面是 https——浏览器不允许 https 页面去 fetch http
-          地址，后端加什么头都
-          绕不过去。请用下面的开发者工具流程，或者给面板配上 https。仓库里的
+          <strong>此面板不支持书签脚本</strong>：面板运行在 http（
+          <span className="mono">{window.location.host}</span>
+          ），浏览器禁止 https 页面请求 http
+          地址。请改用下方的开发者工具流程，为面板配置 https，或使用
           <span className="mono"> extension/ </span>
-          扩展不在页面里发请求，所以不受这一条限制（但 Chrome
-          的本地网络访问限制是否管得到 扩展还没有定论，见 docs/operations.md）。
+          扩展。
         </p>
       ) : null}
       <button
@@ -1406,10 +1392,8 @@ function BookmarkletBlock() {
             导入闲鱼凭证
           </a>
           <p className="muted" style={{ margin: 0 }}>
-            这张票据<strong>只能用一次</strong>，
-            {formatDateTime(mint.data.expires_at)} 过期（约 10
-            分钟）。用过或过期后再点一次
-            「重新生成」换一张——旧书签会明确告诉你是过期还是已用过。票据本身是密钥，别贴给别人。
+            票据仅可使用一次，{formatDateTime(mint.data.expires_at)}{" "}
+            过期。用过或过期后点 「重新生成」。票据是密钥，请勿外传。
           </p>
           {/* Same rule as everywhere else: the import is not the result. And
               the "unusable" this leaves behind is expected, not a failure --
@@ -1420,12 +1404,9 @@ function BookmarkletBlock() {
             ，跑通了才算恢复。
           </p>
           <p className="muted" style={{ margin: 0 }}>
-            书签导入后上面会显示「会话不可用 ·
+            书签导入后显示「会话不可用 ·
             <span className="mono"> no _m_h5_tk </span>
-            」，这是<strong>正常的</strong>：签名 token 只存在于 taobao
-            域，闲鱼页面上读不到，
-            由下一个周期的浏览器兜底去领。那个周期会慢一些、只看第 1
-            页，之后就恢复正常。
+            」属正常：该 token 由下一个采集周期补齐，该周期较慢且只采第 1 页。
           </p>
           <details>
             <summary className="muted">书签里是什么（可复制）</summary>
@@ -1641,9 +1622,7 @@ export default function SettingsPage() {
                   <div className="inner-card" style={{ fontSize: 13 }}>
                     <span>
                       <strong>凭证已导入，但还没有被验证过。</strong>{" "}
-                      导入只是收下了
-                      cookie；要等一次真实采集成功，这里才会变成「会话可用」。
-                      去「监控任务」页对任一规则点「立即运行」，或等下一轮调度。
+                      需一次真实采集成功后才会显示「会话可用」。去「监控任务」页对任一规则点「立即运行」，或等下一轮调度。
                     </span>
                   </div>
                 )}
@@ -1672,7 +1651,7 @@ export default function SettingsPage() {
                       ? state.cookie_names.join(" ")
                       : "—"}{" "}
                     {state.cookie_names.length > 0 ? (
-                      <span className="dim">（仅名称，永不回显值）</span>
+                      <span className="dim">（仅名称）</span>
                     ) : null}
                   </dd>
                   <dt>采集端身份</dt>
@@ -1800,9 +1779,9 @@ export default function SettingsPage() {
                 <p
                   style={{ margin: 0, fontSize: 12.5, color: "var(--success)" }}
                 >
-                  已导入。若上面仍显示没有可用会话，通常是缺少
+                  已导入。若仍显示会话不可用，通常是缺少
                   <span className="mono"> _m_h5_tk </span>
-                  ——采集器会自己取一个，等一轮再看。
+                  ，采集器会在下一轮自动获取。
                 </p>
               ) : null}
             </form>

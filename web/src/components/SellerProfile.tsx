@@ -46,8 +46,13 @@ export default function SellerProfile({
   refreshError = null,
   fetchedAt = null,
 }: SellerProfileProps) {
-  const shopKnown = seller.seller_is_shop !== null && seller.seller_is_shop !== undefined;
-  const shop = !shopKnown ? "类型未知" : seller.seller_is_shop ? "鱼小铺（商家）" : "个人卖家";
+  const shopKnown =
+    seller.seller_is_shop !== null && seller.seller_is_shop !== undefined;
+  const shop = !shopKnown
+    ? "类型未知"
+    : seller.seller_is_shop
+      ? "鱼小铺（商家）"
+      : "个人卖家";
 
   return (
     <section className="card">
@@ -82,18 +87,30 @@ export default function SellerProfile({
         <ErrorState title="刷新卖家画像失败" error={refreshError} />
       )}
 
-      {seller.seller_positive_rate !== null && seller.seller_positive_rate !== undefined ? (
+      {seller.seller_positive_rate !== null &&
+      seller.seller_positive_rate !== undefined ? (
         <div
-          style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12 }}
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 12,
+            marginBottom: 12,
+          }}
         >
           <span
             className="mono"
-            style={{ fontSize: 32, fontWeight: 700, color: "var(--acc2)", lineHeight: 1 }}
+            style={{
+              fontSize: 32,
+              fontWeight: 700,
+              color: "var(--acc2)",
+              lineHeight: 1,
+            }}
           >
             {seller.seller_positive_rate}%
           </span>
           <span className="dim mono" style={{ fontSize: 12 }}>
-            好评率{seller.seller_review_count !== null &&
+            好评率
+            {seller.seller_review_count !== null &&
             seller.seller_review_count !== undefined
               ? ` · ${seller.seller_review_count} 评价`
               : ""}
@@ -103,7 +120,9 @@ export default function SellerProfile({
 
       <dl className="dl">
         <dt>卖家昵称</dt>
-        <dd style={{ color: "var(--acc2)" }}>{seller.seller_nick.trim() || "未知"}</dd>
+        <dd style={{ color: "var(--acc2)" }}>
+          {seller.seller_nick.trim() || "未知"}
+        </dd>
         <dt>卖家类型</dt>
         <dd>{shop}</dd>
         <dt>信用等级</dt>
@@ -115,7 +134,8 @@ export default function SellerProfile({
             not a system state. The number stands on its own. */}
         <dt>历史好评率</dt>
         <dd>
-          {seller.seller_positive_rate === null || seller.seller_positive_rate === undefined
+          {seller.seller_positive_rate === null ||
+          seller.seller_positive_rate === undefined
             ? "未知"
             : `${seller.seller_positive_rate}%`}
         </dd>
@@ -126,7 +146,10 @@ export default function SellerProfile({
       {/* Also shown when the refresh answered "still fresh" (refreshed:
           false): the timestamp is the whole story there. */}
       {fetchedAt === null ? null : (
-        <div className="dim mono" style={{ marginTop: "var(--space-3)", fontSize: 12 }}>
+        <div
+          className="dim mono"
+          style={{ marginTop: "var(--space-3)", fontSize: 12 }}
+        >
           画像更新于 {formatRelativeTime(fetchedAt)}
         </div>
       )}
@@ -140,7 +163,7 @@ export default function SellerProfile({
           fontSize: 12,
         }}
       >
-        「未知」是没抓到字段，不是 0 记录。0 条评价与未知评价是两种判断依据。
+        「未知」表示未抓取到该字段，不等于 0。
       </div>
     </section>
   );

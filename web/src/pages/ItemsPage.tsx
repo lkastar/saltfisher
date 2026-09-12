@@ -78,12 +78,15 @@ export default function ItemsPage() {
   const channels = useQuery(channelsOptions());
   const watch = useMutation({
     mutationFn: createMonitor,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.monitors }),
+    onSuccess: () =>
+      void queryClient.invalidateQueries({ queryKey: keys.monitors }),
   });
   // One rule per seller. The backend constrains keyword-xor-seller, not this,
   // so the check is here — off the data the page already has.
   const sellerRule =
-    sellerId === undefined ? undefined : findSellerRule(monitors.data ?? [], sellerId);
+    sellerId === undefined
+      ? undefined
+      : findSellerRule(monitors.data ?? [], sellerId);
   // Success and failure belong to the seller they were for: the mutation state
   // outlives a change of filter, and "已创建" left over from the previous
   // seller would be a lie about this one.
@@ -95,7 +98,8 @@ export default function ItemsPage() {
   const rows = items.data ?? [];
   const latestSeen = rows.reduce<string | null>(
     (acc, i) =>
-      acc === null || parseUtc(i.first_seen_at).getTime() > parseUtc(acc).getTime()
+      acc === null ||
+      parseUtc(i.first_seen_at).getTime() > parseUtc(acc).getTime()
         ? i.first_seen_at
         : acc,
     null,
@@ -115,7 +119,9 @@ export default function ItemsPage() {
         title={
           <>
             命中商品
-            {scope === null ? null : <span className="thin"> / {shortScope(scope)}</span>}
+            {scope === null ? null : (
+              <span className="thin"> / {shortScope(scope)}</span>
+            )}
           </>
         }
         meta={
@@ -123,7 +129,11 @@ export default function ItemsPage() {
             {selected ? (
               <span>
                 <Icon name="scan-search" size={12} />
-                规则价格区间: {formatPriceRange(selected.price_min_cents, selected.price_max_cents)}
+                规则价格区间:{" "}
+                {formatPriceRange(
+                  selected.price_min_cents,
+                  selected.price_max_cents,
+                )}
               </span>
             ) : null}
             {selected ? (
@@ -141,7 +151,9 @@ export default function ItemsPage() {
             {unverifiedOnPage > 0 ? (
               <span>
                 <Icon name="shield-alert" size={12} />
-                <span className="warn">本页 {unverifiedOnPage} 件带保守放行标注</span>
+                <span className="warn">
+                  本页 {unverifiedOnPage} 件带保守放行标注
+                </span>
               </span>
             ) : null}
           </>
@@ -175,11 +187,16 @@ export default function ItemsPage() {
                 placeholder="下限"
                 aria-label="价格下限（元）"
                 defaultValue={
-                  filters.min_price_cents === undefined ? "" : filters.min_price_cents / 100
+                  filters.min_price_cents === undefined
+                    ? ""
+                    : filters.min_price_cents / 100
                 }
                 onBlur={(e) => {
                   const cents = parseYuanToCents(e.target.value);
-                  update("min_price_cents", cents === null ? undefined : String(cents));
+                  update(
+                    "min_price_cents",
+                    cents === null ? undefined : String(cents),
+                  );
                 }}
               />
               <span className="join-sep" aria-hidden="true">
@@ -192,11 +209,16 @@ export default function ItemsPage() {
                 placeholder="上限"
                 aria-label="价格上限（元）"
                 defaultValue={
-                  filters.max_price_cents === undefined ? "" : filters.max_price_cents / 100
+                  filters.max_price_cents === undefined
+                    ? ""
+                    : filters.max_price_cents / 100
                 }
                 onBlur={(e) => {
                   const cents = parseYuanToCents(e.target.value);
-                  update("max_price_cents", cents === null ? undefined : String(cents));
+                  update(
+                    "max_price_cents",
+                    cents === null ? undefined : String(cents),
+                  );
                 }}
               />
             </div>
@@ -219,7 +241,10 @@ export default function ItemsPage() {
 
           <label className="field">
             <span className="field-label">排序</span>
-            <select value={filters.sort} onChange={(e) => update("sort", e.target.value)}>
+            <select
+              value={filters.sort}
+              onChange={(e) => update("sort", e.target.value)}
+            >
               {SORTS.map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
@@ -252,7 +277,10 @@ export default function ItemsPage() {
               }}
             >
               <span>只看卖家「{sellerLabel(sellerNick, sellerId)}」的商品</span>
-              <button type="button" onClick={() => update("seller_id", undefined)}>
+              <button
+                type="button"
+                onClick={() => update("seller_id", undefined)}
+              >
                 取消卖家筛选
               </button>
 
@@ -267,10 +295,10 @@ export default function ItemsPage() {
                       seller rule cannot be changed after it is made. Promising
                       it here would send them looking for a control that is not
                       there. */}
-                  已创建规则「{watch.data.name}」，已带上当前启用的推送渠道，下个周期开始盯。
+                  已创建规则「{watch.data.name}
+                  」，已带上当前启用的推送渠道，下个周期开始盯。
                   <Link to="/monitors">去监控任务</Link>
-                  看它。<strong>规则建好后改不了</strong>
-                  ——要换筛选条件就删掉重建。
+                  看它。
                 </span>
               ) : sellerRule ? (
                 <span>
@@ -362,7 +390,9 @@ export default function ItemsPage() {
                 params.toString() === "" ? undefined : (
                   <button
                     type="button"
-                    onClick={() => setParams(new URLSearchParams(), { replace: true })}
+                    onClick={() =>
+                      setParams(new URLSearchParams(), { replace: true })
+                    }
                   >
                     <Icon name="sliders-horizontal" size={14} />
                     清空筛选
@@ -393,20 +423,30 @@ export default function ItemsPage() {
                   {items.data.map((item) => (
                     <tr key={item.id}>
                       <td>
-                        <RemoteImage src={item.cover_url} alt={item.title} width={48} height={48} />
+                        <RemoteImage
+                          src={item.cover_url}
+                          alt={item.title}
+                          width={48}
+                          height={48}
+                        />
                       </td>
                       <td>
                         <Link
                           className="t2l"
                           to={`/items/${item.id}${
-                            filters.monitor_id === undefined ? "" : `?monitor_id=${filters.monitor_id}`
+                            filters.monitor_id === undefined
+                              ? ""
+                              : `?monitor_id=${filters.monitor_id}`
                           }`}
                           title={item.title}
                         >
                           {item.title}
                         </Link>
                       </td>
-                      <td className="num" style={{ fontSize: 15, fontWeight: 600 }}>
+                      <td
+                        className="num"
+                        style={{ fontSize: 15, fontWeight: 600 }}
+                      >
                         {formatPrice(item.price_cents)}
                       </td>
                       <td style={{ whiteSpace: "nowrap" }}>
@@ -430,7 +470,11 @@ export default function ItemsPage() {
                           <span
                             className="pill"
                             data-tone="acc"
-                            style={{ fontSize: 10, padding: "0 6px", marginLeft: 6 }}
+                            style={{
+                              fontSize: 10,
+                              padding: "0 6px",
+                              marginLeft: 6,
+                            }}
                           >
                             商家
                           </span>
@@ -440,7 +484,10 @@ export default function ItemsPage() {
                       <td>
                         <StatusPill status={item.status} />
                       </td>
-                      <td className="mono muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                      <td
+                        className="mono muted"
+                        style={{ fontSize: 12, whiteSpace: "nowrap" }}
+                      >
                         {formatRelativeTime(item.first_seen_at)}
                       </td>
                       {/* Conservatively-passed filters. Without showing them,
@@ -477,14 +524,19 @@ export default function ItemsPage() {
                 className="pager-btn"
                 disabled={(filters.offset ?? 0) === 0}
                 onClick={() =>
-                  update("offset", String(Math.max(0, (filters.offset ?? 0) - PAGE)), false)
+                  update(
+                    "offset",
+                    String(Math.max(0, (filters.offset ?? 0) - PAGE)),
+                    false,
+                  )
                 }
               >
                 <Icon name="chevron-left" size={13} />
                 上一页
               </button>
               <span className="pager-range">
-                {(filters.offset ?? 0) + 1} – {(filters.offset ?? 0) + items.data.length}
+                {(filters.offset ?? 0) + 1} –{" "}
+                {(filters.offset ?? 0) + items.data.length}
               </span>
               <button
                 type="button"
@@ -492,7 +544,9 @@ export default function ItemsPage() {
                 // No total count from the API, so a full page is the only signal
                 // that another one might exist.
                 disabled={items.data.length < PAGE}
-                onClick={() => update("offset", String((filters.offset ?? 0) + PAGE), false)}
+                onClick={() =>
+                  update("offset", String((filters.offset ?? 0) + PAGE), false)
+                }
               >
                 下一页
                 <Icon name="chevron-right" size={13} />
