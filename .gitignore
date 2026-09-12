@@ -32,6 +32,12 @@ data/
 node_modules/
 web/dist/
 
+# Local dev/debug scaffolding — not shipped
+web/public/probe.html
+web/public/probe-out.html
+web/public/auth-demo.html
+web/vite.demo.config.ts
+
 # Local env overrides (secrets: SMTP password, telegram token)
 .env
 .env.local
